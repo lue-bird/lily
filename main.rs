@@ -3184,15 +3184,6 @@ enum StillSyntaxType {
     Unit,
     Variable(StillName),
     Parenthesized(StillSyntaxNode<Box<StillSyntaxType>>),
-    Tuple {
-        part0: Option<StillSyntaxNode<Box<StillSyntaxType>>>,
-        part1: Option<StillSyntaxNode<Box<StillSyntaxType>>>,
-    },
-    Triple {
-        part0: Option<StillSyntaxNode<Box<StillSyntaxType>>>,
-        part1: Option<StillSyntaxNode<Box<StillSyntaxType>>>,
-        part2: Option<StillSyntaxNode<Box<StillSyntaxType>>>,
-    },
     Function {
         input: StillSyntaxNode<Box<StillSyntaxType>>,
         arrow_key_symbol_range: lsp_types::Range,
@@ -3236,15 +3227,6 @@ enum StillSyntaxPattern {
         variable: Option<StillSyntaxNode<StillName>>,
     },
     Parenthesized(StillSyntaxNode<Box<StillSyntaxPattern>>),
-    Tuple {
-        part0: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-        part1: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-    },
-    Triple {
-        part0: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-        part1: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-        part2: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-    },
     ListCons {
         head: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
         cons_key_symbol: lsp_types::Range,
@@ -3364,15 +3346,6 @@ enum StillSyntaxExpression {
     String {
         content: String,
         quoting_style: StillSyntaxStringQuotingStyle,
-    },
-    Triple {
-        part0: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
-        part1: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
-        part2: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
-    },
-    Tuple {
-        part0: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
-        part1: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3826,186 +3799,6 @@ fn still_syntax_type_not_parenthesized_into(
             }
             so_far.push('}');
         }
-        StillSyntaxType::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            let line_span: LineSpan = still_syntax_range_line_span(type_node.range, comments);
-            so_far.push_str("( ");
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: type_node.range.start,
-                            end: part0_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_type_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    
-                    comments,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            so_far.push_str(", ");
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: maybe_part0
-                                .as_ref()
-                                .map(|node| node.range.end)
-                                .unwrap_or_else(|| type_node.range.start),
-                            end: part1_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_type_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    
-                    comments,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            so_far.push_str(", ");
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: maybe_part0
-                                .as_ref()
-                                .or(maybe_part1.as_ref())
-                                .map(|node| node.range.end)
-                                .unwrap_or_else(|| type_node.range.start),
-                            end: part2_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_type_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    
-                    comments,
-                    still_syntax_node_unbox(part2_node),
-                );
-            }
-            space_or_linebreak_indented_into(so_far, line_span, indent);
-            let comments_before_closing_paren = still_syntax_comments_in_range(
-                comments,
-                lsp_types::Range {
-                    start: maybe_part0
-                        .as_ref()
-                        .or(maybe_part1.as_ref())
-                        .or(maybe_part2.as_ref())
-                        .map(|node| node.range.end)
-                        .unwrap_or_else(|| type_node.range.start),
-                    end: type_node.range.end,
-                },
-            );
-            if !comments_before_closing_paren.is_empty() {
-                linebreak_indented_into(so_far, indent);
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    comments_before_closing_paren,
-                );
-            }
-            so_far.push(')');
-        }
-        StillSyntaxType::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            let line_span: LineSpan = still_syntax_range_line_span(type_node.range, comments);
-            so_far.push_str("( ");
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: type_node.range.start,
-                            end: part0_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_type_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    
-                    comments,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            so_far.push_str(", ");
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: maybe_part0
-                                .as_ref()
-                                .map(|node| node.range.end)
-                                .unwrap_or_else(|| type_node.range.start),
-                            end: part1_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_type_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    
-                    comments,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            space_or_linebreak_indented_into(so_far, line_span, indent);
-            let comments_before_closing_paren = still_syntax_comments_in_range(
-                comments,
-                lsp_types::Range {
-                    start: maybe_part0
-                        .as_ref()
-                        .or(maybe_part1.as_ref())
-                        .map(|node| node.range.end)
-                        .unwrap_or_else(|| type_node.range.start),
-                    end: type_node.range.end,
-                },
-            );
-            if !comments_before_closing_paren.is_empty() {
-                linebreak_indented_into(so_far, indent);
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    comments_before_closing_paren,
-                );
-            }
-            so_far.push(')');
-        }
         StillSyntaxType::Unit => {
             let comments_in_unit = still_syntax_comments_in_range(comments, type_node.range);
             if comments_in_unit.is_empty() {
@@ -4185,8 +3978,6 @@ fn still_syntax_type_parenthesized_if_space_separated_into(
         StillSyntaxType::Unit
         | StillSyntaxType::Variable(_)
         | StillSyntaxType::Parenthesized(_)
-        | StillSyntaxType::Tuple { .. }
-        | StillSyntaxType::Triple { .. }
         | StillSyntaxType::Record(_)
         | StillSyntaxType::RecordExtension { .. } => false,
         StillSyntaxType::Function { .. } => true,
@@ -4361,54 +4152,6 @@ fn still_syntax_pattern_not_parenthesized_into(
         }
         StillSyntaxPattern::Parenthesized(in_parens) => {
             still_syntax_pattern_not_parenthesized_into(so_far, still_syntax_node_unbox(in_parens));
-        }
-        StillSyntaxPattern::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            so_far.push_str("( ");
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_pattern_not_parenthesized_into(
-                    so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            so_far.push_str(", ");
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_pattern_not_parenthesized_into(
-                    so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            so_far.push_str(" )");
-        }
-        StillSyntaxPattern::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            so_far.push_str("( ");
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_pattern_not_parenthesized_into(
-                    so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            so_far.push_str(", ");
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_pattern_not_parenthesized_into(
-                    so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            so_far.push_str(", ");
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_pattern_not_parenthesized_into(
-                    so_far,
-                    still_syntax_node_unbox(part2_node),
-                );
-            }
-            so_far.push_str(" )");
         }
         StillSyntaxPattern::ListCons {
             head: maybe_head,
@@ -5674,175 +5417,6 @@ fn still_syntax_expression_not_parenthesized_into(
         } => {
             still_string_into(so_far, *quoting_style, content);
         }
-        StillSyntaxExpression::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            so_far.push_str("( ");
-            let line_span: LineSpan = still_syntax_expression_line_span(comments, expression_node);
-            let mut previous_part_end: lsp_types::Position = expression_node.range.start;
-            if let Some(part_node) = maybe_part0 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: previous_part_end,
-                            end: part_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_expression_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    comments,
-                    still_syntax_node_unbox(part_node),
-                );
-                previous_part_end = part_node.range.end;
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            so_far.push_str(", ");
-            if let Some(part_node) = maybe_part1 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: previous_part_end,
-                            end: part_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_expression_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    comments,
-                    still_syntax_node_unbox(part_node),
-                );
-                previous_part_end = part_node.range.end;
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            so_far.push_str(", ");
-            if let Some(part_node) = maybe_part2 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: previous_part_end,
-                            end: part_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_expression_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    comments,
-                    still_syntax_node_unbox(part_node),
-                );
-                previous_part_end = part_node.range.end;
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            let comments_after_parts: &[StillSyntaxNode<StillSyntaxComment>] =
-                still_syntax_comments_in_range(
-                    comments,
-                    lsp_types::Range {
-                        start: previous_part_end,
-                        end: expression_node.range.end,
-                    },
-                );
-            if !comments_after_parts.is_empty() {
-                linebreak_indented_into(so_far, indent);
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    comments_after_parts,
-                );
-            }
-            so_far.push(')');
-        }
-        StillSyntaxExpression::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            so_far.push_str("( ");
-            let line_span: LineSpan = still_syntax_expression_line_span(comments, expression_node);
-            let mut previous_part_end: lsp_types::Position = expression_node.range.start;
-            if let Some(part_node) = maybe_part0 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: previous_part_end,
-                            end: part_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_expression_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    comments,
-                    still_syntax_node_unbox(part_node),
-                );
-                previous_part_end = part_node.range.end;
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            so_far.push_str(", ");
-            if let Some(part_node) = maybe_part1 {
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent,
-                    still_syntax_comments_in_range(
-                        comments,
-                        lsp_types::Range {
-                            start: previous_part_end,
-                            end: part_node.range.start,
-                        },
-                    ),
-                );
-                still_syntax_expression_not_parenthesized_into(
-                    so_far,
-                    indent + 2,
-                    comments,
-                    still_syntax_node_unbox(part_node),
-                );
-                previous_part_end = part_node.range.end;
-            }
-            if line_span == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
-            let comments_after_parts: &[StillSyntaxNode<StillSyntaxComment>] =
-                still_syntax_comments_in_range(
-                    comments,
-                    lsp_types::Range {
-                        start: previous_part_end,
-                        end: expression_node.range.end,
-                    },
-                );
-            if !comments_after_parts.is_empty() {
-                linebreak_indented_into(so_far, indent);
-                still_syntax_comments_then_linebreak_indented_into(
-                    so_far,
-                    indent + 2,
-                    comments_after_parts,
-                );
-            }
-            so_far.push(')');
-        }
     }
 }
 /// returns the last syntax end position
@@ -6279,8 +5853,6 @@ fn still_syntax_expression_line_span(
             | StillSyntaxExpression::RecordAccessFunction(_)
             | StillSyntaxExpression::Reference { .. }
             | StillSyntaxExpression::OperatorFunction(_)
-            | StillSyntaxExpression::Tuple { .. }
-            | StillSyntaxExpression::Triple { .. }
             | StillSyntaxExpression::Call { .. } => false,
         })
     {
@@ -6355,8 +5927,6 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
         StillSyntaxExpression::RecordUpdate { .. } => false,
         StillSyntaxExpression::Reference { .. } => false,
         StillSyntaxExpression::String { .. } => false,
-        StillSyntaxExpression::Triple { .. } => false,
-        StillSyntaxExpression::Tuple { .. } => false,
     };
     if is_space_separated {
         still_syntax_expression_parenthesized_into(
@@ -6399,8 +5969,6 @@ fn still_syntax_expression_parenthesized_if_not_call_but_space_separated_into(
         StillSyntaxExpression::RecordUpdate { .. } => false,
         StillSyntaxExpression::Reference { .. } => false,
         StillSyntaxExpression::String { .. } => false,
-        StillSyntaxExpression::Triple { .. } => false,
-        StillSyntaxExpression::Tuple { .. } => false,
     };
     if is_space_separated {
         still_syntax_expression_parenthesized_into(
@@ -6559,29 +6127,6 @@ fn still_syntax_expression_any_sub(
             }),
         StillSyntaxExpression::Reference { .. } => false,
         StillSyntaxExpression::String { .. } => false,
-        StillSyntaxExpression::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            maybe_part0.as_ref().is_some_and(|part0_node| {
-                still_syntax_expression_any_sub(still_syntax_node_unbox(part0_node), is_needle)
-            }) || maybe_part1.as_ref().is_some_and(|part1_node| {
-                still_syntax_expression_any_sub(still_syntax_node_unbox(part1_node), is_needle)
-            }) || maybe_part2.as_ref().is_some_and(|part2_node| {
-                still_syntax_expression_any_sub(still_syntax_node_unbox(part2_node), is_needle)
-            })
-        }
-        StillSyntaxExpression::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            maybe_part0.as_ref().is_some_and(|part0_node| {
-                still_syntax_expression_any_sub(still_syntax_node_unbox(part0_node), is_needle)
-            }) || maybe_part1.as_ref().is_some_and(|part1_node| {
-                still_syntax_expression_any_sub(still_syntax_node_unbox(part1_node), is_needle)
-            })
-        }
     }
 }
 fn still_syntax_project_format(project_state: &ProjectState) -> String {
@@ -7510,53 +7055,6 @@ fn still_syntax_pattern_find_reference_at_position<'a>(
         }
         StillSyntaxPattern::Record(_) => None,
         StillSyntaxPattern::String { .. } => None,
-        StillSyntaxPattern::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => maybe_part0
-            .as_ref()
-            .and_then(|part0_node| {
-                still_syntax_pattern_find_reference_at_position(
-                    still_syntax_node_unbox(part0_node),
-                    position,
-                )
-            })
-            .or_else(|| {
-                maybe_part1.as_ref().and_then(|part1_node| {
-                    still_syntax_pattern_find_reference_at_position(
-                        still_syntax_node_unbox(part1_node),
-                        position,
-                    )
-                })
-            })
-            .or_else(|| {
-                maybe_part2.as_ref().and_then(|part2_node| {
-                    still_syntax_pattern_find_reference_at_position(
-                        still_syntax_node_unbox(part2_node),
-                        position,
-                    )
-                })
-            }),
-        StillSyntaxPattern::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => maybe_part0
-            .as_ref()
-            .and_then(|part0_node| {
-                still_syntax_pattern_find_reference_at_position(
-                    still_syntax_node_unbox(part0_node),
-                    position,
-                )
-            })
-            .or_else(|| {
-                maybe_part1.as_ref().and_then(|part1_node| {
-                    still_syntax_pattern_find_reference_at_position(
-                        still_syntax_node_unbox(part1_node),
-                        position,
-                    )
-                })
-            }),
         StillSyntaxPattern::Unit => None,
         StillSyntaxPattern::Variable(_) => None,
         StillSyntaxPattern::Variant { name: reference, values } => {
@@ -7671,58 +7169,6 @@ fn still_syntax_type_find_reference_at_position<'a>(
                     })
                 }
             }
-            StillSyntaxType::Triple {
-                part0: maybe_part0,
-                part1: maybe_part1,
-                part2: maybe_part2,
-            } => maybe_part0
-                .as_ref()
-                .and_then(|part0_node| {
-                    still_syntax_type_find_reference_at_position(
-                        scope_declaration,
-                        still_syntax_node_unbox(part0_node),
-                        position,
-                    )
-                })
-                .or_else(|| {
-                    maybe_part1.as_ref().and_then(|part1_node| {
-                        still_syntax_type_find_reference_at_position(
-                            scope_declaration,
-                            still_syntax_node_unbox(part1_node),
-                            position,
-                        )
-                    })
-                })
-                .or_else(|| {
-                    maybe_part2.as_ref().and_then(|part2| {
-                        still_syntax_type_find_reference_at_position(
-                            scope_declaration,
-                            still_syntax_node_unbox(part2),
-                            position,
-                        )
-                    })
-                }),
-            StillSyntaxType::Tuple {
-                part0: maybe_part0,
-                part1: maybe_part1,
-            } => maybe_part0
-                .as_ref()
-                .and_then(|part0_node| {
-                    still_syntax_type_find_reference_at_position(
-                        scope_declaration,
-                        still_syntax_node_unbox(part0_node),
-                        position,
-                    )
-                })
-                .or_else(|| {
-                    maybe_part1.as_ref().and_then(|part1_node| {
-                        still_syntax_type_find_reference_at_position(
-                            scope_declaration,
-                            still_syntax_node_unbox(part1_node),
-                            position,
-                        )
-                    })
-                }),
             StillSyntaxType::Unit => None,
             StillSyntaxType::Variable(type_variable_value) => Some(StillSyntaxNode {
                 range: still_syntax_type_node.range,
@@ -8079,59 +7525,6 @@ fn still_syntax_expression_find_reference_at_position<'a>(
             range: still_syntax_expression_node.range,
         }),
         StillSyntaxExpression::String { .. } => std::ops::ControlFlow::Continue(local_bindings),
-        StillSyntaxExpression::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                local_bindings = still_syntax_expression_find_reference_at_position(
-                    local_bindings,
-                    scope_declaration,
-                    still_syntax_node_unbox(part0_node),
-                    position,
-                )?;
-            }
-            if let Some(part1_node) = maybe_part1 {
-                local_bindings = still_syntax_expression_find_reference_at_position(
-                    local_bindings,
-                    scope_declaration,
-                    still_syntax_node_unbox(part1_node),
-                    position,
-                )?;
-            }
-            match maybe_part2 {
-                Some(part2_node) => still_syntax_expression_find_reference_at_position(
-                    local_bindings,
-                    scope_declaration,
-                    still_syntax_node_unbox(part2_node),
-                    position,
-                ),
-                None => std::ops::ControlFlow::Continue(local_bindings),
-            }
-        }
-        StillSyntaxExpression::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                local_bindings = still_syntax_expression_find_reference_at_position(
-                    local_bindings,
-                    scope_declaration,
-                    still_syntax_node_unbox(part0_node),
-                    position,
-                )?;
-            }
-            match maybe_part1 {
-                Some(part1_node) => still_syntax_expression_find_reference_at_position(
-                    local_bindings,
-                    scope_declaration,
-                    still_syntax_node_unbox(part1_node),
-                    position,
-                ),
-                None => std::ops::ControlFlow::Continue(local_bindings),
-            }
-        }
         StillSyntaxExpression::Unit => std::ops::ControlFlow::Continue(local_bindings),
     }
 }
@@ -8571,57 +7964,6 @@ fn still_syntax_type_uses_of_reference_into(
                 }
             }
         }
-        StillSyntaxType::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part0_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part1_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part2_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
-        StillSyntaxType::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part0_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part1_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
         StillSyntaxType::Unit => {}
         StillSyntaxType::Variable(variable) => {
             if symbol_to_collect_uses_of == StillSymbolToReference::TypeVariable(variable) {
@@ -8955,62 +8297,6 @@ fn still_syntax_expression_uses_of_reference_into(
             }
         }
         StillSyntaxExpression::String { .. } => {}
-        StillSyntaxExpression::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_expression_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    local_bindings,
-                    still_syntax_node_unbox(part0_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_expression_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    local_bindings,
-                    still_syntax_node_unbox(part1_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_expression_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    local_bindings,
-                    still_syntax_node_unbox(part2_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
-        StillSyntaxExpression::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_expression_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    local_bindings,
-                    still_syntax_node_unbox(part0_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_expression_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    local_bindings,
-                    still_syntax_node_unbox(part1_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
         StillSyntaxExpression::Unit => {}
     }
 }
@@ -9169,57 +8455,6 @@ fn still_syntax_pattern_uses_of_reference_into(
         }
         StillSyntaxPattern::Record(_) => {}
         StillSyntaxPattern::String { .. } => {}
-        StillSyntaxPattern::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part0_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part1_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part2_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
-        StillSyntaxPattern::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part0_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    
-                    still_syntax_node_unbox(part1_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
         StillSyntaxPattern::Unit => {}
         StillSyntaxPattern::Variable(_) => {}
         StillSyntaxPattern::Variant { name: reference, values } => {
@@ -9333,48 +8568,6 @@ fn still_syntax_pattern_bindings_into<'a>(
             }));
         }
         StillSyntaxPattern::String { .. } => {}
-        StillSyntaxPattern::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(part2_node),
-                );
-            }
-        }
-
-        StillSyntaxPattern::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-        }
         StillSyntaxPattern::Unit => {}
         StillSyntaxPattern::Variable(variable) => {
             bindings_so_far.push(StillLocalBinding {
@@ -9964,47 +9157,6 @@ fn still_syntax_highlight_pattern_into(
                 value: StillSyntaxHighlightKind::String,
             });
         }
-        StillSyntaxPattern::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part2_node),
-                );
-            }
-        }
-        StillSyntaxPattern::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-        }
         StillSyntaxPattern::Unit => {
             highlighted_so_far.push(StillSyntaxNode {
                 range: still_syntax_pattern_node.range,
@@ -10129,47 +9281,6 @@ fn still_syntax_highlight_type_into(
                         still_syntax_node_as_ref(field_value_node),
                     );
                 }
-            }
-        }
-        StillSyntaxType::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part2_node),
-                );
-            }
-        }
-        StillSyntaxType::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(part1_node),
-                );
             }
         }
         StillSyntaxType::Unit => {
@@ -10615,52 +9726,6 @@ fn still_syntax_highlight_expression_into(
                     value: StillSyntaxHighlightKind::String,
                 }),
             );
-        }
-        StillSyntaxExpression::Triple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-            part2: maybe_part2,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_highlight_expression_into(
-                    highlighted_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_highlight_expression_into(
-                    highlighted_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
-            if let Some(part2_node) = maybe_part2 {
-                still_syntax_highlight_expression_into(
-                    highlighted_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(part2_node),
-                );
-            }
-        }
-        StillSyntaxExpression::Tuple {
-            part0: maybe_part0,
-            part1: maybe_part1,
-        } => {
-            if let Some(part0_node) = maybe_part0 {
-                still_syntax_highlight_expression_into(
-                    highlighted_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(part0_node),
-                );
-            }
-            if let Some(part1_node) = maybe_part1 {
-                still_syntax_highlight_expression_into(
-                    highlighted_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(part1_node),
-                );
-            }
         }
         StillSyntaxExpression::Unit => {
             highlighted_so_far.push(StillSyntaxNode {
@@ -11369,7 +10434,7 @@ fn parse_still_syntax_type_not_function_node(
         let start_position: lsp_types::Position = state.position;
         parse_symbol_as(state, "()", StillSyntaxType::Unit)
             .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxType::Variable))
-            .or_else(|| parse_still_syntax_type_parenthesized_or_tuple_or_triple(state))
+            .or_else(|| parse_still_syntax_type_parenthesized(state))
             .or_else(|| parse_still_syntax_type_record_or_record_extension(state))
             .map(|type_| StillSyntaxNode {
                 range: lsp_types::Range {
@@ -11398,7 +10463,7 @@ fn parse_still_syntax_type_not_space_separated(state: &mut ParseState) -> Option
     }
     parse_symbol_as(state, "()", StillSyntaxType::Unit)
         .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxType::Variable))
-        .or_else(|| parse_still_syntax_type_parenthesized_or_tuple_or_triple(state))
+        .or_else(|| parse_still_syntax_type_parenthesized(state))
         .or_else(|| {
             parse_still_qualified_uppercase_reference_node(state).map(|reference_node| {
                 StillSyntaxType::Construct {
@@ -11516,7 +10581,7 @@ fn parse_still_qualified_uppercase_reference_node(
 ) -> Option<StillSyntaxNode<StillName>> {
     parse_still_uppercase_name_node(state)
 }
-fn parse_still_syntax_type_parenthesized_or_tuple_or_triple(
+fn parse_still_syntax_type_parenthesized(
     state: &mut ParseState,
 ) -> Option<StillSyntaxType> {
     if !parse_symbol(state, "(") {
@@ -11526,41 +10591,11 @@ fn parse_still_syntax_type_parenthesized_or_tuple_or_triple(
     let maybe_in_parens_0: Option<StillSyntaxNode<StillSyntaxType>> =
         parse_still_syntax_type_space_separated_node(state);
     parse_still_whitespace_and_comments(state);
-    if parse_symbol(state, ")") {
-        Some(match maybe_in_parens_0 {
-            None => StillSyntaxType::Unit,
-            Some(in_parens) => StillSyntaxType::Parenthesized(still_syntax_node_box(in_parens)),
-        })
-    } else {
-        while parse_symbol(state, ",") {
-            parse_still_whitespace_and_comments(state);
-        }
-        let maybe_part1: Option<StillSyntaxNode<StillSyntaxType>> =
-            parse_still_syntax_type_space_separated_node(state);
-        parse_still_whitespace_and_comments(state);
-        if parse_symbol(state, ")") {
-            Some(StillSyntaxType::Tuple {
-                part0: maybe_in_parens_0.map(still_syntax_node_box),
-                part1: maybe_part1.map(still_syntax_node_box),
-            })
-        } else {
-            while parse_symbol(state, ",") {
-                parse_still_whitespace_and_comments(state);
-            }
-            let maybe_part2: Option<StillSyntaxNode<StillSyntaxType>> =
-                parse_still_syntax_type_space_separated_node(state);
-            parse_still_whitespace_and_comments(state);
-            while parse_symbol(state, ",") {
-                parse_still_whitespace_and_comments(state);
-            }
-            let _: bool = parse_symbol(state, ")");
-            Some(StillSyntaxType::Triple {
-                part0: maybe_in_parens_0.map(still_syntax_node_box),
-                part1: maybe_part1.map(still_syntax_node_box),
-                part2: maybe_part2.map(still_syntax_node_box),
-            })
-        }
-    }
+    let _ = parse_symbol(state, ")");
+    Some(match maybe_in_parens_0 {
+        None => StillSyntaxType::Unit,
+        Some(in_parens) => StillSyntaxType::Parenthesized(still_syntax_node_box(in_parens)),
+    })
 }
 fn parse_still_syntax_pattern_space_separated_node(
     state: &mut ParseState,
@@ -11670,7 +10705,7 @@ fn parse_still_syntax_pattern_not_as_or_cons_node(
             .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxPattern::Variable))
             .or_else(|| parse_still_char(state).map(StillSyntaxPattern::Char))
             .or_else(|| parse_still_syntax_pattern_string(state))
-            .or_else(|| parse_still_syntax_pattern_parenthesized_or_tuple_or_triple(state))
+            .or_else(|| parse_still_syntax_pattern_parenthesized(state))
             .or_else(|| parse_still_syntax_pattern_list_exact(state))
             .or_else(|| parse_still_syntax_pattern_record(state))
             .or_else(|| parse_still_syntax_pattern_integer(state))
@@ -11691,7 +10726,7 @@ fn parse_still_syntax_pattern_not_space_separated(
     }
     parse_symbol_as(state, "()", StillSyntaxPattern::Unit)
         .or_else(|| parse_symbol_as(state, "_", StillSyntaxPattern::Ignored))
-        .or_else(|| parse_still_syntax_pattern_parenthesized_or_tuple_or_triple(state))
+        .or_else(|| parse_still_syntax_pattern_parenthesized(state))
         .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxPattern::Variable))
         .or_else(|| {
             parse_still_qualified_uppercase_reference_node(state).map(|reference_node| {
@@ -11822,7 +10857,7 @@ fn parse_still_syntax_pattern_integer(state: &mut ParseState) -> Option<StillSyn
             })
         })
 }
-fn parse_still_syntax_pattern_parenthesized_or_tuple_or_triple(
+fn parse_still_syntax_pattern_parenthesized(
     state: &mut ParseState,
 ) -> Option<StillSyntaxPattern> {
     if !parse_symbol(state, "(") {
@@ -11832,40 +10867,11 @@ fn parse_still_syntax_pattern_parenthesized_or_tuple_or_triple(
     let maybe_in_parens_0: Option<StillSyntaxNode<StillSyntaxPattern>> =
         parse_still_syntax_pattern_space_separated_node(state);
     parse_still_whitespace_and_comments(state);
-    if parse_symbol(state, ")") {
-        Some(match maybe_in_parens_0 {
-            None => StillSyntaxPattern::Unit,
-            Some(in_parens) => StillSyntaxPattern::Parenthesized(still_syntax_node_box(in_parens)),
-        })
-    } else {
-        while parse_symbol(state, ",") {
-            parse_still_whitespace_and_comments(state);
-        }
-        let maybe_part1: Option<StillSyntaxNode<StillSyntaxPattern>> =
-            parse_still_syntax_pattern_space_separated_node(state);
-        parse_still_whitespace_and_comments(state);
-        if parse_symbol(state, ")") {
-            Some(StillSyntaxPattern::Tuple {
-                part0: maybe_in_parens_0.map(still_syntax_node_box),
-                part1: maybe_part1.map(still_syntax_node_box),
-            })
-        } else {
-            while parse_symbol(state, ",") {
-                parse_still_whitespace_and_comments(state);
-            }
-            let maybe_part2: Option<StillSyntaxNode<StillSyntaxPattern>> =
-                parse_still_syntax_pattern_space_separated_node(state);
-            while parse_symbol(state, ",") {
-                parse_still_whitespace_and_comments(state);
-            }
-            let _: bool = parse_symbol(state, ")");
-            Some(StillSyntaxPattern::Triple {
-                part0: maybe_in_parens_0.map(still_syntax_node_box),
-                part1: maybe_part1.map(still_syntax_node_box),
-                part2: maybe_part2.map(still_syntax_node_box),
-            })
-        }
-    }
+    let _ = parse_symbol(state, ")");
+    Some(match maybe_in_parens_0 {
+        None => StillSyntaxPattern::Unit,
+        Some(in_parens) => StillSyntaxPattern::Parenthesized(still_syntax_node_box(in_parens)),
+    })
 }
 fn parse_still_unsigned_integer_base16_as_i64(
     state: &mut ParseState,
@@ -12147,7 +11153,7 @@ fn parse_still_syntax_expression_not_space_separated_node(
             .or_else(|| parse_still_syntax_expression_string(state))
             .or_else(|| parse_still_syntax_expression_list(state))
             .or_else(|| {
-                parse_still_syntax_expression_operator_function_or_parenthesized_or_tuple_or_triple(
+                parse_still_syntax_expression_operator_function_or_parenthesized(
                     state,
                 )
             })
@@ -12749,7 +11755,7 @@ fn parse_still_syntax_expression_list(state: &mut ParseState) -> Option<StillSyn
     let _: bool = parse_symbol(state, "]");
     Some(StillSyntaxExpression::List(elements))
 }
-fn parse_still_syntax_expression_operator_function_or_parenthesized_or_tuple_or_triple(
+fn parse_still_syntax_expression_operator_function_or_parenthesized(
     state: &mut ParseState,
 ) -> Option<StillSyntaxExpression> {
     if !parse_symbol(state, "(") {
@@ -12764,40 +11770,11 @@ fn parse_still_syntax_expression_operator_function_or_parenthesized_or_tuple_or_
             let maybe_in_parens_0: Option<StillSyntaxNode<StillSyntaxExpression>> =
                 parse_still_syntax_expression_space_separated_node(state);
             parse_still_whitespace_and_comments(state);
-            if parse_symbol(state, ")") {
-                match maybe_in_parens_0 {
-                    None => StillSyntaxExpression::Unit,
-                    Some(in_parens) => {
-                        StillSyntaxExpression::Parenthesized(still_syntax_node_box(in_parens))
-                    }
-                }
-            } else {
-                while parse_symbol(state, ",") {
-                    parse_still_whitespace_and_comments(state);
-                }
-                let maybe_part1: Option<StillSyntaxNode<StillSyntaxExpression>> =
-                    parse_still_syntax_expression_space_separated_node(state);
-                parse_still_whitespace_and_comments(state);
-                if parse_symbol(state, ")") {
-                    StillSyntaxExpression::Tuple {
-                        part0: maybe_in_parens_0.map(still_syntax_node_box),
-                        part1: maybe_part1.map(still_syntax_node_box),
-                    }
-                } else {
-                    while parse_symbol(state, ",") {
-                        parse_still_whitespace_and_comments(state);
-                    }
-                    let maybe_part2: Option<StillSyntaxNode<StillSyntaxExpression>> =
-                        parse_still_syntax_expression_space_separated_node(state);
-                    while parse_symbol(state, ",") {
-                        parse_still_whitespace_and_comments(state);
-                    }
-                    let _: bool = parse_symbol(state, ")");
-                    StillSyntaxExpression::Triple {
-                        part0: maybe_in_parens_0.map(still_syntax_node_box),
-                        part1: maybe_part1.map(still_syntax_node_box),
-                        part2: maybe_part2.map(still_syntax_node_box),
-                    }
+            let _ =  parse_symbol(state, ")");
+            match maybe_in_parens_0 {
+                None => StillSyntaxExpression::Unit,
+                Some(in_parens) => {
+                    StillSyntaxExpression::Parenthesized(still_syntax_node_box(in_parens))
                 }
             }
         },
@@ -13171,33 +12148,33 @@ fn parse_still_syntax_project(project_source: &str) -> StillSyntaxProject {
         StillSyntaxNode<Vec<StillSyntaxNode<StillSyntaxProjectDocumentationElement>>>,
     > = parse_still_syntax_project_documentation_node(&mut state);
     parse_still_whitespace_and_comments(&mut state);
-    let mut last_valid_end_offet_utf8: usize = state.offset_utf8;
+    let mut last_valid_end_offset_utf8: usize = state.offset_utf8;
     let mut last_parsed_was_valid: bool = true;
     let mut declarations: Vec<Result<StillSyntaxDocumentedDeclaration, Box<str>>> =
         Vec::with_capacity(8);
-    'parsing_delarations: loop {
-        let offset_utf8_before_parsing_documeted_declaration: usize = state.offset_utf8;
+    'parsing_declarations: loop {
+        let offset_utf8_before_parsing_documented_declaration: usize = state.offset_utf8;
         match parse_still_syntax_documented_declaration_followed_by_whitespace_and_comments_and_whatever_indented(&mut state) {
             Some(documented_declaration) => {
                 if !last_parsed_was_valid {
-                    declarations.push(Err(Box::from(&project_source[last_valid_end_offet_utf8..offset_utf8_before_parsing_documeted_declaration])));
+                    declarations.push(Err(Box::from(&project_source[last_valid_end_offset_utf8..offset_utf8_before_parsing_documented_declaration])));
                 }
                 last_parsed_was_valid = true;
                 declarations.push(Ok(documented_declaration));
                 parse_still_whitespace_and_comments(&mut state);
-                last_valid_end_offet_utf8 = state.offset_utf8;
+                last_valid_end_offset_utf8 = state.offset_utf8;
             }
             None => {
                 last_parsed_was_valid = false;
                 parse_before_next_linebreak(&mut state);
                 if !parse_linebreak(&mut state) {
-                    break 'parsing_delarations;
+                    break 'parsing_declarations;
                 }
             }
         }
     }
     if !last_parsed_was_valid {
-        declarations.push(Err(Box::from(&project_source[last_valid_end_offet_utf8..])));
+        declarations.push(Err(Box::from(&project_source[last_valid_end_offset_utf8..])));
     }
     StillSyntaxProject {
         documentation: maybe_project_documentation,
