@@ -649,71 +649,6 @@ fn respond_to_hover(
                         )
                     )
                 }
-                StillSyntaxDeclaration::Operator {
-                    direction: maybe_origin_project_declaration_direction,
-                    precedence: maybe_origin_project_declaration_precedence,
-                    operator: maybe_origin_project_declaration_operator,
-                    equals_key_symbol_range: _,
-                    function: maybe_origin_project_declaration_function,
-                } => {
-                    let maybe_origin_operator_function_declaration =
-                        maybe_origin_project_declaration_function.as_ref().and_then(
-                            |origin_project_declaration_function_node| {
-                                hovered_project_state.syntax.declarations.iter().find_map(
-                                    |origin_project_declaration_or_err| {
-                                        let origin_project_declaration =
-                                            origin_project_declaration_or_err.as_ref().ok()?;
-                                        let origin_project_declaration_node =
-                                            origin_project_declaration.declaration.as_ref()?;
-                                        match &origin_project_declaration_node.value {
-                                            StillSyntaxDeclaration::Variable {
-                                                start_name: origin_project_declaration_name,
-                                                signature: origin_project_declaration_signature,
-                                                parameters: _,
-                                                equals_key_symbol_range: _,
-                                                result: _,
-                                            } if origin_project_declaration_name.value
-                                                == origin_project_declaration_function_node
-                                                    .value =>
-                                            {
-                                                Some((
-                                                    origin_project_declaration_signature.as_ref(),
-                                                    origin_project_declaration
-                                                        .documentation
-                                                        .as_ref()
-                                                        .map(|node| node.value.as_ref()),
-                                                ))
-                                            }
-                                            _ => None,
-                                        }
-                                    },
-                                )
-                            },
-                        );
-                    present_operator_declaration_info_markdown(
-                        "",
-                        maybe_origin_project_declaration_operator
-                            .as_ref()
-                            .map(|node| node.value),
-                        maybe_origin_operator_function_declaration,
-                        documentation,
-                        maybe_origin_project_declaration_direction.map(|node| node.value),
-                        maybe_origin_project_declaration_precedence.map(|node| node.value),
-                    )
-                }
-                StillSyntaxDeclaration::Port {
-                    name: maybe_declaration_name,
-                    colon_key_symbol_range: _,
-                    type_,
-                } => present_port_declaration_info_markdown(
-                    &hovered_project_state.syntax.comments,
-                    declaration_node.range,
-                    maybe_declaration_name
-                        .as_ref()
-                        .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                    documentation,
-                    type_.as_ref().map(still_syntax_node_as_ref),
-                ),
                 StillSyntaxDeclaration::TypeAlias {
                     alias_keyword_range: _,
                     name: maybe_declaration_name,
@@ -795,14 +730,15 @@ fn respond_to_hover(
                     range: Some(hovered_symbol_node.range),
                 });
             }
-            let origin_declaration_info_markdown: String =
-                hovered_project_state
+            let origin_declaration_info_markdown: String = hovered_project_state
                 .syntax
                 .declarations
                 .iter()
                 .find_map(|origin_project_declaration_or_err| {
-                    let origin_project_declaration = origin_project_declaration_or_err.as_ref().ok()?;
-                    let origin_project_declaration_node = origin_project_declaration.declaration.as_ref()?;
+                    let origin_project_declaration =
+                        origin_project_declaration_or_err.as_ref().ok()?;
+                    let origin_project_declaration_node =
+                        origin_project_declaration.declaration.as_ref()?;
                     match &origin_project_declaration_node.value {
                         StillSyntaxDeclaration::ChoiceType {
                             name: origin_project_declaration_name,
@@ -815,7 +751,9 @@ fn respond_to_hover(
                             let any_declared_name_matches_hovered: bool =
                                 (origin_project_declaration_variant0_name_node
                                     .as_ref()
-                                    .is_some_and(|name_node| name_node.value.as_str() == hovered_name))
+                                    .is_some_and(|name_node| {
+                                        name_node.value.as_str() == hovered_name
+                                    }))
                                     || (origin_project_declaration_variant1_up.iter().any(
                                         |variant| {
                                             variant.name.as_ref().is_some_and(|name_node| {
@@ -829,98 +767,20 @@ fn respond_to_hover(
                                     &present_choice_type_declaration_info_markdown(
                                         &hovered_project_state.syntax.comments,
                                         origin_project_declaration_node.range,
-                                        origin_project_declaration_name
-                                            .as_ref()
-                                            .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
+                                        origin_project_declaration_name.as_ref().map(|n| {
+                                            still_syntax_node_as_ref_map(n, StillName::as_str)
+                                        }),
                                         origin_project_declaration
                                             .documentation
                                             .as_ref()
                                             .map(|node| node.value.as_ref()),
                                         origin_project_declaration_parameters,
-                                        origin_project_declaration_variant0_name_node
-                                            .as_ref()
-                                            .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
+                                        origin_project_declaration_variant0_name_node.as_ref().map(
+                                            |n| still_syntax_node_as_ref_map(n, StillName::as_str)
+                                        ),
                                         origin_project_declaration_variant0_values,
                                         origin_project_declaration_variant1_up,
                                     )
-                                ))
-                            } else {
-                                None
-                            }
-                        }
-                        StillSyntaxDeclaration::Operator {
-                            direction: maybe_origin_project_declaration_direction,
-                            precedence: maybe_origin_project_declaration_precedence,
-                            operator: maybe_origin_project_declaration_operator,
-                            equals_key_symbol_range: _,
-                            function: maybe_origin_project_declaration_function,
-                        } => {
-                            if maybe_origin_project_declaration_operator
-                                .as_ref()
-                                .is_some_and(|operator_node| operator_node.value == hovered_name)
-                            {
-                                let maybe_origin_operator_function_declaration =
-                                    maybe_origin_project_declaration_function.as_ref().and_then(
-                                        |origin_project_declaration_function_node| {
-                                            hovered_project_state.syntax.declarations.iter().find_map(
-                                                |origin_project_potential_function_declaration_or_err| {
-                                                    let origin_project_potential_function_declaration = origin_project_potential_function_declaration_or_err.as_ref().ok()?;
-                                                    let origin_project_potential_function_declaration_node = origin_project_potential_function_declaration.declaration.as_ref()?;
-                                                    match &origin_project_potential_function_declaration_node.value {
-                                                        StillSyntaxDeclaration::Variable {
-                                                            start_name: origin_project_declaration_name,
-                                                            signature: origin_project_declaration_signature,
-                                                            ..
-                                                        } if origin_project_declaration_name.value
-                                                            == origin_project_declaration_function_node.value => {
-                                                            Some((
-                                                                origin_project_declaration_signature.as_ref(),
-                                                                origin_project_potential_function_declaration
-                                                                    .documentation
-                                                                    .as_ref()
-                                                                    .map(|node| node.value.as_ref()),
-                                                            ))
-                                                        }
-                                                        _ => None,
-                                                    }
-                                                })
-                                            },
-                                        );
-                                Some(present_operator_declaration_info_markdown(
-                                    "",
-                                    maybe_origin_project_declaration_operator
-                                        .as_ref()
-                                        .map(|node| node.value),
-                                    maybe_origin_operator_function_declaration,
-                                    origin_project_declaration
-                                        .documentation
-                                        .as_ref()
-                                        .map(|node| node.value.as_ref()),
-                                    maybe_origin_project_declaration_direction
-                                        .map(|node| node.value),
-                                    maybe_origin_project_declaration_precedence
-                                        .map(|node| node.value),
-                                ))
-                            } else {
-                                None
-                            }
-                        }
-                        StillSyntaxDeclaration::Port {
-                            name: maybe_origin_project_declaration_name,
-                            colon_key_symbol_range: _,
-                            type_,
-                        } => {
-                            if let Some(origin_project_declaration_name_node) = maybe_origin_project_declaration_name &&
-                                origin_project_declaration_name_node.value.as_str() == hovered_name {
-                                Some(present_port_declaration_info_markdown(
-                                    &hovered_project_state.syntax.comments,
-                                    origin_project_declaration_node.range,
-                                    Some(still_syntax_node_as_ref_map(origin_project_declaration_name_node, StillName::as_str)),
-                                    origin_project_declaration
-                                        .documentation
-                                        .as_ref()
-                                        .map(|node| node.value.as_ref()),
-                                    type_.as_ref().map(still_syntax_node_as_ref),
                                 ))
                             } else {
                                 None
@@ -933,15 +793,20 @@ fn respond_to_hover(
                             equals_key_symbol_range: _,
                             type_,
                         } => {
-                            if let Some(origin_project_declaration_name_node) = maybe_origin_project_declaration_name
-                                && origin_project_declaration_name_node.value.as_str() == hovered_name
+                            if let Some(origin_project_declaration_name_node) =
+                                maybe_origin_project_declaration_name
+                                && origin_project_declaration_name_node.value.as_str()
+                                    == hovered_name
                             {
                                 Some(format!(
                                     "constructor function for record\n{}",
                                     &present_type_alias_declaration_info_markdown(
                                         &hovered_project_state.syntax.comments,
                                         origin_project_declaration_node.range,
-                                        Some(still_syntax_node_as_ref_map(origin_project_declaration_name_node, StillName::as_str)),
+                                        Some(still_syntax_node_as_ref_map(
+                                            origin_project_declaration_name_node,
+                                            StillName::as_str
+                                        )),
                                         origin_project_declaration
                                             .documentation
                                             .as_ref()
@@ -961,21 +826,21 @@ fn respond_to_hover(
                             equals_key_symbol_range: _,
                             result: _,
                         } => {
-                            if origin_project_declaration_name_node.value.as_str()== hovered_name {
+                            if origin_project_declaration_name_node.value.as_str() == hovered_name {
                                 Some(present_variable_declaration_info_markdown(
                                     &hovered_project_state.syntax.comments,
-                                    still_syntax_node_as_ref_map(origin_project_declaration_name_node, StillName::as_str),
+                                    still_syntax_node_as_ref_map(
+                                        origin_project_declaration_name_node,
+                                        StillName::as_str,
+                                    ),
                                     origin_project_declaration
                                         .documentation
                                         .as_ref()
                                         .map(|node| node.value.as_ref()),
                                     origin_project_declaration_maybe_signature
                                         .as_ref()
-                                        .and_then(|signature|
-                                            signature
-                                                .type_
-                                                .as_ref()
-                                        ).map(still_syntax_node_as_ref),
+                                        .and_then(|signature| signature.type_.as_ref())
+                                        .map(still_syntax_node_as_ref),
                                 ))
                             } else {
                                 None
@@ -1066,9 +931,7 @@ fn respond_to_hover(
                                 None
                             }
                         }
-                        StillSyntaxDeclaration::Operator { .. }
-                        | StillSyntaxDeclaration::Port { .. }
-                        | StillSyntaxDeclaration::Variable { .. } => None,
+                        StillSyntaxDeclaration::Variable { .. } => None,
                     }
                 },
             )?;
@@ -1219,9 +1082,7 @@ fn respond_to_goto_definition(
                         },
                     ))
                 }
-                StillSyntaxDeclaration::Variable { .. }
-                | StillSyntaxDeclaration::Operator { .. }
-                | StillSyntaxDeclaration::Port { .. } => None,
+                StillSyntaxDeclaration::Variable { .. } => None,
             }
         }
         StillSyntaxSymbol::VariableOrVariantOrOperator {
@@ -1281,39 +1142,6 @@ fn respond_to_goto_definition(
                                             }
                                         })
                                     })
-                            }
-                        }
-                        StillSyntaxDeclaration::Operator {
-                            operator: maybe_origin_project_declaration_operator,
-                            function: maybe_origin_project_declaration_function,
-                            ..
-                        } => {
-                            if let Some(origin_project_declaration_operator_node) =
-                                maybe_origin_project_declaration_operator
-                                && origin_project_declaration_operator_node.value == goto_name
-                            {
-                                Some(origin_project_declaration_operator_node.range)
-                            } else if let Some(origin_project_declaration_function_node) =
-                                maybe_origin_project_declaration_function
-                                && origin_project_declaration_function_node.value.as_str()
-                                    == goto_name
-                            {
-                                Some(origin_project_declaration_function_node.range)
-                            } else {
-                                None
-                            }
-                        }
-                        StillSyntaxDeclaration::Port {
-                            name: maybe_origin_project_declaration_name,
-                            ..
-                        } => {
-                            if let Some(origin_project_declaration_name_node) =
-                                maybe_origin_project_declaration_name
-                                && origin_project_declaration_name_node.value.as_str() == goto_name
-                            {
-                                Some(origin_project_declaration_name_node.range)
-                            } else {
-                                None
                             }
                         }
                         StillSyntaxDeclaration::TypeAlias {
@@ -1381,9 +1209,7 @@ fn respond_to_goto_definition(
                                 None
                             }
                         }
-                        StillSyntaxDeclaration::Operator { .. }
-                        | StillSyntaxDeclaration::Port { .. }
-                        | StillSyntaxDeclaration::Variable { .. } => None,
+                        StillSyntaxDeclaration::Variable { .. } => None,
                     }
                 })?;
             Some(lsp_types::GotoDefinitionResponse::Scalar(
@@ -2080,33 +1906,6 @@ fn present_variable_declaration_info_markdown(
         }
     }
 }
-fn present_port_declaration_info_markdown(
-    comments: &[StillSyntaxNode<StillSyntaxComment>],
-    declaration_range: lsp_types::Range,
-    maybe_name: Option<StillSyntaxNode<&str>>,
-    maybe_documentation: Option<&str>,
-    maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
-) -> String {
-    let mut declaration_as_string: String = String::new();
-    let maybe_fully_qualified_name: Option<StillSyntaxNode<String>> =
-        maybe_name.map(|name_node| still_syntax_node_map(name_node, str::to_string));
-    still_syntax_port_declaration_into(
-        &mut declaration_as_string,
-        comments,
-        declaration_range,
-        maybe_fully_qualified_name
-            .as_ref()
-            .map(|name_node| still_syntax_node_as_ref_map(name_node, String::as_str)),
-        maybe_type,
-    );
-    let description: String = format!("```still\n{}\n```\n", declaration_as_string);
-    match maybe_documentation {
-        None => description,
-        Some(documentation) => {
-            description + "-----\n" + documentation_comment_to_markdown(documentation).as_str()
-        }
-    }
-}
 fn present_type_alias_declaration_info_markdown(
     comments: &[StillSyntaxNode<StillSyntaxComment>],
     declaration_range: lsp_types::Range,
@@ -2168,95 +1967,6 @@ fn present_choice_type_declaration_info_markdown(
         Some(documentation) => {
             description + "-----\n" + documentation_comment_to_markdown(documentation).as_str()
         }
-    }
-}
-
-fn present_operator_declaration_info_markdown(
-    project_origin: &str,
-    operator_symbol: Option<&str>,
-    maybe_origin_operator_function_declaration: Option<(
-        Option<&StillSyntaxVariableDeclarationSignature>,
-        Option<&str>,
-    )>,
-    maybe_documentation: Option<&str>,
-    maybe_direction: Option<StillSyntaxInfixDirection>,
-    precedence: Option<i64>,
-) -> String {
-    match maybe_origin_operator_function_declaration {
-        Some((
-            origin_operator_function_maybe_signature,
-            origin_operator_function_maybe_documentation,
-        )) => {
-            let description = format!(
-                "```still\ninfix {} {} {project_origin}.({}){}\n```\n",
-                maybe_direction
-                    .map(still_syntax_infix_direction_to_str)
-                    .unwrap_or(""),
-                &precedence
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| "".to_string()),
-                operator_symbol.unwrap_or(""),
-                &(match origin_operator_function_maybe_signature {
-                    None => "".to_string(),
-                    Some(origin_operator_function_signature) => {
-                        match &origin_operator_function_signature.type_ {
-                            None => "".to_string(),
-                            Some(origin_operator_function_type) => {
-                                " :".to_string()
-                                    + match still_syntax_range_line_span(
-                                        origin_operator_function_type.range,
-                                        &[], // no infix types have comments
-                                    ) {
-                                        LineSpan::Single => " ",
-                                        LineSpan::Multiple => "\n    ",
-                                    }
-                                    + still_syntax_type_to_string(
-                                        still_syntax_node_as_ref(origin_operator_function_type),
-                                        4,
-                                        &[], // no infix types have comments
-                                    )
-                                    .as_str()
-                            }
-                        }
-                    }
-                })
-            );
-            match origin_operator_function_maybe_documentation {
-                None => description,
-                Some(documentation) => {
-                    description
-                        + "-----\n"
-                        + documentation_comment_to_markdown(documentation).as_str()
-                }
-            }
-        }
-        None => {
-            let description = format!(
-                "```still\ninfix {} {} {project_origin}.({})\n```\n",
-                maybe_direction
-                    .map(still_syntax_infix_direction_to_str)
-                    .unwrap_or(""),
-                precedence
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| "".to_string()),
-                operator_symbol.unwrap_or("")
-            );
-            match maybe_documentation {
-                None => description,
-                Some(documentation) => {
-                    description
-                        + "-----\n"
-                        + documentation_comment_to_markdown(documentation).as_str()
-                }
-            }
-        }
-    }
-}
-fn still_syntax_infix_direction_to_str(direction: StillSyntaxInfixDirection) -> &'static str {
-    match direction {
-        StillSyntaxInfixDirection::Left => "left",
-        StillSyntaxInfixDirection::Non => "non",
-        StillSyntaxInfixDirection::Right => "right",
     }
 }
 
@@ -2330,8 +2040,6 @@ fn respond_to_completion(
         StillSyntaxSymbol::ProjectMemberDeclarationName { declaration, .. } => {
             match &declaration.value {
                 StillSyntaxDeclaration::ChoiceType { .. }
-                | StillSyntaxDeclaration::Port { .. }
-                | StillSyntaxDeclaration::Operator { .. }
                 | StillSyntaxDeclaration::TypeAlias { .. }
                 | StillSyntaxDeclaration::Variable {
                     signature: Some(_), ..
@@ -2509,34 +2217,6 @@ fn variable_declaration_completions_into(
                     );
                 }
             }
-            StillSyntaxDeclaration::Port {
-                name: maybe_name,
-                colon_key_symbol_range: _,
-                type_,
-            } => {
-                if let Some(name_node) = maybe_name {
-                    completion_items.push(lsp_types::CompletionItem {
-                        label: name_node.value.to_string(),
-                        kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-                        documentation: Some(lsp_types::Documentation::MarkupContent(
-                            lsp_types::MarkupContent {
-                                kind: lsp_types::MarkupKind::Markdown,
-                                value: present_port_declaration_info_markdown(
-                                    &project_syntax.comments,
-                                    origin_project_declaration_node.range,
-                                    Some(still_syntax_node_as_ref_map(
-                                        name_node,
-                                        StillName::as_str,
-                                    )),
-                                    origin_project_declaration_documentation,
-                                    type_.as_ref().map(still_syntax_node_as_ref),
-                                ),
-                            },
-                        )),
-                        ..lsp_types::CompletionItem::default()
-                    });
-                }
-            }
             StillSyntaxDeclaration::TypeAlias {
                 alias_keyword_range: _,
                 name: maybe_name,
@@ -2600,11 +2280,6 @@ fn variable_declaration_completions_into(
                     )),
                     ..lsp_types::CompletionItem::default()
                 });
-            }
-            StillSyntaxDeclaration::Operator { .. } => {
-                // suggesting operators is really confusing I think.
-                // Also, wether it needs to be surrounded by parens
-                // is not super easy to find out
             }
         }
     }
@@ -2701,9 +2376,7 @@ fn type_declaration_completions_into(
                     });
                 }
             }
-            StillSyntaxDeclaration::Port { .. } => {}
             StillSyntaxDeclaration::Variable { .. } => {}
-            StillSyntaxDeclaration::Operator { .. } => {}
         }
     }
 }
@@ -2813,44 +2486,6 @@ fn respond_to_document_symbols(
                                 })
                                 .collect::<Vec<_>>(),
                         ),
-                    })
-                }
-                StillSyntaxDeclaration::Operator {
-                    operator: maybe_operator,
-                    direction: _,
-                    precedence: _,
-                    equals_key_symbol_range: _,
-                    function: _,
-                } => {
-                    let operator_node = maybe_operator.as_ref()?;
-                    Some(lsp_types::DocumentSymbol {
-                        name: operator_node.value.to_string(),
-                        detail: None,
-                        kind: lsp_types::SymbolKind::OPERATOR,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: declaration_node.range,
-                        selection_range: operator_node.range,
-                        children: None,
-                    })
-                }
-                StillSyntaxDeclaration::Port {
-                    name: maybe_name,
-                    colon_key_symbol_range: _,
-                    type_: _,
-                } => {
-                    let name_node = maybe_name.as_ref()?;
-                    Some(lsp_types::DocumentSymbol {
-                        name: name_node.value.to_string(),
-                        detail: None,
-                        kind: lsp_types::SymbolKind::FUNCTION,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: declaration_node.range,
-                        selection_range: name_node.range,
-                        children: None,
                     })
                 }
                 StillSyntaxDeclaration::TypeAlias {
@@ -3342,18 +2977,6 @@ enum StillSyntaxDeclaration {
         variant0_values: Vec<StillSyntaxNode<StillSyntaxType>>,
         variant1_up: Vec<StillSyntaxChoiceTypeDeclarationTailingVariant>,
     },
-    Operator {
-        direction: Option<StillSyntaxNode<StillSyntaxInfixDirection>>,
-        precedence: Option<StillSyntaxNode<i64>>,
-        operator: Option<StillSyntaxNode<&'static str>>,
-        equals_key_symbol_range: Option<lsp_types::Range>,
-        function: Option<StillSyntaxNode<StillName>>,
-    },
-    Port {
-        name: Option<StillSyntaxNode<StillName>>,
-        colon_key_symbol_range: Option<lsp_types::Range>,
-        type_: Option<StillSyntaxNode<StillSyntaxType>>,
-    },
     TypeAlias {
         alias_keyword_range: lsp_types::Range,
         name: Option<StillSyntaxNode<StillName>>,
@@ -3369,12 +2992,7 @@ enum StillSyntaxDeclaration {
         result: Option<StillSyntaxNode<StillSyntaxExpression>>,
     },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StillSyntaxInfixDirection {
-    Left,
-    Non,
-    Right,
-}
+
 #[derive(Clone, Debug, PartialEq)]
 struct StillSyntaxChoiceTypeDeclarationTailingVariant {
     or_key_symbol_range: lsp_types::Range,
@@ -6193,48 +5811,6 @@ fn still_syntax_declaration_into(
                 variant1_up,
             );
         }
-        StillSyntaxDeclaration::Operator {
-            direction: maybe_infix_direction,
-            precedence: maybe_infix_precedence,
-            operator: maybe_operator,
-            equals_key_symbol_range: _,
-            function: maybe_implementation_function_name,
-        } => {
-            so_far.push_str("infix ");
-            if let Some(infix_direction_node) = maybe_infix_direction {
-                so_far.push_str(still_syntax_infix_direction_to_str(
-                    infix_direction_node.value,
-                ));
-            }
-            so_far.push(' ');
-            if let Some(infix_precedence_node) = maybe_infix_precedence {
-                use std::fmt::Write as _;
-                let _ = write!(so_far, "{}", infix_precedence_node.value);
-            }
-            so_far.push_str(" (");
-            if let Some(operator_node) = maybe_operator {
-                so_far.push_str(operator_node.value);
-            }
-            so_far.push_str(") = ");
-            if let Some(implementation_function_name) = maybe_implementation_function_name {
-                so_far.push_str(&implementation_function_name.value);
-            }
-        }
-        StillSyntaxDeclaration::Port {
-            name: maybe_name,
-            colon_key_symbol_range: _,
-            type_: maybe_type,
-        } => {
-            still_syntax_port_declaration_into(
-                so_far,
-                comments,
-                declaration_node.range,
-                maybe_name
-                    .as_ref()
-                    .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                maybe_type.as_ref().map(still_syntax_node_as_ref),
-            );
-        }
         StillSyntaxDeclaration::TypeAlias {
             alias_keyword_range: _,
             name: maybe_name,
@@ -6273,50 +5849,7 @@ fn still_syntax_declaration_into(
         }
     }
 }
-fn still_syntax_port_declaration_into(
-    so_far: &mut String,
-    comments: &[StillSyntaxNode<StillSyntaxComment>],
 
-    declaration_range: lsp_types::Range,
-    maybe_name: Option<StillSyntaxNode<&str>>,
-    maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
-) {
-    let mut previous_syntax_end: lsp_types::Position = declaration_range.start;
-    so_far.push_str("port ");
-    if let Some(name_node) = maybe_name {
-        still_syntax_comments_then_linebreak_indented_into(
-            so_far,
-            5,
-            still_syntax_comments_in_range(
-                comments,
-                lsp_types::Range {
-                    start: declaration_range.start,
-                    end: name_node.range.start,
-                },
-            ),
-        );
-        so_far.push_str(name_node.value);
-        previous_syntax_end = name_node.range.end;
-    }
-    if let Some(type_node) = maybe_type {
-        so_far.push_str(" :");
-        let comments_before_type = still_syntax_comments_in_range(
-            comments,
-            lsp_types::Range {
-                start: previous_syntax_end,
-                end: type_node.range.start,
-            },
-        );
-        let annotation_line_span: LineSpan = if comments_before_type.is_empty() {
-            still_syntax_range_line_span(type_node.range, comments)
-        } else {
-            LineSpan::Multiple
-        };
-        space_or_linebreak_indented_into(so_far, annotation_line_span, 4);
-        still_syntax_comments_then_linebreak_indented_into(so_far, 4, comments_before_type);
-        still_syntax_type_not_parenthesized_into(so_far, 4, comments, type_node);
-    }
-}
 fn still_syntax_type_alias_declaration_into(
     so_far: &mut String,
     comments: &[StillSyntaxNode<StillSyntaxComment>],
@@ -6703,64 +6236,6 @@ fn still_syntax_declaration_find_reference_at_position<'a>(
                                 }
                             })
                         })
-                }
-            }
-            StillSyntaxDeclaration::Operator {
-                direction: _,
-                precedence: _,
-                equals_key_symbol_range: _,
-                operator: maybe_operator,
-                function: maybe_function,
-            } => {
-                if let Some(operator_node) = maybe_operator
-                    && lsp_range_includes_position(operator_node.range, position)
-                {
-                    Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
-                            name: operator_node.value,
-                            declaration: still_syntax_declaration_node,
-                            documentation: maybe_documentation,
-                        },
-                        range: operator_node.range,
-                    })
-                } else if let Some(function_node) = maybe_function
-                    && lsp_range_includes_position(function_node.range, position)
-                {
-                    Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::VariableOrVariantOrOperator {
-                            name: &function_node.value,
-                            local_bindings: vec![],
-                        },
-                        range: function_node.range,
-                    })
-                } else {
-                    None
-                }
-            }
-            StillSyntaxDeclaration::Port {
-                name: maybe_name,
-                colon_key_symbol_range: _,
-                type_: maybe_type,
-            } => {
-                if let Some(name_node) = maybe_name
-                    && lsp_range_includes_position(name_node.range, position)
-                {
-                    Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
-                            name: &name_node.value,
-                            declaration: still_syntax_declaration_node,
-                            documentation: maybe_documentation,
-                        },
-                        range: name_node.range,
-                    })
-                } else {
-                    maybe_type.as_ref().and_then(|type_node| {
-                        still_syntax_type_find_reference_at_position(
-                            still_syntax_declaration_node.value,
-                            still_syntax_node_as_ref(type_node),
-                            position,
-                        )
-                    })
                 }
             }
             StillSyntaxDeclaration::TypeAlias {
@@ -7611,30 +7086,6 @@ fn still_syntax_declaration_uses_of_reference_into(
                         symbol_to_collect_uses_of,
                     );
                 }
-            }
-        }
-        StillSyntaxDeclaration::Operator { .. } => {}
-        StillSyntaxDeclaration::Port {
-            name: maybe_name,
-            colon_key_symbol_range: _,
-            type_: maybe_type,
-        } => {
-            if let Some(name_node) = maybe_name
-                && symbol_to_collect_uses_of
-                    == (StillSymbolToReference::VariableOrVariant {
-                        name: &name_node.value,
-
-                        including_declaration_name: true,
-                    })
-            {
-                uses_so_far.push(name_node.range);
-            }
-            if let Some(type_node) = maybe_type {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(type_node),
-                    symbol_to_collect_uses_of,
-                );
             }
         }
         StillSyntaxDeclaration::TypeAlias {
@@ -8758,82 +8209,6 @@ fn still_syntax_highlight_declaration_into(
                         still_syntax_node_as_ref(variant_value_node),
                     );
                 }
-            }
-        }
-        StillSyntaxDeclaration::Operator {
-            direction: maybe_direction,
-            precedence: maybe_precedence,
-            operator: maybe_operator,
-            equals_key_symbol_range: maybe_equals_key_symbol_range,
-            function: maybe_function_name,
-        } => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: still_syntax_declaration_node.range.start,
-                    end: lsp_position_add_characters(still_syntax_declaration_node.range.start, 5),
-                },
-                value: StillSyntaxHighlightKind::KeySymbol,
-            });
-            if let Some(direction_node) = maybe_direction {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: direction_node.range,
-                    value: StillSyntaxHighlightKind::KeySymbol,
-                });
-            }
-            if let Some(precedence_node) = maybe_precedence {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: precedence_node.range,
-                    value: StillSyntaxHighlightKind::Number,
-                });
-            }
-            if let Some(operator_node) = maybe_operator {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: operator_node.range,
-                    value: StillSyntaxHighlightKind::Operator,
-                });
-            }
-            if let &Some(equals_key_symbol_range) = maybe_equals_key_symbol_range {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: equals_key_symbol_range,
-                    value: StillSyntaxHighlightKind::KeySymbol,
-                });
-            }
-            if let Some(function_name_node) = maybe_function_name {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: function_name_node.range,
-                    value: StillSyntaxHighlightKind::DeclaredVariable,
-                });
-            }
-        }
-        StillSyntaxDeclaration::Port {
-            name: maybe_name,
-            colon_key_symbol_range: maybe_colon_key_symbol_range,
-            type_: maybe_type,
-        } => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: still_syntax_declaration_node.range.start,
-                    end: lsp_position_add_characters(still_syntax_declaration_node.range.start, 4),
-                },
-                value: StillSyntaxHighlightKind::KeySymbol,
-            });
-            if let Some(name_node) = maybe_name {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: name_node.range,
-                    value: StillSyntaxHighlightKind::DeclaredVariable,
-                });
-            }
-            if let &Some(colon_key_symbol_range) = maybe_colon_key_symbol_range {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: colon_key_symbol_range,
-                    value: StillSyntaxHighlightKind::KeySymbol,
-                });
-            }
-            if let Some(type_node) = maybe_type {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_as_ref(type_node),
-                );
             }
         }
         StillSyntaxDeclaration::TypeAlias {
@@ -11536,107 +10911,11 @@ fn parse_still_syntax_expression_operator_function_or_parenthesized(
 fn parse_still_syntax_declaration_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
-    parse_still_syntax_declaration_choice_type_or_type_alias_node(state)
-        .or_else(|| parse_still_syntax_declaration_port_node(state))
-        .or_else(|| parse_still_syntax_declaration_operator_node(state))
-        .or_else(|| {
-            if state.indent != 0 {
-                return None;
-            }
-            parse_still_syntax_declaration_variable_node(state)
-        })
-}
-fn parse_still_syntax_declaration_port_node(
-    state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
-    let port_keyword_range: lsp_types::Range = parse_still_keyword_as_range(state, "port")?;
-    parse_still_whitespace_and_comments(state);
-    let maybe_name: Option<StillSyntaxNode<StillName>> = parse_still_lowercase_name_node(state);
-    parse_still_whitespace_and_comments(state);
-    let maybe_colon_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, ":");
-    parse_still_whitespace_and_comments(state);
-    let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
-        parse_still_syntax_type_space_separated_node(state);
-    let full_end_position: lsp_types::Position = maybe_type
-        .as_ref()
-        .map(|type_node| type_node.range.end)
-        .or_else(|| maybe_colon_key_symbol_range.map(|range| range.end))
-        .or_else(|| maybe_name.as_ref().map(|node| node.range.end))
-        .unwrap_or(port_keyword_range.end);
-    Some(StillSyntaxNode {
-        range: lsp_types::Range {
-            start: port_keyword_range.start,
-            end: full_end_position,
-        },
-        value: StillSyntaxDeclaration::Port {
-            name: maybe_name,
-            colon_key_symbol_range: maybe_colon_key_symbol_range,
-            type_: maybe_type,
-        },
-    })
-}
-fn parse_still_syntax_declaration_operator_node(
-    state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
-    let infix_keyword_range: lsp_types::Range = parse_still_keyword_as_range(state, "infix")?;
-    parse_still_whitespace_and_comments(state);
-    let maybe_direction: Option<StillSyntaxNode<StillSyntaxInfixDirection>> =
-        parse_still_syntax_infix_declaration_node(state);
-    parse_still_whitespace_and_comments(state);
-    let precedence_start_position: lsp_types::Position = state.position;
-    let maybe_precedence: Option<StillSyntaxNode<i64>> =
-        match parse_still_unsigned_integer_base10_as_i64(state).and_then(Result::ok) {
-            None => None,
-            Some(precedence) => {
-                let precedence_range: lsp_types::Range = lsp_types::Range {
-                    start: precedence_start_position,
-                    end: state.position,
-                };
-                parse_still_whitespace_and_comments(state);
-                Some(StillSyntaxNode {
-                    range: precedence_range,
-                    value: precedence,
-                })
-            }
-        };
-    let _: bool = parse_symbol(state, "(");
-    parse_still_whitespace_and_comments(state);
-    let maybe_operator_symbol: Option<StillSyntaxNode<&str>> = parse_still_operator_node(state);
-    parse_still_whitespace_and_comments(state);
-    let _: bool = parse_symbol(state, ")");
-    parse_still_whitespace_and_comments(state);
-    let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
-    parse_still_whitespace_and_comments(state);
-    let maybe_function: Option<StillSyntaxNode<StillName>> = parse_still_lowercase_name_node(state);
-    Some(StillSyntaxNode {
-        range: lsp_types::Range {
-            start: infix_keyword_range.start,
-            end: state.position,
-        },
-        value: StillSyntaxDeclaration::Operator {
-            direction: maybe_direction,
-            precedence: maybe_precedence,
-            operator: maybe_operator_symbol,
-            equals_key_symbol_range: maybe_equals_key_symbol_range,
-            function: maybe_function,
-        },
-    })
-}
-fn parse_still_syntax_infix_declaration_node(
-    state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxInfixDirection>> {
-    let start_position: lsp_types::Position = state.position;
-    let direction: StillSyntaxInfixDirection =
-        parse_symbol_as(state, "left", StillSyntaxInfixDirection::Left)
-            .or_else(|| parse_symbol_as(state, "right", StillSyntaxInfixDirection::Right))
-            .or_else(|| parse_symbol_as(state, "non", StillSyntaxInfixDirection::Non))?;
-    let end_position = state.position;
-    Some(StillSyntaxNode {
-        range: lsp_types::Range {
-            start: start_position,
-            end: end_position,
-        },
-        value: direction,
+    parse_still_syntax_declaration_choice_type_or_type_alias_node(state).or_else(|| {
+        if state.indent != 0 {
+            return None;
+        }
+        parse_still_syntax_declaration_variable_node(state)
     })
 }
 fn parse_still_syntax_declaration_choice_type_or_type_alias_node(
