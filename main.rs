@@ -2823,11 +2823,6 @@ enum StillSyntaxPattern {
         quoting_style: StillSyntaxStringQuotingStyle,
     },
     Variable(StillName),
-    As {
-        pattern: StillSyntaxNode<Box<StillSyntaxPattern>>,
-        as_keyword_range: lsp_types::Range,
-        variable: Option<StillSyntaxNode<StillName>>,
-    },
     Parenthesized(StillSyntaxNode<Box<StillSyntaxPattern>>),
     ListCons {
         head: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
@@ -3660,17 +3655,6 @@ fn still_syntax_pattern_not_parenthesized_into(
         StillSyntaxPattern::Variable(name) => {
             so_far.push_str(name);
         }
-        StillSyntaxPattern::As {
-            pattern,
-            as_keyword_range: _,
-            variable: maybe_variable,
-        } => {
-            still_syntax_pattern_not_parenthesized_into(so_far, still_syntax_node_unbox(pattern));
-            so_far.push_str(" as ");
-            if let Some(variable_node) = maybe_variable {
-                so_far.push_str(&variable_node.value);
-            }
-        }
         StillSyntaxPattern::Parenthesized(in_parens) => {
             still_syntax_pattern_not_parenthesized_into(so_far, still_syntax_node_unbox(in_parens));
         }
@@ -3687,20 +3671,10 @@ fn still_syntax_pattern_not_parenthesized_into(
             }
             so_far.push_str(" :: ");
             if let Some(tail_node) = maybe_tail {
-                match tail_node.value.as_ref() {
-                    StillSyntaxPattern::As { .. } => {
-                        still_syntax_pattern_parenthesized_into(
-                            so_far,
-                            still_syntax_node_unbox(tail_node),
-                        );
-                    }
-                    _ => {
-                        still_syntax_pattern_not_parenthesized_into(
-                            so_far,
-                            still_syntax_node_unbox(tail_node),
-                        );
-                    }
-                }
+                still_syntax_pattern_not_parenthesized_into(
+                    so_far,
+                    still_syntax_node_unbox(tail_node),
+                );
             }
         }
         StillSyntaxPattern::ListExact(elements) => {
@@ -3775,7 +3749,7 @@ fn still_syntax_pattern_parenthesized_if_space_separated_into(
     pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
 ) {
     match pattern_node.value {
-        StillSyntaxPattern::As { .. } | StillSyntaxPattern::ListCons { .. } => {
+        StillSyntaxPattern::ListCons { .. } => {
             still_syntax_pattern_parenthesized_into(so_far, pattern_node);
         }
         _ => {
@@ -6329,14 +6303,6 @@ fn still_syntax_pattern_find_reference_at_position<'a>(
     position: lsp_types::Position,
 ) -> Option<StillSyntaxNode<StillSyntaxSymbol<'a>>> {
     match still_syntax_pattern_node.value {
-        StillSyntaxPattern::As {
-            pattern,
-            as_keyword_range: _,
-            variable: _,
-        } => still_syntax_pattern_find_reference_at_position(
-            still_syntax_node_unbox(pattern),
-            position,
-        ),
         StillSyntaxPattern::Char(_) => None,
         StillSyntaxPattern::Ignored => None,
         StillSyntaxPattern::Int { .. } => None,
@@ -7639,17 +7605,6 @@ fn still_syntax_pattern_uses_of_reference_into(
     symbol_to_collect_uses_of: StillSymbolToReference,
 ) {
     match still_syntax_pattern_node.value {
-        StillSyntaxPattern::As {
-            pattern: alias_pattern,
-            as_keyword_range: _,
-            variable: _,
-        } => {
-            still_syntax_pattern_uses_of_reference_into(
-                uses_so_far,
-                still_syntax_node_unbox(alias_pattern),
-                symbol_to_collect_uses_of,
-            );
-        }
         StillSyntaxPattern::Char(_) => {}
         StillSyntaxPattern::Ignored => {}
         StillSyntaxPattern::Int { .. } => {}
@@ -7751,22 +7706,6 @@ fn still_syntax_pattern_bindings_into<'a>(
     still_syntax_pattern_node: StillSyntaxNode<&'a StillSyntaxPattern>,
 ) {
     match still_syntax_pattern_node.value {
-        StillSyntaxPattern::As {
-            pattern: aliased_pattern_node,
-            as_keyword_range: _,
-            variable: maybe_variable,
-        } => {
-            still_syntax_pattern_bindings_into(
-                bindings_so_far,
-                still_syntax_node_unbox(aliased_pattern_node),
-            );
-            if let Some(variable_node) = maybe_variable {
-                bindings_so_far.push(StillLocalBinding {
-                    origin: LocalBindingOrigin::PatternVariable(variable_node.range),
-                    name: &variable_node.value,
-                });
-            }
-        }
         StillSyntaxPattern::Char(_) => {}
         StillSyntaxPattern::Ignored => {}
         StillSyntaxPattern::Int { .. } => {}
@@ -8225,26 +8164,6 @@ fn still_syntax_highlight_pattern_into(
     still_syntax_pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
 ) {
     match still_syntax_pattern_node.value {
-        StillSyntaxPattern::As {
-            pattern: alias_pattern_node,
-            as_keyword_range,
-            variable: maybe_variable,
-        } => {
-            still_syntax_highlight_pattern_into(
-                highlighted_so_far,
-                still_syntax_node_unbox(alias_pattern_node),
-            );
-            highlighted_so_far.push(StillSyntaxNode {
-                range: *as_keyword_range,
-                value: StillSyntaxHighlightKind::KeySymbol,
-            });
-            if let Some(variable_node) = maybe_variable {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: variable_node.range,
-                    value: StillSyntaxHighlightKind::Variable,
-                });
-            }
-        }
         StillSyntaxPattern::Char(_) => {
             highlighted_so_far.push(StillSyntaxNode {
                 range: still_syntax_pattern_node.range,
@@ -9755,7 +9674,7 @@ fn parse_still_syntax_pattern_space_separated_node_starting_at_any_indent(
             )
         },
     );
-    let pattern_with_conses: StillSyntaxNode<StillSyntaxPattern> = match maybe_combined_tail_cons {
+    Some(match maybe_combined_tail_cons {
         None => start_pattern,
         Some((cons_key_symbol_range, maybe_tail)) => StillSyntaxNode {
             range: lsp_types::Range {
@@ -9771,29 +9690,7 @@ fn parse_still_syntax_pattern_space_separated_node_starting_at_any_indent(
                 tail: maybe_tail.map(still_syntax_node_box),
             },
         },
-    };
-    match parse_symbol_as_range(state, "as") {
-        None => Some(pattern_with_conses),
-        Some(as_keyword_range) => {
-            parse_still_whitespace_and_comments(state);
-            let maybe_variable: Option<StillSyntaxNode<StillName>> =
-                parse_still_lowercase_name_node(state);
-            Some(StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: pattern_with_conses.range.start,
-                    end: match &maybe_variable {
-                        Some(variable_node) => variable_node.range.end,
-                        None => as_keyword_range.end,
-                    },
-                },
-                value: StillSyntaxPattern::As {
-                    pattern: still_syntax_node_box(pattern_with_conses),
-                    as_keyword_range: as_keyword_range,
-                    variable: maybe_variable,
-                },
-            })
-        }
-    }
+    })
 }
 
 fn parse_still_syntax_pattern_not_as_or_cons_node(
