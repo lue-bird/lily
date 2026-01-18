@@ -1,0 +1,99 @@
+{
+  "name": "still",
+  "displayName": "still",
+  "description": "language server for still, in rust",
+  "author": "lue_bird",
+  "icon": "images/icon.png",
+  "license": "MIT",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lue-bird/still"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "still"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "workspaceContains:**/still.json"
+  ],
+  "main": "./out/extension",
+  "contributes": {
+    "languages": [
+      {
+        "id": "still",
+        "extensions": [
+          ".still"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "scopeName": "markdown.still.codeblock",
+        "path": "./syntaxes/codeblock.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.still": "still"
+        }
+      },
+      {
+        "language": "still",
+        "scopeName": "source.still",
+        "path": "./syntaxes/still-syntax.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "still.commands.restart",
+        "title": "restart still",
+        "category": "still"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "still",
+      "properties": {
+        "still.stillPath": {
+          "scope": "window",
+          "type": "string",
+          "default": "",
+          "description": "compiler executable, default still. Should be empty by default."
+        },
+        "still.stillTestPath": {
+          "scope": "window",
+          "type": "string",
+          "default": "",
+          "description": "test runner executable, default still-test. Should be empty by default."
+        },
+        "still.stillFormatPath": {
+          "scope": "window",
+          "type": "string",
+          "default": "",
+          "description": "formatter executable, default still-format. \"builtin\" is a fast rust formatter that is mostly but not fully compatible. Should be empty by default."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.0",
+    "typescript": "5.3.3"
+  },
+  "scripts": {
+    "compile": "tsc -p . --noEmit && esbuild --platform=node --bundle extension.js --external:vscode --minify --outfile=out/extension.js",
+    "package": "npm install && npm run compile && vsce package"
+  }
+}
