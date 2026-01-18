@@ -2816,7 +2816,6 @@ enum StillSyntaxPattern {
     Ignored,
     Char(Option<char>),
     Int {
-        base: StillSyntaxIntBase,
         value: Result<i64, Box<str>>,
     },
     String {
@@ -2913,7 +2912,7 @@ enum StillSyntaxExpression {
         right: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
     Integer {
-        base: StillSyntaxIntBase,
+        // TODO inline
         value: Result<i64, Box<str>>,
     },
     Lambda {
@@ -2948,11 +2947,6 @@ enum StillSyntaxExpression {
         content: String,
         quoting_style: StillSyntaxStringQuotingStyle,
     },
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StillSyntaxIntBase {
-    IntBase10,
-    IntBase16,
 }
 #[derive(Clone, Debug, PartialEq)]
 struct StillSyntaxExpressionCase {
@@ -3655,10 +3649,9 @@ fn still_syntax_pattern_not_parenthesized_into(
         }
         StillSyntaxPattern::Char(maybe_char) => still_char_into(so_far, *maybe_char),
         StillSyntaxPattern::Int {
-            base,
             value: value_or_err,
         } => {
-            still_int_into(so_far, *base, value_or_err);
+            still_int_into(so_far, value_or_err);
         }
         StillSyntaxPattern::String {
             content,
@@ -3826,44 +3819,15 @@ fn still_unicode_char_escape_into(so_far: &mut String, char: char) {
         let _ = write!(so_far, "\\u{{{:04X}}}", utf16_code);
     }
 }
-fn still_int_into(
-    so_far: &mut String,
-    base: StillSyntaxIntBase,
-    value_or_err: &Result<i64, Box<str>>,
-) {
+fn still_int_into(so_far: &mut String, value_or_err: &Result<i64, Box<str>>) {
     match value_or_err {
-        Err(value_as_string) => match base {
-            StillSyntaxIntBase::IntBase10 => {
-                so_far.push_str(value_as_string);
-            }
-            StillSyntaxIntBase::IntBase16 => {
-                so_far.push_str("0x");
-                so_far.push_str(value_as_string);
-            }
-        },
-        &Ok(value) => match base {
-            StillSyntaxIntBase::IntBase10 => {
-                use std::fmt::Write as _;
-                let _ = write!(so_far, "{}", value);
-            }
-            StillSyntaxIntBase::IntBase16 => {
-                use std::fmt::Write as _;
-                let _ = write!(so_far, "0x{:02x}", value);
-                if value <= 0xFF {
-                    use std::fmt::Write as _;
-                    let _ = write!(so_far, "\\u{{{:02X}}}", value);
-                } else if value <= 0xFFFF {
-                    use std::fmt::Write as _;
-                    let _ = write!(so_far, "\\u{{{:04X}}}", value);
-                } else if value <= 0xFFFF_FFFF {
-                    use std::fmt::Write as _;
-                    let _ = write!(so_far, "\\u{{{:08X}}}", value);
-                } else {
-                    use std::fmt::Write as _;
-                    let _ = write!(so_far, "\\u{{{:016X}}}", value);
-                }
-            }
-        },
+        Err(value_as_string) => {
+            so_far.push_str(value_as_string);
+        }
+        Ok(value) => {
+            use std::fmt::Write as _;
+            let _ = write!(so_far, "{}", value);
+        }
     }
 }
 fn still_string_into(
@@ -4477,10 +4441,9 @@ fn still_syntax_expression_not_parenthesized_into(
             }
         }
         StillSyntaxExpression::Integer {
-            base,
             value: value_or_err,
         } => {
-            still_int_into(so_far, *base, value_or_err);
+            still_int_into(so_far, value_or_err);
         }
         StillSyntaxExpression::Lambda {
             parameters,
@@ -9166,15 +9129,6 @@ fn parse_same_line_while(state: &mut ParseState, char_is_valid: impl Fn(char) ->
     state.position.character += consumed_length_utf16 as u32;
 }
 /// given condition must not succeed on linebreak
-fn parse_same_line_while_as_str<'a>(
-    state: &mut ParseState<'a>,
-    char_is_valid: impl Fn(char) -> bool,
-) -> &'a str {
-    let start_offset_utf8: usize = state.offset_utf8;
-    parse_same_line_while(state, char_is_valid);
-    &state.source[start_offset_utf8..state.offset_utf8]
-}
-/// given condition must not succeed on linebreak
 fn parse_same_line_while_at_least_one_as_still_name_node(
     state: &mut ParseState,
     char_is_valid: impl Fn(char) -> bool + Copy,
@@ -9993,16 +9947,7 @@ fn parse_still_syntax_pattern_string(state: &mut ParseState) -> Option<StillSynt
 
 fn parse_still_syntax_pattern_integer(state: &mut ParseState) -> Option<StillSyntaxPattern> {
     parse_still_unsigned_integer_base10_as_i64(state)
-        .map(|value| StillSyntaxPattern::Int {
-            base: StillSyntaxIntBase::IntBase10,
-            value: value,
-        })
-        .or_else(|| {
-            parse_still_unsigned_integer_base16_as_i64(state).map(|value| StillSyntaxPattern::Int {
-                base: StillSyntaxIntBase::IntBase16,
-                value: value,
-            })
-        })
+        .map(|value| StillSyntaxPattern::Int { value: value })
 }
 fn parse_still_syntax_pattern_parenthesized(state: &mut ParseState) -> Option<StillSyntaxPattern> {
     if !parse_symbol(state, "(") {
@@ -10018,15 +9963,6 @@ fn parse_still_syntax_pattern_parenthesized(state: &mut ParseState) -> Option<St
         Some(in_parens) => StillSyntaxPattern::Parenthesized(still_syntax_node_box(in_parens)),
     })
 }
-fn parse_still_unsigned_integer_base16_as_i64(
-    state: &mut ParseState,
-) -> Option<Result<i64, Box<str>>> {
-    if !parse_symbol(state, "0x") {
-        return None;
-    }
-    let hex_str: &str = parse_same_line_while_as_str(state, |c| c.is_ascii_hexdigit());
-    Some(i64::from_str_radix(hex_str, 16).map_err(|_| Box::from(hex_str)))
-}
 fn parse_still_unsigned_integer_base10_as_i64(
     state: &mut ParseState,
 ) -> Option<Result<i64, Box<str>>> {
@@ -10039,12 +9975,6 @@ fn parse_still_unsigned_integer_base10_as_i64(
     }
 }
 fn parse_still_syntax_expression_number(state: &mut ParseState) -> Option<StillSyntaxExpression> {
-    if let Some(unsigned_int_base16) = parse_still_unsigned_integer_base16_as_i64(state) {
-        return Some(StillSyntaxExpression::Integer {
-            base: StillSyntaxIntBase::IntBase16,
-            value: unsigned_int_base16,
-        });
-    }
     let start_offset_utf8: usize = state.offset_utf8;
     if !parse_unsigned_integer_base10(state) {
         return None;
@@ -10078,7 +10008,6 @@ fn parse_still_syntax_expression_number(state: &mut ParseState) -> Option<StillS
         )
     } else {
         StillSyntaxExpression::Integer {
-            base: StillSyntaxIntBase::IntBase10,
             value: str::parse::<i64>(full_chomped_str).map_err(|_| Box::from(full_chomped_str)),
         }
     })
