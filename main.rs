@@ -2783,9 +2783,8 @@ fn list_files_passing_test_in_directory_at_path_into(
 
 #[derive(Clone, Debug, PartialEq)]
 enum StillSyntaxType {
-    Unit,
     Variable(StillName),
-    Parenthesized(StillSyntaxNode<Box<StillSyntaxType>>),
+    Parenthesized(Option<StillSyntaxNode<Box<StillSyntaxType>>>),
     Function {
         input: StillSyntaxNode<Box<StillSyntaxType>>,
         arrow_key_symbol_range: lsp_types::Range,
@@ -2811,7 +2810,6 @@ struct StillSyntaxTypeField {
 
 #[derive(Clone, Debug, PartialEq)]
 enum StillSyntaxPattern {
-    Unit,
     Ignored,
     Char(Option<char>),
     Int {
@@ -2822,7 +2820,7 @@ enum StillSyntaxPattern {
         quoting_style: StillSyntaxStringQuotingStyle,
     },
     Variable(StillName),
-    Parenthesized(StillSyntaxNode<Box<StillSyntaxPattern>>),
+    Parenthesized(Option<StillSyntaxNode<Box<StillSyntaxPattern>>>),
     ListCons {
         head: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
         cons_key_symbol: lsp_types::Range,
@@ -2865,7 +2863,6 @@ struct StillSyntaxVariableDeclarationSignature {
 
 #[derive(Clone, Debug, PartialEq)]
 enum StillSyntaxExpression {
-    Unit,
     Call {
         called: StillSyntaxNode<Box<StillSyntaxExpression>>,
         argument0: StillSyntaxNode<Box<StillSyntaxExpression>>,
@@ -2914,7 +2911,7 @@ enum StillSyntaxExpression {
     },
     List(Vec<StillSyntaxNode<StillSyntaxExpression>>),
     Negation(Option<StillSyntaxNode<Box<StillSyntaxExpression>>>),
-    Parenthesized(StillSyntaxNode<Box<StillSyntaxExpression>>),
+    Parenthesized(Option<StillSyntaxNode<Box<StillSyntaxExpression>>>),
     Record(Vec<StillSyntaxExpressionField>),
     RecordAccess {
         record: StillSyntaxNode<Box<StillSyntaxExpression>>,
@@ -3153,7 +3150,7 @@ fn still_syntax_type_to_unparenthesized(
     still_syntax_type: StillSyntaxNode<&StillSyntaxType>,
 ) -> StillSyntaxNode<&StillSyntaxType> {
     match still_syntax_type.value {
-        StillSyntaxType::Parenthesized(in_parens) => {
+        StillSyntaxType::Parenthesized(Some(in_parens)) => {
             still_syntax_type_to_unparenthesized(still_syntax_node_unbox(in_parens))
         }
         _ => still_syntax_type,
@@ -3215,7 +3212,17 @@ fn still_syntax_type_not_parenthesized_into(
             indent,
             maybe_output.as_ref().map(still_syntax_node_unbox),
         ),
-        StillSyntaxType::Parenthesized(in_parens) => {
+        StillSyntaxType::Parenthesized(None) => {
+            so_far.push('(');
+            let comments_in_parens: &[StillSyntaxNode<StillSyntaxComment>] =
+                still_syntax_comments_in_range(comments, type_node.range);
+            if !comments_in_parens.is_empty() {
+                still_syntax_comments_into(so_far, indent + 1, comments_in_parens);
+                linebreak_indented_into(so_far, indent);
+            }
+            so_far.push(')');
+        }
+        StillSyntaxType::Parenthesized(Some(in_parens)) => {
             let innermost: StillSyntaxNode<&StillSyntaxType> =
                 still_syntax_type_to_unparenthesized(still_syntax_node_unbox(in_parens));
             let comments_before_innermost: &[StillSyntaxNode<StillSyntaxComment>] =
@@ -3331,17 +3338,6 @@ fn still_syntax_type_not_parenthesized_into(
                 );
             }
             so_far.push('}');
-        }
-        StillSyntaxType::Unit => {
-            let comments_in_unit = still_syntax_comments_in_range(comments, type_node.range);
-            if comments_in_unit.is_empty() {
-                so_far.push_str("()");
-            } else {
-                so_far.push('(');
-                still_syntax_comments_into(so_far, indent + 1, comments_in_unit);
-                linebreak_indented_into(so_far, indent);
-                so_far.push(')');
-            }
         }
         StillSyntaxType::Variable(name) => {
             so_far.push_str(name);
@@ -3493,8 +3489,7 @@ fn still_syntax_type_parenthesized_if_space_separated_into(
     unparenthesized: StillSyntaxNode<&StillSyntaxType>,
 ) {
     let is_space_separated: bool = match unparenthesized.value {
-        StillSyntaxType::Unit
-        | StillSyntaxType::Variable(_)
+        StillSyntaxType::Variable(_)
         | StillSyntaxType::Parenthesized(_)
         | StillSyntaxType::Record(_)
         | StillSyntaxType::RecordExtension { .. } => false,
@@ -3619,9 +3614,6 @@ fn still_syntax_pattern_not_parenthesized_into(
     pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
 ) {
     match pattern_node.value {
-        StillSyntaxPattern::Unit => {
-            so_far.push_str("()");
-        }
         StillSyntaxPattern::Ignored => {
             so_far.push('_');
         }
@@ -3638,7 +3630,10 @@ fn still_syntax_pattern_not_parenthesized_into(
         StillSyntaxPattern::Variable(name) => {
             so_far.push_str(name);
         }
-        StillSyntaxPattern::Parenthesized(in_parens) => {
+        StillSyntaxPattern::Parenthesized(None) => {
+            so_far.push_str("()");
+        }
+        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
             still_syntax_pattern_not_parenthesized_into(so_far, still_syntax_node_unbox(in_parens));
         }
         StillSyntaxPattern::ListCons {
@@ -3852,17 +3847,6 @@ fn still_syntax_expression_not_parenthesized_into(
     expression_node: StillSyntaxNode<&StillSyntaxExpression>,
 ) {
     match expression_node.value {
-        StillSyntaxExpression::Unit => {
-            let comments_in_unit = still_syntax_comments_in_range(comments, expression_node.range);
-            if comments_in_unit.is_empty() {
-                so_far.push_str("()");
-            } else {
-                so_far.push('(');
-                still_syntax_comments_into(so_far, indent + 1, comments_in_unit);
-                linebreak_indented_into(so_far, indent);
-                so_far.push(')');
-            }
-        }
         StillSyntaxExpression::Call {
             called: called_node,
             argument0: argument0_node,
@@ -4523,7 +4507,17 @@ fn still_syntax_expression_not_parenthesized_into(
                 }
             }
         }
-        StillSyntaxExpression::Parenthesized(in_parens) => {
+        StillSyntaxExpression::Parenthesized(None) => {
+            so_far.push('(');
+            let comments_in_parens: &[StillSyntaxNode<StillSyntaxComment>] =
+                still_syntax_comments_in_range(comments, expression_node.range);
+            if !comments_in_parens.is_empty() {
+                still_syntax_comments_into(so_far, indent + 1, comments_in_parens);
+                linebreak_indented_into(so_far, indent);
+            }
+            so_far.push(')');
+        }
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             let innermost: StillSyntaxNode<&StillSyntaxExpression> =
                 still_syntax_expression_to_unparenthesized(still_syntax_node_unbox(in_parens));
             let comments_before_innermost = still_syntax_comments_in_range(
@@ -5038,7 +5032,7 @@ fn still_syntax_expression_to_unparenthesized(
     expression_node: StillSyntaxNode<&StillSyntaxExpression>,
 ) -> StillSyntaxNode<&StillSyntaxExpression> {
     match expression_node.value {
-        StillSyntaxExpression::Parenthesized(in_parens) => {
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_to_unparenthesized(still_syntax_node_unbox(in_parens))
         }
         _ => expression_node,
@@ -5083,8 +5077,7 @@ fn still_syntax_expression_line_span(
                 *quoting_style == StillSyntaxStringQuotingStyle::TripleQuoted
                     && content.contains('\n')
             }
-            StillSyntaxExpression::Unit
-            | StillSyntaxExpression::Integer { .. }
+            StillSyntaxExpression::Integer { .. }
             | StillSyntaxExpression::Float(_)
             | StillSyntaxExpression::Char(_)
             | StillSyntaxExpression::Negation(_)
@@ -5155,7 +5148,6 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
         StillSyntaxExpression::InfixOperationIgnoringPrecedence { .. } => true,
         StillSyntaxExpression::Call { .. } => true,
         StillSyntaxExpression::CaseOf { .. } => true,
-        StillSyntaxExpression::Unit => false,
         StillSyntaxExpression::Char(_) => false,
         StillSyntaxExpression::Float(_) => false,
         StillSyntaxExpression::Integer { .. } => false,
@@ -5194,7 +5186,6 @@ fn still_syntax_expression_parenthesized_if_not_call_but_space_separated_into(
         StillSyntaxExpression::InfixOperationIgnoringPrecedence { .. } => true,
         StillSyntaxExpression::CaseOf { .. } => true,
         StillSyntaxExpression::Call { .. } => false,
-        StillSyntaxExpression::Unit => false,
         StillSyntaxExpression::Char(_) => false,
         StillSyntaxExpression::Float(_) => false,
         StillSyntaxExpression::Integer { .. } => false,
@@ -5227,7 +5218,6 @@ fn still_syntax_expression_any_sub(
         return true;
     }
     match expression_node.value {
-        StillSyntaxExpression::Unit => false,
         StillSyntaxExpression::Call {
             called,
             argument0,
@@ -5317,7 +5307,8 @@ fn still_syntax_expression_any_sub(
                 still_syntax_expression_any_sub(still_syntax_node_unbox(in_negation), is_needle)
             })
         }
-        StillSyntaxExpression::Parenthesized(in_parens) => {
+        StillSyntaxExpression::Parenthesized(None) => false,
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_any_sub(still_syntax_node_unbox(in_parens), is_needle)
         }
         StillSyntaxExpression::Record(fields) => fields
@@ -6045,7 +6036,8 @@ fn still_syntax_pattern_find_reference_at_position<'a>(
                 position,
             )
         }),
-        StillSyntaxPattern::Parenthesized(in_parens) => {
+        StillSyntaxPattern::Parenthesized(None) => None,
+        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
             still_syntax_pattern_find_reference_at_position(
                 still_syntax_node_unbox(in_parens),
                 position,
@@ -6053,7 +6045,6 @@ fn still_syntax_pattern_find_reference_at_position<'a>(
         }
         StillSyntaxPattern::Record(_) => None,
         StillSyntaxPattern::String { .. } => None,
-        StillSyntaxPattern::Unit => None,
         StillSyntaxPattern::Variable(_) => None,
         StillSyntaxPattern::Variant {
             name: reference,
@@ -6127,7 +6118,8 @@ fn still_syntax_type_find_reference_at_position<'a>(
                     )
                 })
             }),
-            StillSyntaxType::Parenthesized(in_parens) => {
+            StillSyntaxType::Parenthesized(None) => None,
+            StillSyntaxType::Parenthesized(Some(in_parens)) => {
                 still_syntax_type_find_reference_at_position(
                     scope_declaration,
                     still_syntax_node_unbox(in_parens),
@@ -6170,7 +6162,6 @@ fn still_syntax_type_find_reference_at_position<'a>(
                     })
                 }
             }
-            StillSyntaxType::Unit => None,
             StillSyntaxType::Variable(type_variable_value) => Some(StillSyntaxNode {
                 range: still_syntax_type_node.range,
                 value: StillSyntaxSymbol::TypeVariable {
@@ -6412,7 +6403,10 @@ fn still_syntax_expression_find_reference_at_position<'a>(
             ),
             None => std::ops::ControlFlow::Continue(local_bindings),
         },
-        StillSyntaxExpression::Parenthesized(in_parens) => {
+        StillSyntaxExpression::Parenthesized(None) => {
+            std::ops::ControlFlow::Continue(local_bindings)
+        }
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_find_reference_at_position(
                 local_bindings,
                 scope_declaration,
@@ -6479,7 +6473,6 @@ fn still_syntax_expression_find_reference_at_position<'a>(
             })
         }
         StillSyntaxExpression::String { .. } => std::ops::ControlFlow::Continue(local_bindings),
-        StillSyntaxExpression::Unit => std::ops::ControlFlow::Continue(local_bindings),
     }
 }
 
@@ -6790,7 +6783,6 @@ fn still_syntax_declaration_uses_of_reference_into(
 
 fn still_syntax_type_uses_of_reference_into(
     uses_so_far: &mut Vec<lsp_types::Range>,
-
     still_syntax_type_node: StillSyntaxNode<&StillSyntaxType>,
     symbol_to_collect_uses_of: StillSymbolToReference,
 ) {
@@ -6839,7 +6831,8 @@ fn still_syntax_type_uses_of_reference_into(
                 );
             }
         }
-        StillSyntaxType::Parenthesized(in_parens) => {
+        StillSyntaxType::Parenthesized(None) => {}
+        StillSyntaxType::Parenthesized(Some(in_parens)) => {
             still_syntax_type_uses_of_reference_into(
                 uses_so_far,
                 still_syntax_node_unbox(in_parens),
@@ -6878,7 +6871,6 @@ fn still_syntax_type_uses_of_reference_into(
                 }
             }
         }
-        StillSyntaxType::Unit => {}
         StillSyntaxType::Variable(variable) => {
             if symbol_to_collect_uses_of == StillSymbolToReference::TypeVariable(variable) {
                 uses_so_far.push(still_syntax_type_node.range);
@@ -6889,7 +6881,6 @@ fn still_syntax_type_uses_of_reference_into(
 
 fn still_syntax_expression_uses_of_reference_into(
     uses_so_far: &mut Vec<lsp_types::Range>,
-
     local_bindings: &[StillLocalBinding],
     still_syntax_expression_node: StillSyntaxNode<&StillSyntaxExpression>,
     symbol_to_collect_uses_of: StillSymbolToReference,
@@ -7057,7 +7048,8 @@ fn still_syntax_expression_uses_of_reference_into(
                 );
             }
         }
-        StillSyntaxExpression::Parenthesized(in_parens) => {
+        StillSyntaxExpression::Parenthesized(None) => {}
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_uses_of_reference_into(
                 uses_so_far,
                 local_bindings,
@@ -7153,7 +7145,6 @@ fn still_syntax_expression_uses_of_reference_into(
             }
         }
         StillSyntaxExpression::String { .. } => {}
-        StillSyntaxExpression::Unit => {}
     }
 }
 
@@ -7281,7 +7272,8 @@ fn still_syntax_pattern_uses_of_reference_into(
                 );
             }
         }
-        StillSyntaxPattern::Parenthesized(in_parens) => {
+        StillSyntaxPattern::Parenthesized(None) => {}
+        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
             still_syntax_pattern_uses_of_reference_into(
                 uses_so_far,
                 still_syntax_node_unbox(in_parens),
@@ -7290,7 +7282,6 @@ fn still_syntax_pattern_uses_of_reference_into(
         }
         StillSyntaxPattern::Record(_) => {}
         StillSyntaxPattern::String { .. } => {}
-        StillSyntaxPattern::Unit => {}
         StillSyntaxPattern::Variable(_) => {}
         StillSyntaxPattern::Variant {
             name: reference,
@@ -7379,7 +7370,8 @@ fn still_syntax_pattern_bindings_into<'a>(
                 );
             }
         }
-        StillSyntaxPattern::Parenthesized(in_parens) => {
+        StillSyntaxPattern::Parenthesized(None) => {}
+        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
             still_syntax_pattern_bindings_into(bindings_so_far, still_syntax_node_unbox(in_parens));
         }
         StillSyntaxPattern::Record(field_names) => {
@@ -7389,7 +7381,6 @@ fn still_syntax_pattern_bindings_into<'a>(
             }));
         }
         StillSyntaxPattern::String { .. } => {}
-        StillSyntaxPattern::Unit => {}
         StillSyntaxPattern::Variable(variable) => {
             bindings_so_far.push(StillLocalBinding {
                 origin: LocalBindingOrigin::PatternVariable(still_syntax_pattern_node.range),
@@ -7780,7 +7771,8 @@ fn still_syntax_highlight_pattern_into(
                 );
             }
         }
-        StillSyntaxPattern::Parenthesized(in_parens) => {
+        StillSyntaxPattern::Parenthesized(None) => {}
+        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
             still_syntax_highlight_pattern_into(
                 highlighted_so_far,
                 still_syntax_node_unbox(in_parens),
@@ -7801,12 +7793,6 @@ fn still_syntax_highlight_pattern_into(
             highlighted_so_far.push(StillSyntaxNode {
                 range: still_syntax_pattern_node.range,
                 value: StillSyntaxHighlightKind::String,
-            });
-        }
-        StillSyntaxPattern::Unit => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: still_syntax_pattern_node.range,
-                value: StillSyntaxHighlightKind::Variant,
             });
         }
         StillSyntaxPattern::Variable(_) => {
@@ -7869,7 +7855,8 @@ fn still_syntax_highlight_type_into(
                 );
             }
         }
-        StillSyntaxType::Parenthesized(in_parens) => {
+        StillSyntaxType::Parenthesized(None) => {}
+        StillSyntaxType::Parenthesized(Some(in_parens)) => {
             still_syntax_highlight_type_into(
                 highlighted_so_far,
                 still_syntax_node_unbox(in_parens),
@@ -7928,12 +7915,6 @@ fn still_syntax_highlight_type_into(
                     );
                 }
             }
-        }
-        StillSyntaxType::Unit => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: still_syntax_type_node.range,
-                value: StillSyntaxHighlightKind::Type,
-            });
         }
         StillSyntaxType::Variable(_) => {
             highlighted_so_far.push(StillSyntaxNode {
@@ -8160,7 +8141,8 @@ fn still_syntax_highlight_expression_into(
                 );
             }
         }
-        StillSyntaxExpression::Parenthesized(in_parens) => {
+        StillSyntaxExpression::Parenthesized(None) => {}
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_highlight_expression_into(
                 highlighted_so_far,
                 local_bindings,
@@ -8298,12 +8280,6 @@ fn still_syntax_highlight_expression_into(
                     value: StillSyntaxHighlightKind::String,
                 }),
             );
-        }
-        StillSyntaxExpression::Unit => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: still_syntax_expression_node.range,
-                value: StillSyntaxHighlightKind::Variant,
-            });
         }
     }
 }
@@ -8849,8 +8825,8 @@ fn parse_still_syntax_type_not_function_node(
     }
     parse_still_syntax_type_construct_node(state).or_else(|| {
         let start_position: lsp_types::Position = state.position;
-        parse_symbol_as(state, "()", StillSyntaxType::Unit)
-            .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxType::Variable))
+        parse_still_lowercase_name(state)
+            .map(StillSyntaxType::Variable)
             .or_else(|| parse_still_syntax_type_parenthesized(state))
             .or_else(|| parse_still_syntax_type_record_or_record_extension(state))
             .map(|type_| StillSyntaxNode {
@@ -8878,8 +8854,8 @@ fn parse_still_syntax_type_not_space_separated(state: &mut ParseState) -> Option
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
-    parse_symbol_as(state, "()", StillSyntaxType::Unit)
-        .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxType::Variable))
+    parse_still_lowercase_name(state)
+        .map(StillSyntaxType::Variable)
         .or_else(|| parse_still_syntax_type_parenthesized(state))
         .or_else(|| {
             parse_still_qualified_uppercase_reference_node(state).map(|reference_node| {
@@ -9007,10 +8983,9 @@ fn parse_still_syntax_type_parenthesized(state: &mut ParseState) -> Option<Still
         parse_still_syntax_type_space_separated_node(state);
     parse_still_whitespace_and_comments(state);
     let _ = parse_symbol(state, ")");
-    Some(match maybe_in_parens_0 {
-        None => StillSyntaxType::Unit,
-        Some(in_parens) => StillSyntaxType::Parenthesized(still_syntax_node_box(in_parens)),
-    })
+    Some(StillSyntaxType::Parenthesized(
+        maybe_in_parens_0.map(still_syntax_node_box),
+    ))
 }
 fn parse_still_syntax_pattern_space_separated_node(
     state: &mut ParseState,
@@ -9093,8 +9068,7 @@ fn parse_still_syntax_pattern_not_as_or_cons_node(
 ) -> Option<StillSyntaxNode<StillSyntaxPattern>> {
     parse_still_syntax_pattern_construct_node(state).or_else(|| {
         let start_position = state.position;
-        parse_symbol_as(state, "()", StillSyntaxPattern::Unit)
-            .or_else(|| parse_symbol_as(state, "_", StillSyntaxPattern::Ignored))
+        parse_symbol_as(state, "_", StillSyntaxPattern::Ignored)
             .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxPattern::Variable))
             .or_else(|| parse_still_char(state).map(StillSyntaxPattern::Char))
             .or_else(|| parse_still_syntax_pattern_string(state))
@@ -9117,8 +9091,7 @@ fn parse_still_syntax_pattern_not_space_separated(
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
-    parse_symbol_as(state, "()", StillSyntaxPattern::Unit)
-        .or_else(|| parse_symbol_as(state, "_", StillSyntaxPattern::Ignored))
+    parse_symbol_as(state, "_", StillSyntaxPattern::Ignored)
         .or_else(|| parse_still_syntax_pattern_parenthesized(state))
         .or_else(|| parse_still_lowercase_name(state).map(StillSyntaxPattern::Variable))
         .or_else(|| {
@@ -9250,10 +9223,9 @@ fn parse_still_syntax_pattern_parenthesized(state: &mut ParseState) -> Option<St
         parse_still_syntax_pattern_space_separated_node(state);
     parse_still_whitespace_and_comments(state);
     let _ = parse_symbol(state, ")");
-    Some(match maybe_in_parens_0 {
-        None => StillSyntaxPattern::Unit,
-        Some(in_parens) => StillSyntaxPattern::Parenthesized(still_syntax_node_box(in_parens)),
-    })
+    Some(StillSyntaxPattern::Parenthesized(
+        maybe_in_parens_0.map(still_syntax_node_box),
+    ))
 }
 fn parse_still_unsigned_integer_base10_as_i64(
     state: &mut ParseState,
@@ -9513,16 +9485,14 @@ fn parse_still_syntax_expression_not_space_separated_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
     let start_position: lsp_types::Position = state.position;
-    let start_expression: StillSyntaxExpression =
-        parse_symbol_as(state, "()", StillSyntaxExpression::Unit)
-            .or_else(|| parse_still_syntax_expression_string(state))
-            .or_else(|| parse_still_syntax_expression_list(state))
-            .or_else(|| parse_still_syntax_expression_operator_function_or_parenthesized(state))
-            .or_else(|| parse_still_syntax_expression_reference(state))
-            .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
-            .or_else(|| parse_still_syntax_expression_number(state))
-            .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))
-            .or_else(|| parse_still_syntax_expression_negation(state))?;
+    let start_expression: StillSyntaxExpression = parse_still_syntax_expression_string(state)
+        .or_else(|| parse_still_syntax_expression_list(state))
+        .or_else(|| parse_still_syntax_expression_operator_function_or_parenthesized(state))
+        .or_else(|| parse_still_syntax_expression_reference(state))
+        .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
+        .or_else(|| parse_still_syntax_expression_number(state))
+        .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))
+        .or_else(|| parse_still_syntax_expression_negation(state))?;
     let mut result_node: StillSyntaxNode<StillSyntaxExpression> = StillSyntaxNode {
         range: lsp_types::Range {
             start: start_position,
@@ -10040,10 +10010,9 @@ fn parse_still_syntax_expression_operator_function_or_parenthesized(
         parse_still_syntax_expression_space_separated_node(state);
     parse_still_whitespace_and_comments(state);
     let _ = parse_symbol(state, ")");
-    Some(match maybe_in_parens_0 {
-        None => StillSyntaxExpression::Unit,
-        Some(in_parens) => StillSyntaxExpression::Parenthesized(still_syntax_node_box(in_parens)),
-    })
+    Some(StillSyntaxExpression::Parenthesized(
+        maybe_in_parens_0.map(still_syntax_node_box),
+    ))
 }
 fn parse_still_syntax_declaration_node(
     state: &mut ParseState,
