@@ -589,6 +589,7 @@ fn state_get_project_by_lsp_url<'a>(
 }
 
 type StillName = compact_str::CompactString;
+
 fn respond_to_hover(
     state: &State,
     hover_arguments: &lsp_types::HoverParams,
@@ -668,21 +669,17 @@ fn respond_to_hover(
                 ),
                 StillSyntaxDeclaration::Variable {
                     start_name: origin_project_declaration_name_node,
-                    signature: origin_project_declaration_maybe_signature,
-                    parameters: _,
                     equals_key_symbol_range: _,
-                    result: _,
+                    result: maybe_result_node,
                 } => present_variable_declaration_info_markdown(
-                    &hovered_project_state.syntax.comments,
                     still_syntax_node_as_ref_map(
                         origin_project_declaration_name_node,
                         StillName::as_str,
                     ),
                     documentation,
-                    origin_project_declaration_maybe_signature
-                        .as_ref()
-                        .and_then(|signature| signature.type_.as_ref())
-                        .map(still_syntax_node_as_ref),
+                    maybe_result_node.as_ref().and_then(|result_node| {
+                        still_syntax_expression_type(still_syntax_node_as_ref(result_node)).ok()
+                    }),
                 ),
             };
             Some(lsp_types::Hover {
@@ -824,14 +821,11 @@ fn respond_to_hover(
                         }
                         StillSyntaxDeclaration::Variable {
                             start_name: origin_project_declaration_name_node,
-                            signature: origin_project_declaration_maybe_signature,
-                            parameters: _,
                             equals_key_symbol_range: _,
-                            result: _,
+                            result: maybe_result_node,
                         } => {
                             if origin_project_declaration_name_node.value.as_str() == hovered_name {
                                 Some(present_variable_declaration_info_markdown(
-                                    &hovered_project_state.syntax.comments,
                                     still_syntax_node_as_ref_map(
                                         origin_project_declaration_name_node,
                                         StillName::as_str,
@@ -840,10 +834,12 @@ fn respond_to_hover(
                                         .documentation
                                         .as_ref()
                                         .map(|node| node.value.as_ref()),
-                                    origin_project_declaration_maybe_signature
-                                        .as_ref()
-                                        .and_then(|signature| signature.type_.as_ref())
-                                        .map(still_syntax_node_as_ref),
+                                    maybe_result_node.as_ref().and_then(|result_node| {
+                                        still_syntax_expression_type(still_syntax_node_as_ref(
+                                            result_node,
+                                        ))
+                                        .ok()
+                                    }),
                                 ))
                             } else {
                                 None
@@ -970,9 +966,7 @@ fn local_binding_info_markdown(
                 value: binding_name,
                 range: start_name_range,
             },
-            maybe_signature
-                .and_then(|signature| signature.type_.as_ref())
-                .map(still_syntax_node_as_ref),
+            maybe_signature,
         ),
     }
 }
@@ -986,10 +980,6 @@ fn let_declaration_info_markdown(
             format!("```still\nlet {}\n```\n", start_name_node.value)
         }
         Some(hovered_local_binding_signature) => {
-            let signature_type_internal_comments = still_syntax_comments_in_range(
-                &project_syntax.comments,
-                hovered_local_binding_signature.range,
-            );
             format!(
                 "```still\nlet {} :{}{}\n```\n",
                 start_name_node.value,
@@ -998,16 +988,12 @@ fn let_declaration_info_markdown(
                         start: start_name_node.range.end,
                         end: hovered_local_binding_signature.range.end
                     },
-                    signature_type_internal_comments
+                    &[]
                 ) {
                     LineSpan::Single => " ",
                     LineSpan::Multiple => "\n    ",
                 },
-                &still_syntax_type_to_string(
-                    hovered_local_binding_signature,
-                    4,
-                    signature_type_internal_comments
-                )
+                &still_syntax_type_to_string(hovered_local_binding_signature, 4, &[])
             )
         }
     }
@@ -1877,29 +1863,20 @@ fn semantic_token_type_to_id(semantic_token: &lsp_types::SemanticTokenType) -> u
 }
 
 fn present_variable_declaration_info_markdown(
-    comments: &[StillSyntaxNode<StillSyntaxComment>],
     start_name_node: StillSyntaxNode<&str>,
     maybe_documentation: Option<&str>,
-    maybe_signature_type: Option<StillSyntaxNode<&StillSyntaxType>>,
+    retrieved_type_result: Option<StillSyntaxNode<&StillSyntaxType>>,
 ) -> String {
-    let description: String = match maybe_signature_type {
-        Some(signature_type_node) => {
-            let type_internal_comments =
-                still_syntax_comments_in_range(comments, signature_type_node.range);
+    let description: String = match retrieved_type_result {
+        Some(retrieved_type) => {
             format!(
                 "```still\n{} :{}{}\n```\n",
                 start_name_node.value,
-                match still_syntax_range_line_span(
-                    lsp_types::Range {
-                        start: start_name_node.range.end,
-                        end: signature_type_node.range.start
-                    },
-                    type_internal_comments
-                ) {
+                match still_syntax_range_line_span(retrieved_type.range, &[]) {
                     LineSpan::Single => " ",
                     LineSpan::Multiple => "\n    ",
                 },
-                &still_syntax_type_to_string(signature_type_node, 4, type_internal_comments)
+                &still_syntax_type_to_string(retrieved_type, 4, &[])
             )
         }
         None => format!("```still\n{}\n```\n", &start_name_node.value),
@@ -1994,115 +1971,8 @@ fn respond_to_completion(
     let maybe_completion_items: Option<Vec<lsp_types::CompletionItem>> = match symbol_to_complete
         .value
     {
-        StillSyntaxSymbol::LetDeclarationName {
-            name: _,
-            start_name_range: _,
-            signature_type: _,
-            scope_expression,
-        } => {
-            match scope_expression.value {
-                StillSyntaxExpression::LetIn {
-                    declarations: let_declarations,
-                    in_keyword_range: _,
-                    result: _,
-                } => {
-                    // find previous signature
-                    let_declarations
-                        .iter()
-                        .zip(let_declarations.iter().skip(1))
-                        .find_map(|(previous_declaration_node, current_declaration_node)| {
-                            if let StillSyntaxLetDeclaration::VariableDeclaration {
-                                start_name: current_declaration_start_name_node,
-                                signature: None,
-                                ..
-                            } = &current_declaration_node.value
-                                && current_declaration_start_name_node.range
-                                    == symbol_to_complete.range
-                                && let StillSyntaxLetDeclaration::VariableDeclaration {
-                                    start_name: previous_declaration_start_name_node,
-                                    signature:
-                                        Some(StillSyntaxVariableDeclarationSignature {
-                                            implementation_name_range: None,
-                                            ..
-                                        }),
-                                    ..
-                                } = &previous_declaration_node.value
-                            {
-                                Some(vec![lsp_types::CompletionItem {
-                                    label: previous_declaration_start_name_node.value.to_string(),
-                                    kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-                                    documentation: None,
-                                    ..lsp_types::CompletionItem::default()
-                                }])
-                            } else {
-                                None
-                            }
-                        })
-                }
-                _ => None,
-            }
-        }
-        StillSyntaxSymbol::ProjectMemberDeclarationName { declaration, .. } => {
-            match &declaration.value {
-                StillSyntaxDeclaration::ChoiceType { .. }
-                | StillSyntaxDeclaration::TypeAlias { .. }
-                | StillSyntaxDeclaration::Variable {
-                    signature: Some(_), ..
-                } => {
-                    // these are custom names you choose yourself, no need to suggest completion
-                    None
-                }
-                StillSyntaxDeclaration::Variable {
-                    signature: None, ..
-                } => {
-                    // find previous signature
-                    completion_project
-                        .syntax
-                        .declarations
-                        .iter()
-                        .filter_map(|declaration_or_err| declaration_or_err.as_ref().ok())
-                        .zip(
-                            completion_project
-                                .syntax
-                                .declarations
-                                .iter()
-                                .filter_map(|declaration_or_err| declaration_or_err.as_ref().ok())
-                                .skip(1),
-                        )
-                        .find_map(|(previous_declaration, current_declaration)| {
-                            if let Some(current_declaration_node) = &current_declaration.declaration
-                                && let StillSyntaxDeclaration::Variable {
-                                    start_name: current_declaration_start_name_node,
-                                    signature: None,
-                                    ..
-                                } = &current_declaration_node.value
-                                && current_declaration_start_name_node.range
-                                    == symbol_to_complete.range
-                                && let Some(previous_declaration_node) =
-                                    &previous_declaration.declaration
-                                && let StillSyntaxDeclaration::Variable {
-                                    start_name: previous_declaration_start_name_node,
-                                    signature:
-                                        Some(StillSyntaxVariableDeclarationSignature {
-                                            implementation_name_range: None,
-                                            ..
-                                        }),
-                                    ..
-                                } = &previous_declaration_node.value
-                            {
-                                Some(vec![lsp_types::CompletionItem {
-                                    label: previous_declaration_start_name_node.value.to_string(),
-                                    kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-                                    documentation: None,
-                                    ..lsp_types::CompletionItem::default()
-                                }])
-                            } else {
-                                None
-                            }
-                        })
-                }
-            }
-        }
+        StillSyntaxSymbol::LetDeclarationName { .. } => None,
+        StillSyntaxSymbol::ProjectMemberDeclarationName { .. } => None,
         StillSyntaxSymbol::VariableOrVariant {
             name: _,
             local_bindings,
@@ -2261,10 +2131,8 @@ fn variable_declaration_completions_into(
             }
             StillSyntaxDeclaration::Variable {
                 start_name: start_name_node,
-                signature: maybe_signature,
-                parameters: _,
                 equals_key_symbol_range: _,
-                result: _,
+                result: maybe_result_node,
             } => {
                 completion_items.push(lsp_types::CompletionItem {
                     label: start_name_node.value.to_string(),
@@ -2273,13 +2141,14 @@ fn variable_declaration_completions_into(
                         lsp_types::MarkupContent {
                             kind: lsp_types::MarkupKind::Markdown,
                             value: present_variable_declaration_info_markdown(
-                                &project_syntax.comments,
                                 still_syntax_node_as_ref_map(start_name_node, StillName::as_str),
                                 origin_project_declaration_documentation,
-                                maybe_signature
-                                    .as_ref()
-                                    .and_then(|signature| signature.type_.as_ref())
-                                    .map(still_syntax_node_as_ref),
+                                maybe_result_node.as_ref().and_then(|result_node| {
+                                    still_syntax_expression_type(still_syntax_node_as_ref(
+                                        result_node,
+                                    ))
+                                    .ok()
+                                }),
                             ),
                         },
                     )),
@@ -2515,8 +2384,6 @@ fn respond_to_document_symbols(
                 }
                 StillSyntaxDeclaration::Variable {
                     start_name: start_name_node,
-                    signature: _,
-                    parameters: _,
                     equals_key_symbol_range: _,
                     result: _,
                 } => Some(lsp_types::DocumentSymbol {
@@ -2862,12 +2729,11 @@ enum StillSyntaxLetDeclaration {
     },
     VariableDeclaration {
         start_name: StillSyntaxNode<StillName>,
-        signature: Option<StillSyntaxVariableDeclarationSignature>,
-        parameters: Vec<StillSyntaxNode<StillSyntaxPattern>>,
         equals_key_symbol_range: Option<lsp_types::Range>,
         result: Option<StillSyntaxNode<StillSyntaxExpression>>,
     },
 }
+// TODO remove (and use just the type in place)
 #[derive(Clone, Debug, PartialEq)]
 struct StillSyntaxVariableDeclarationSignature {
     colon_key_symbol_range: lsp_types::Range,
@@ -2957,8 +2823,6 @@ enum StillSyntaxDeclaration {
     },
     Variable {
         start_name: StillSyntaxNode<StillName>,
-        signature: Option<StillSyntaxVariableDeclarationSignature>,
-        parameters: Vec<StillSyntaxNode<StillSyntaxPattern>>,
         equals_key_symbol_range: Option<lsp_types::Range>,
         result: Option<StillSyntaxNode<StillSyntaxExpression>>,
     },
@@ -3030,6 +2894,66 @@ struct StillSyntaxProject {
 struct StillSyntaxDocumentedDeclaration {
     documentation: Option<StillSyntaxNode<Box<str>>>,
     declaration: Option<StillSyntaxNode<StillSyntaxDeclaration>>,
+}
+
+struct RetrieveTypeError {
+    range: lsp_types::Range,
+    message: Box<str>,
+}
+
+fn still_syntax_expression_type(
+    // TODO take local and project bindings
+    expression_node: StillSyntaxNode<&StillSyntaxExpression>,
+) -> Result<StillSyntaxNode<&StillSyntaxType>, Vec<RetrieveTypeError>> {
+    still_syntax_expression_type_with(std::collections::HashMap::new(), expression_node)
+}
+fn still_syntax_expression_type_with<'a>(
+    bindings: std::collections::HashMap<StillName, StillSyntaxNode<&'a StillSyntaxType>>,
+    expression_node: StillSyntaxNode<&'a StillSyntaxExpression>,
+) -> Result<StillSyntaxNode<&'a StillSyntaxType>, Vec<RetrieveTypeError>> {
+    match &expression_node.value {
+        StillSyntaxExpression::Call {
+            called,
+            argument0,
+            argument1_up,
+        } => todo!(),
+        StillSyntaxExpression::CaseOf {
+            matched,
+            of_keyword_range,
+            cases,
+        } => todo!(),
+        StillSyntaxExpression::Char(_) => todo!(),
+        StillSyntaxExpression::Float(_) => todo!(),
+        StillSyntaxExpression::Int { value } => todo!(),
+        StillSyntaxExpression::Lambda {
+            parameters,
+            arrow_key_symbol_range,
+            result,
+        } => todo!(),
+        StillSyntaxExpression::LetIn {
+            declarations,
+            in_keyword_range,
+            result,
+        } => todo!(),
+        StillSyntaxExpression::List(still_syntax_nodes) => todo!(),
+        StillSyntaxExpression::Negation(still_syntax_node) => todo!(),
+        StillSyntaxExpression::Parenthesized(None) => Err(vec![]),
+        StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
+            still_syntax_expression_type_with(bindings, still_syntax_node_unbox(in_parens))
+        }
+        StillSyntaxExpression::Record(still_syntax_expression_fields) => todo!(),
+        StillSyntaxExpression::RecordAccess { record, field } => todo!(),
+        StillSyntaxExpression::RecordUpdate {
+            record_variable,
+            bar_key_symbol_range,
+            fields,
+        } => todo!(),
+        StillSyntaxExpression::Reference { name } => todo!(),
+        StillSyntaxExpression::String {
+            content,
+            quoting_style,
+        } => todo!(),
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -4746,8 +4670,6 @@ fn still_syntax_let_declaration_into(
         }
         StillSyntaxLetDeclaration::VariableDeclaration {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             result: maybe_result,
         } => {
@@ -4756,8 +4678,6 @@ fn still_syntax_let_declaration_into(
                 indent,
                 comments,
                 still_syntax_node_as_ref_map(start_name_node, StillName::as_str),
-                maybe_signature.as_ref(),
-                parameters,
                 *maybe_equals_key_symbol_range,
                 maybe_result.as_ref().map(still_syntax_node_as_ref),
             );
@@ -4769,116 +4689,17 @@ fn still_syntax_variable_declaration_into(
     indent: usize,
     comments: &[StillSyntaxNode<StillSyntaxComment>],
     start_name_node: StillSyntaxNode<&str>,
-    maybe_signature: Option<&StillSyntaxVariableDeclarationSignature>,
-    parameters: &[StillSyntaxNode<StillSyntaxPattern>],
     maybe_equals_key_symbol_range: Option<lsp_types::Range>,
     maybe_result: Option<StillSyntaxNode<&StillSyntaxExpression>>,
 ) {
     so_far.push_str(start_name_node.value);
-    let mut syntax_before_parameters_end: lsp_types::Position = start_name_node.range.end;
-    if let Some(signature) = maybe_signature {
-        so_far.push_str(" :");
-        if let Some(type_node) = &signature.type_ {
-            let comments_before_type = still_syntax_comments_in_range(
-                comments,
-                lsp_types::Range {
-                    start: start_name_node.range.end,
-                    end: type_node.range.start,
-                },
-            );
-            space_or_linebreak_indented_into(
-                so_far,
-                if start_name_node.range.end.line == type_node.range.end.line
-                    && comments_before_type.is_empty()
-                {
-                    LineSpan::Single
-                } else {
-                    LineSpan::Multiple
-                },
-                next_indent(indent),
-            );
-            still_syntax_comments_then_linebreak_indented_into(
-                so_far,
-                next_indent(indent),
-                comments_before_type,
-            );
-            still_syntax_type_not_parenthesized_into(
-                so_far,
-                next_indent(indent),
-                comments,
-                still_syntax_node_as_ref(type_node),
-            );
-            syntax_before_parameters_end = type_node.range.end;
-        }
-        linebreak_indented_into(so_far, indent);
-        if let Some(implementation_name_range) = signature.implementation_name_range {
-            still_syntax_comments_then_linebreak_indented_into(
-                so_far,
-                indent,
-                still_syntax_comments_in_range(
-                    comments,
-                    lsp_types::Range {
-                        start: signature
-                            .type_
-                            .as_ref()
-                            .map(|node| node.range.end)
-                            .unwrap_or(signature.colon_key_symbol_range.end),
-                        end: implementation_name_range.start,
-                    },
-                ),
-            );
-            syntax_before_parameters_end = implementation_name_range.end;
-        }
-        so_far.push_str(start_name_node.value);
-    }
-    let parameter_comments = still_syntax_comments_in_range(
-        comments,
-        lsp_types::Range {
-            start: syntax_before_parameters_end,
-            end: if maybe_result.is_none()
-                && let Some(equals_key_symbol_range) = maybe_equals_key_symbol_range
-            {
-                equals_key_symbol_range.end
-            } else {
-                parameters
-                    .last()
-                    .map(|node| node.range.end)
-                    .unwrap_or(syntax_before_parameters_end)
-            },
-        },
-    );
-    let parameters_line_span: LineSpan = if parameter_comments.is_empty() {
-        LineSpan::Single
-    } else {
-        LineSpan::Multiple
-    };
-    let mut previous_parameter_end: lsp_types::Position = start_name_node.range.start;
-    for parameter_node in parameters {
-        space_or_linebreak_indented_into(so_far, parameters_line_span, next_indent(indent));
-        still_syntax_comments_then_linebreak_indented_into(
-            so_far,
-            next_indent(indent),
-            still_syntax_comments_in_range(
-                parameter_comments,
-                lsp_types::Range {
-                    start: previous_parameter_end,
-                    end: parameter_node.range.start,
-                },
-            ),
-        );
-        still_syntax_pattern_parenthesized_if_space_separated_into(
-            so_far,
-            still_syntax_node_as_ref(parameter_node),
-        );
-        previous_parameter_end = parameter_node.range.end;
-    }
-    space_or_linebreak_indented_into(so_far, parameters_line_span, next_indent(indent));
+    so_far.push(' ');
     if maybe_result.is_none()
         && let Some(equals_key_symbol_range) = maybe_equals_key_symbol_range
         && let comments_before_equals_key_symbol = still_syntax_comments_in_range(
             comments,
             lsp_types::Range {
-                start: previous_parameter_end,
+                start: start_name_node.range.start,
                 end: equals_key_symbol_range.start,
             },
         )
@@ -4900,7 +4721,7 @@ fn still_syntax_variable_declaration_into(
             still_syntax_comments_in_range(
                 comments,
                 lsp_types::Range {
-                    start: previous_parameter_end,
+                    start: start_name_node.range.start,
                     end: result_node.range.start,
                 },
             ),
@@ -5121,8 +4942,6 @@ fn still_syntax_expression_any_sub(
                     } => expression.as_ref(),
                     StillSyntaxLetDeclaration::VariableDeclaration {
                         start_name: _,
-                        signature: _,
-                        parameters: _,
                         equals_key_symbol_range: _,
                         result,
                     } => result.as_ref(),
@@ -5307,8 +5126,6 @@ fn still_syntax_declaration_into(
         }
         StillSyntaxDeclaration::Variable {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             result: maybe_result,
         } => {
@@ -5317,8 +5134,6 @@ fn still_syntax_declaration_into(
                 0,
                 comments,
                 still_syntax_node_as_ref_map(start_name_node, StillName::as_str),
-                maybe_signature.as_ref(),
-                parameters,
                 *maybe_equals_key_symbol_range,
                 maybe_result.as_ref().map(still_syntax_node_as_ref),
             );
@@ -5759,8 +5574,6 @@ fn still_syntax_declaration_find_reference_at_position<'a>(
             }
             StillSyntaxDeclaration::Variable {
                 start_name: start_name_node,
-                signature: maybe_signature,
-                parameters,
                 equals_key_symbol_range: _,
                 result: maybe_result,
             } => {
@@ -5774,62 +5587,15 @@ fn still_syntax_declaration_find_reference_at_position<'a>(
                         range: start_name_node.range,
                     })
                 } else {
-                    maybe_signature
-                        .as_ref()
-                        .and_then(|signature: &StillSyntaxVariableDeclarationSignature| {
-                            if let Some(implementation_name_range) =
-                                signature.implementation_name_range
-                                && lsp_range_includes_position(implementation_name_range, position)
-                            {
-                                Some(StillSyntaxNode {
-                                    value: StillSyntaxSymbol::ProjectMemberDeclarationName {
-                                        name: &start_name_node.value,
-                                        declaration: still_syntax_declaration_node,
-                                        documentation: maybe_documentation,
-                                    },
-                                    range: start_name_node.range,
-                                })
-                            } else {
-                                signature.type_.as_ref().and_then(|signature_type_node| {
-                                    still_syntax_type_find_reference_at_position(
-                                        still_syntax_declaration_node.value,
-                                        still_syntax_node_as_ref(signature_type_node),
-                                        position,
-                                    )
-                                })
-                            }
-                        })
-                        .or_else(|| {
-                            let mut parameter_introduced_bindings: Vec<StillLocalBinding> =
-                                Vec::new();
-                            for parameter_node in parameters {
-                                still_syntax_pattern_bindings_into(
-                                    &mut parameter_introduced_bindings,
-                                    still_syntax_node_as_ref(parameter_node),
-                                );
-                            }
-                            maybe_result.as_ref().and_then(|result_node| {
-                                still_syntax_expression_find_reference_at_position(
-                                    vec![(
-                                        still_syntax_node_as_ref(result_node),
-                                        parameter_introduced_bindings,
-                                    )],
-                                    still_syntax_declaration_node.value,
-                                    still_syntax_node_as_ref(result_node),
-                                    position,
-                                )
-                                .break_value()
-                            })
-                        })
-                        .or_else(|| {
-                            parameters.iter().find_map(|parameter| {
-                                still_syntax_pattern_find_reference_at_position(
-                                    still_syntax_declaration_node.value,
-                                    still_syntax_node_as_ref(parameter),
-                                    position,
-                                )
-                            })
-                        })
+                    maybe_result.as_ref().and_then(|result_node| {
+                        still_syntax_expression_find_reference_at_position(
+                            vec![(still_syntax_node_as_ref(result_node), Vec::new())],
+                            still_syntax_declaration_node.value,
+                            still_syntax_node_as_ref(result_node),
+                            position,
+                        )
+                        .break_value()
+                    })
                 }
             }
         }
@@ -6037,7 +5803,7 @@ enum LocalBindingOrigin<'a> {
     PatternVariable(lsp_types::Range),
     PatternRecordField(lsp_types::Range),
     LetDeclaredVariable {
-        signature: Option<&'a StillSyntaxVariableDeclarationSignature>,
+        signature: Option<StillSyntaxNode<&'a StillSyntaxType>>,
         start_name_range: lsp_types::Range,
     },
 }
@@ -6339,72 +6105,29 @@ fn still_syntax_let_declaration_find_reference_at_position<'a>(
         }
         StillSyntaxLetDeclaration::VariableDeclaration {
             start_name,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: _,
-            result: maybe_result,
+            result: maybe_result_node,
         } => {
             if lsp_range_includes_position(start_name.range, position) {
                 return std::ops::ControlFlow::Break(StillSyntaxNode {
                     value: StillSyntaxSymbol::LetDeclarationName {
                         name: &start_name.value,
                         start_name_range: start_name.range,
-                        signature_type: maybe_signature
-                            .as_ref()
-                            .and_then(|signature| signature.type_.as_ref())
-                            .map(still_syntax_node_as_ref),
+                        signature_type: maybe_result_node.as_ref().and_then(|result_node| {
+                            still_syntax_expression_type(still_syntax_node_as_ref(result_node)).ok()
+                        }),
                         scope_expression: scope_expression,
                     },
                     range: start_name.range,
                 });
             }
-            on_some_break(parameters.iter().find_map(|parameter| {
-                still_syntax_pattern_find_reference_at_position(
+            match maybe_result_node {
+                Some(result_node) => still_syntax_expression_find_reference_at_position(
+                    local_bindings,
                     scope_declaration,
-                    still_syntax_node_as_ref(parameter),
+                    still_syntax_node_as_ref(result_node),
                     position,
-                )
-            }))?;
-            if let Some(signature) = maybe_signature {
-                if let Some(implementation_name_range) = signature.implementation_name_range
-                    && lsp_range_includes_position(implementation_name_range, position)
-                {
-                    return std::ops::ControlFlow::Break(StillSyntaxNode {
-                        value: StillSyntaxSymbol::LetDeclarationName {
-                            name: &start_name.value,
-                            start_name_range: start_name.range,
-                            signature_type: signature.type_.as_ref().map(still_syntax_node_as_ref),
-                            scope_expression: scope_expression,
-                        },
-                        range: implementation_name_range,
-                    });
-                }
-                if let Some(signature_type_node) = &signature.type_ {
-                    on_some_break(still_syntax_type_find_reference_at_position(
-                        scope_declaration,
-                        still_syntax_node_as_ref(signature_type_node),
-                        position,
-                    ))?;
-                }
-            }
-            match maybe_result {
-                Some(result_node) => {
-                    let mut introduced_bindings: Vec<StillLocalBinding> = Vec::new();
-                    for parameter_node in parameters {
-                        still_syntax_pattern_bindings_into(
-                            &mut introduced_bindings,
-                            still_syntax_node_as_ref(parameter_node),
-                        );
-                    }
-                    local_bindings
-                        .push((still_syntax_node_as_ref(result_node), introduced_bindings));
-                    still_syntax_expression_find_reference_at_position(
-                        local_bindings,
-                        scope_declaration,
-                        still_syntax_node_as_ref(result_node),
-                        position,
-                    )
-                }
+                ),
                 None => std::ops::ControlFlow::Continue(local_bindings),
             }
         }
@@ -6554,8 +6277,6 @@ fn still_syntax_declaration_uses_of_reference_into(
         }
         StillSyntaxDeclaration::Variable {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: _,
             result: maybe_result,
         } => {
@@ -6568,43 +6289,10 @@ fn still_syntax_declaration_uses_of_reference_into(
             {
                 uses_so_far.push(start_name_node.range);
             }
-            if let Some(signature) = maybe_signature {
-                if let Some(implementation_name_range) = signature.implementation_name_range
-                    && symbol_to_collect_uses_of
-                        == (StillSymbolToReference::VariableOrVariant {
-                            name: &start_name_node.value,
-
-                            including_declaration_name: true,
-                        })
-                {
-                    uses_so_far.push(implementation_name_range);
-                }
-                if let Some(signature_type_node) = &signature.type_ {
-                    still_syntax_type_uses_of_reference_into(
-                        uses_so_far,
-                        still_syntax_node_as_ref(signature_type_node),
-                        symbol_to_collect_uses_of,
-                    );
-                }
-            }
-            for parameter in parameters {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(parameter),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            let mut parameter_bindings: Vec<StillLocalBinding> = Vec::new();
-            for parameter_node in parameters {
-                still_syntax_pattern_bindings_into(
-                    &mut parameter_bindings,
-                    still_syntax_node_as_ref(parameter_node),
-                );
-            }
             if let Some(result_node) = maybe_result {
                 still_syntax_expression_uses_of_reference_into(
                     uses_so_far,
-                    &parameter_bindings,
+                    &[],
                     still_syntax_node_as_ref(result_node),
                     symbol_to_collect_uses_of,
                 );
@@ -6989,8 +6677,6 @@ fn still_syntax_let_declaration_uses_of_reference_into(
         }
         StillSyntaxLetDeclaration::VariableDeclaration {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: _,
             result: maybe_result,
         } => {
@@ -7001,42 +6687,12 @@ fn still_syntax_let_declaration_uses_of_reference_into(
                 })
             {
                 uses_so_far.push(start_name_node.range);
-                if let Some(signature) = maybe_signature
-                    && let Some(implementation_name_range) = signature.implementation_name_range
-                {
-                    uses_so_far.push(implementation_name_range);
-                }
                 return;
             }
-            if let Some(signature) = maybe_signature
-                && let Some(signature_type_node) = &signature.type_
-            {
-                still_syntax_type_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(signature_type_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            for parameter in parameters {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(parameter),
-                    symbol_to_collect_uses_of,
-                );
-            }
             if let Some(result_node) = maybe_result {
-                let mut local_bindings_including_from_let_function_parameters: Vec<
-                    StillLocalBinding,
-                > = local_bindings.to_vec();
-                for parameter_node in parameters {
-                    still_syntax_pattern_bindings_into(
-                        &mut local_bindings_including_from_let_function_parameters,
-                        still_syntax_node_as_ref(parameter_node),
-                    );
-                }
                 still_syntax_expression_uses_of_reference_into(
                     uses_so_far,
-                    &local_bindings_including_from_let_function_parameters,
+                    &local_bindings,
                     still_syntax_node_as_ref(result_node),
                     symbol_to_collect_uses_of,
                 );
@@ -7150,13 +6806,15 @@ fn still_syntax_let_declaration_introduced_bindings_into<'a>(
         }
         StillSyntaxLetDeclaration::VariableDeclaration {
             start_name: start_name_node,
-            signature,
-            ..
+            equals_key_symbol_range: _,
+            result: maybe_result_node,
         } => {
             bindings_so_far.push(StillLocalBinding {
                 name: &start_name_node.value,
                 origin: LocalBindingOrigin::LetDeclaredVariable {
-                    signature: signature.as_ref(),
+                    signature: maybe_result_node.as_ref().and_then(|result_node| {
+                        still_syntax_expression_type(still_syntax_node_as_ref(result_node)).ok()
+                    }),
                     start_name_range: start_name_node.range,
                 },
             });
@@ -7396,8 +7054,6 @@ fn still_syntax_highlight_declaration_into(
     match still_syntax_declaration_node.value {
         StillSyntaxDeclaration::Variable {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             result: maybe_result,
         } => {
@@ -7405,30 +7061,6 @@ fn still_syntax_highlight_declaration_into(
                 range: start_name_node.range,
                 value: StillSyntaxHighlightKind::DeclaredVariable,
             });
-            if let Some(signature) = maybe_signature {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: signature.colon_key_symbol_range,
-                    value: StillSyntaxHighlightKind::KeySymbol,
-                });
-                if let Some(signature_type_node) = &signature.type_ {
-                    still_syntax_highlight_type_into(
-                        highlighted_so_far,
-                        still_syntax_node_as_ref(signature_type_node),
-                    );
-                }
-                if let Some(implementation_name_range) = signature.implementation_name_range {
-                    highlighted_so_far.push(StillSyntaxNode {
-                        range: implementation_name_range,
-                        value: StillSyntaxHighlightKind::DeclaredVariable,
-                    });
-                }
-            }
-            for parameter_node in parameters {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_as_ref(parameter_node),
-                );
-            }
             if let &Some(equals_key_symbol_range) = maybe_equals_key_symbol_range {
                 highlighted_so_far.push(StillSyntaxNode {
                     range: equals_key_symbol_range,
@@ -7436,16 +7068,9 @@ fn still_syntax_highlight_declaration_into(
                 });
             }
             if let Some(result_node) = maybe_result {
-                let mut local_bindings: Vec<StillLocalBinding> = Vec::new();
-                for parameter_node in parameters {
-                    still_syntax_pattern_bindings_into(
-                        &mut local_bindings,
-                        still_syntax_node_as_ref(parameter_node),
-                    );
-                }
                 still_syntax_highlight_expression_into(
                     highlighted_so_far,
-                    &local_bindings,
+                    &[],
                     still_syntax_node_as_ref(result_node),
                 );
             }
@@ -8151,8 +7776,6 @@ fn still_syntax_highlight_let_declaration_into(
         }
         StillSyntaxLetDeclaration::VariableDeclaration {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             result: maybe_result,
         } => {
@@ -8160,30 +7783,6 @@ fn still_syntax_highlight_let_declaration_into(
                 range: start_name_node.range,
                 value: StillSyntaxHighlightKind::DeclaredVariable,
             });
-            if let Some(signature) = maybe_signature {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: signature.colon_key_symbol_range,
-                    value: StillSyntaxHighlightKind::KeySymbol,
-                });
-                if let Some(signature_type_node) = &signature.type_ {
-                    still_syntax_highlight_type_into(
-                        highlighted_so_far,
-                        still_syntax_node_as_ref(signature_type_node),
-                    );
-                }
-                if let Some(implementation_name_range) = signature.implementation_name_range {
-                    highlighted_so_far.push(StillSyntaxNode {
-                        range: implementation_name_range,
-                        value: StillSyntaxHighlightKind::DeclaredVariable,
-                    });
-                }
-            }
-            for parameter_node in parameters {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_as_ref(parameter_node),
-                );
-            }
             if let &Some(equals_key_symbol_range) = maybe_equals_key_symbol_range {
                 highlighted_so_far.push(StillSyntaxNode {
                     range: equals_key_symbol_range,
@@ -8191,13 +7790,6 @@ fn still_syntax_highlight_let_declaration_into(
                 });
             }
             if let Some(result_node) = maybe_result {
-                let mut local_bindings: Vec<StillLocalBinding> = local_bindings.to_vec();
-                for parameter_node in parameters {
-                    still_syntax_pattern_bindings_into(
-                        &mut local_bindings,
-                        still_syntax_node_as_ref(parameter_node),
-                    );
-                }
                 still_syntax_highlight_expression_into(
                     highlighted_so_far,
                     &local_bindings,
@@ -9641,69 +9233,6 @@ fn parse_still_syntax_let_variable_declaration_node(
 ) -> Option<StillSyntaxNode<StillSyntaxLetDeclaration>> {
     let start_name_node: StillSyntaxNode<StillName> = parse_still_lowercase_name_node(state)?;
     parse_still_whitespace_and_comments(state);
-    Some(match parse_symbol_as_range(state, ":") {
-        None => parse_still_syntax_let_variable_declaration_node_after_maybe_signature_and_name(
-            state,
-            start_name_node,
-            None,
-        ),
-        Some(colon_key_symbol_range) => {
-            parse_still_whitespace_and_comments(state);
-            let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
-                parse_still_syntax_type_space_separated_node(state);
-            parse_still_whitespace_and_comments(state);
-            match parse_symbol_as_range(state, &start_name_node.value) {
-                None => StillSyntaxNode {
-                    range: lsp_types::Range {
-                        start: start_name_node.range.start,
-                        end: maybe_type
-                            .as_ref()
-                            .map(|node| node.range.end)
-                            .unwrap_or_else(|| colon_key_symbol_range.end),
-                    },
-                    value: StillSyntaxLetDeclaration::VariableDeclaration {
-                        start_name: start_name_node,
-                        signature: Some(StillSyntaxVariableDeclarationSignature {
-                            colon_key_symbol_range: colon_key_symbol_range,
-                            type_: maybe_type,
-                            implementation_name_range: None,
-                        }),
-                        parameters: vec![],
-                        equals_key_symbol_range: None,
-                        result: None,
-                    },
-                },
-                Some(implementation_name_range) => {
-                    parse_still_whitespace_and_comments(state);
-                    parse_still_syntax_let_variable_declaration_node_after_maybe_signature_and_name(
-                        state,
-                        start_name_node,
-                        Some(StillSyntaxVariableDeclarationSignature {
-                            colon_key_symbol_range: colon_key_symbol_range,
-                            type_: maybe_type,
-                            implementation_name_range: Some(implementation_name_range),
-                        }),
-                    )
-                }
-            }
-        }
-    })
-}
-fn parse_still_syntax_let_variable_declaration_node_after_maybe_signature_and_name(
-    state: &mut ParseState,
-    start_name_node: StillSyntaxNode<StillName>,
-    maybe_signature: Option<StillSyntaxVariableDeclarationSignature>,
-) -> StillSyntaxNode<StillSyntaxLetDeclaration> {
-    let mut syntax_before_equals_key_symbol_end_location: lsp_types::Position =
-        match &maybe_signature {
-            Some(signature) => signature
-                .implementation_name_range
-                .map(|range| range.end)
-                .or_else(|| signature.type_.as_ref().map(|node| node.range.end))
-                .unwrap_or(signature.colon_key_symbol_range.end),
-            None => start_name_node.range.end,
-        };
-    let mut parameters: Vec<StillSyntaxNode<StillSyntaxPattern>> = Vec::new();
     let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
     parse_still_whitespace_and_comments(state);
     let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
@@ -9712,23 +9241,21 @@ fn parse_still_syntax_let_variable_declaration_node_after_maybe_signature_and_na
         } else {
             parse_still_syntax_expression_space_separated_node(state)
         };
-    StillSyntaxNode {
+    Some(StillSyntaxNode {
         range: lsp_types::Range {
             start: start_name_node.range.start,
             end: maybe_result
                 .as_ref()
                 .map(|node| node.range.end)
                 .or_else(|| maybe_equals_key_symbol_range.map(|range| range.end))
-                .unwrap_or(syntax_before_equals_key_symbol_end_location),
+                .unwrap_or_else(|| start_name_node.range.end),
         },
         value: StillSyntaxLetDeclaration::VariableDeclaration {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters: parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             result: maybe_result,
         },
-    }
+    })
 }
 fn parse_still_syntax_expression_string(state: &mut ParseState) -> Option<StillSyntaxExpression> {
     parse_still_string_triple_quoted(state)
@@ -9914,69 +9441,6 @@ fn parse_still_syntax_declaration_variable_node(
 ) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
     let start_name_node: StillSyntaxNode<StillName> = parse_still_lowercase_name_node(state)?;
     parse_still_whitespace_and_comments(state);
-    Some(match parse_symbol_as_range(state, ":") {
-        None => parse_still_syntax_declaration_variable_node_after_maybe_signature_and_name(
-            state,
-            start_name_node,
-            None,
-        ),
-        Some(colon_key_symbol_range) => {
-            parse_still_whitespace_and_comments(state);
-            let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
-                parse_still_syntax_type_space_separated_node(state);
-            parse_still_whitespace_and_comments(state);
-            match parse_symbol_as_range(state, &start_name_node.value) {
-                None => StillSyntaxNode {
-                    range: lsp_types::Range {
-                        start: start_name_node.range.start,
-                        end: maybe_type
-                            .as_ref()
-                            .map(|node| node.range.end)
-                            .unwrap_or_else(|| colon_key_symbol_range.end),
-                    },
-                    value: StillSyntaxDeclaration::Variable {
-                        start_name: start_name_node,
-                        signature: Some(StillSyntaxVariableDeclarationSignature {
-                            colon_key_symbol_range: colon_key_symbol_range,
-                            type_: maybe_type,
-                            implementation_name_range: None,
-                        }),
-                        parameters: vec![],
-                        equals_key_symbol_range: None,
-                        result: None,
-                    },
-                },
-                Some(implementation_name_range) => {
-                    parse_still_whitespace_and_comments(state);
-                    parse_still_syntax_declaration_variable_node_after_maybe_signature_and_name(
-                        state,
-                        start_name_node,
-                        Some(StillSyntaxVariableDeclarationSignature {
-                            colon_key_symbol_range: colon_key_symbol_range,
-                            type_: maybe_type,
-                            implementation_name_range: Some(implementation_name_range),
-                        }),
-                    )
-                }
-            }
-        }
-    })
-}
-fn parse_still_syntax_declaration_variable_node_after_maybe_signature_and_name(
-    state: &mut ParseState,
-    start_name_node: StillSyntaxNode<StillName>,
-    maybe_signature: Option<StillSyntaxVariableDeclarationSignature>,
-) -> StillSyntaxNode<StillSyntaxDeclaration> {
-    let mut syntax_before_equals_key_symbol_end_location: lsp_types::Position =
-        match &maybe_signature {
-            Some(signature) => signature
-                .implementation_name_range
-                .map(|range| range.end)
-                .or_else(|| signature.type_.as_ref().map(|node| node.range.end))
-                .unwrap_or(signature.colon_key_symbol_range.end),
-            None => start_name_node.range.end,
-        };
-    let mut parameters: Vec<StillSyntaxNode<StillSyntaxPattern>> = Vec::new();
     let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
     parse_still_whitespace_and_comments(state);
     let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
@@ -9985,23 +9449,21 @@ fn parse_still_syntax_declaration_variable_node_after_maybe_signature_and_name(
         } else {
             parse_still_syntax_expression_space_separated_node(state)
         };
-    StillSyntaxNode {
+    Some(StillSyntaxNode {
         range: lsp_types::Range {
             start: start_name_node.range.start,
             end: maybe_result
                 .as_ref()
                 .map(|node| node.range.end)
                 .or_else(|| maybe_equals_key_symbol_range.map(|range| range.end))
-                .unwrap_or(syntax_before_equals_key_symbol_end_location),
+                .unwrap_or(start_name_node.range.end),
         },
         value: StillSyntaxDeclaration::Variable {
             start_name: start_name_node,
-            signature: maybe_signature,
-            parameters: parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             result: maybe_result,
         },
-    }
+    })
 }
 fn parse_still_syntax_documented_declaration_followed_by_whitespace_and_comments_and_whatever_indented(
     state: &mut ParseState,
