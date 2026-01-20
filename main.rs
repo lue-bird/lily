@@ -4167,7 +4167,7 @@ fn still_syntax_expression_not_parenthesized_into(
             fields,
         } => {
             let line_span: LineSpan = still_syntax_range_line_span(expression_node.range, comments);
-            so_far.push_str("{ ");
+            so_far.push_str("{ ..");
             let mut previous_syntax_end: lsp_types::Position = expression_node.range.start;
             if let Some(record_variable_node) = maybe_record_variable {
                 so_far.push_str(&record_variable_node.value);
@@ -4175,7 +4175,7 @@ fn still_syntax_expression_not_parenthesized_into(
             }
             if let Some((field0, field1_up)) = fields.split_first() {
                 space_or_linebreak_indented_into(so_far, line_span, indent);
-                so_far.push_str("| ");
+                so_far.push_str(", ");
                 previous_syntax_end = still_syntax_expression_fields_into_string(
                     so_far, indent, comments, line_span, field0, field1_up,
                 );
@@ -8259,10 +8259,10 @@ fn parse_still_syntax_expression_record_or_record_update(
     while parse_symbol(state, ",") {
         parse_still_whitespace_and_comments(state);
     }
-    let maybe_start_name: Option<StillSyntaxNode<StillName>> =
-        parse_still_lowercase_name_node(state);
-    parse_still_whitespace_and_comments(state);
-    if let Some(bar_key_symbol_range) = parse_symbol_as_range(state, "|") {
+    if let Some(bar_key_symbol_range) = parse_symbol_as_range(state, "..") {
+        parse_still_whitespace_and_comments(state);
+        let maybe_start_name: Option<StillSyntaxNode<compact_str::CompactString>> =
+            parse_still_lowercase_name_node(state);
         parse_still_whitespace_and_comments(state);
         while parse_symbol(state, ",") {
             parse_still_whitespace_and_comments(state);
@@ -8281,7 +8281,8 @@ fn parse_still_syntax_expression_record_or_record_update(
             bar_key_symbol_range: bar_key_symbol_range,
             fields: fields,
         })
-    } else if let Some(field0_name_node) = maybe_start_name {
+    } else if let Some(field0_name_node) = parse_still_lowercase_name_node(state) {
+        parse_still_whitespace_and_comments(state);
         let maybe_field0_equals_key_symbol_range: Option<lsp_types::Range> =
             parse_symbol_as_range(state, "=");
         parse_still_whitespace_and_comments(state);
