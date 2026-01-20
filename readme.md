@@ -1,10 +1,18 @@
-small programming language that compiles to rust, heavily inspired by [elm](https://elm-lang.org/).
+small, explicitly boring programming language that compiles to rust, heavily inspired by [elm](https://elm-lang.org/).
 Just experimentation.
+
+## maybe interesting deviations
+
+- full type-inference considered not useful. Instead, each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str_append \:str:a -> \:str:b -> :str:`, `0.0`, `:vec int:[]` are used instead.
+  
+  Having concrete types everywhere also makes type checking faster, generates better errors and makes transpiling to almost any language very easy (e.g. elm's polymorphic number operations or `let`s are generally hard to infer and represent nicely in other languages)
+
+- no `|>` or infix operators
 
 ## hello world
 
 ```still
-\:uninitialized_or {}:_ -> Standard_out_write "hello, world\n"
+\:uninitialized_or {}:_ -> :io {}:Standard_out_write "hello, world\n"
 ```
 
 ## echo in loop
@@ -13,18 +21,18 @@ Just experimentation.
 \:uninitialized_or str:state_or_uninitialized ->
   let state
         case state_or_uninitialized of
-        Uninitialized -> ""
-        Initialized :str:initialized -> initialized
-  Io_batch
-    [ Standard_out_write
+        :uninitialized_or str:Uninitialized -> ""
+        :uninitialized_or str:Initialized :str:initialized -> initialized
+  :io str:Io_batch
+    [ :io str:Standard_out_write
         (str_flatten [ ansi_clear_screen, state, "\nType a sentence to echo: " ])
-    , Standard_in_read_line (\:str:line -> line)
+    , :io str:Standard_in_read_line (\:str:line -> line)
     ]
 
 ansi_clear_screen "\u{001B}c"
 ```
 
-## cons-list map
+## cons-list
 
 ```still
 type stack A = Empty | Cons { head A, tail stack A }
@@ -40,25 +48,23 @@ stack_map \{ change :\A -> B:element_change, stack :stack A:stack } ->
 ```
 
 ## TODO
-- remove record extension type
-- allow any record in record update
-- remove parse_still_documentation_comment_block_str
-- change comment system to `Expression::WithComment` and `Pattern::WithComment` and `Type::WithComment` (each meaning it is prefixed by `--`) and _always_ preserve line-spread of original range! Then, remove all &comments parameters
-- remove `Pattern::Parenthesized`
+- change comment system to `Expression::WithComment` and `Pattern::WithComment` and `Type::WithComment` (each meaning it is prefixed by `#`) and _always_ preserve line-spread of original range! Then, remove all &comments parameters
 - split call and variant expression syntax tree
-- require types for lambda variable and ignored
-- `:type:expression`/`:type:pattern` for (extra) type-checking, like `:option int:None` or `add \:int:n -> :int:some expression`
-- type checking
+- `:type:expression` for (extra) type-checking, like `:option int:Some -1`
+- type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any variables)
 - `still build`
-- small standard library (`str`, `vec`, `int` (i32), `dec` (f32), ?`order`, ?`char`(unicode_scalar/rune), `int_to_str`, `dec_to_str`, `int/dec_add`, `int/dec_multiply`, `dec_power`, `str_compare`, `int_compare`, `dec_compare`, ...)
+- small standard library in rust (`str` (&str), `vec` (Rc<Vec<>>), `int` (i32), `dec` (f32), ?`order`, ?`char`(unicode_scalar/rune), `int_to_str`, `dec_to_str`, `int/dec_add`, `int/dec_multiply`, `dec_power`, `str_compare`, `int_compare`, `dec_compare`, ...)
 - simple io (`standard_in_read_line`, `standard_out_write`, ?`type uninitialized_or Initialized = Uninitialized | Initialized Initialized`)
+- `case of` exhaustiveness checking
 
 ## considering
-- anonymous choice types
-- introduce `nat` type and require regular ints to be prefixed with `+`/`-`
+- adding anonymous choice types. They are not allowed to be recursive. Use `type alias` for these. choice types can then be removed
 - find better function call syntax that makes it easy to unwrap the last argument
-- somehow find better string literal syntax
-- add or pattern `| first | second | third` (potentially allow `:overall:| A | B | C` (where the inner variant patterns don't need a type) specifically for variant)
+- find better string literal syntax, like zig's `//` or js' `\`\``
+- (leaning no, at least for now) add or pattern `( first | second | third )` (potentially allow `:overall:( A | B | C )` (where the inner variant patterns don't need a type) specifically for variant)
+- introduce `nat` type and require regular ints to be prefixed with `+`/`-`
+- output rust on save
+- support out-of-order let declarations
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
 ```bash
