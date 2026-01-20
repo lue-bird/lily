@@ -2756,7 +2756,7 @@ enum StillSyntaxExpression {
     },
     RecordUpdate {
         record: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
-        bar_key_symbol_range: lsp_types::Range,
+        spread_key_symbol_range: lsp_types::Range,
         fields: Vec<StillSyntaxExpressionField>,
     },
     Reference {
@@ -2920,7 +2920,7 @@ fn still_syntax_expression_type_with<'a>(
         StillSyntaxExpression::RecordAccess { record, field } => todo!(),
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
-            bar_key_symbol_range: _,
+            spread_key_symbol_range: _,
             fields,
         } => todo!(),
         StillSyntaxExpression::Reference { name } => {
@@ -4163,7 +4163,7 @@ fn still_syntax_expression_not_parenthesized_into(
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
-            bar_key_symbol_range: _,
+            spread_key_symbol_range: _,
             fields,
         } => {
             let line_span: LineSpan = still_syntax_range_line_span(expression_node.range, comments);
@@ -4716,7 +4716,7 @@ fn still_syntax_expression_any_sub(
         }
         StillSyntaxExpression::RecordUpdate {
             record: _,
-            bar_key_symbol_range: _,
+            spread_key_symbol_range: _,
             fields,
         } => fields
             .iter()
@@ -5699,7 +5699,7 @@ fn still_syntax_expression_find_reference_at_position<'a>(
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
-            bar_key_symbol_range: _,
+            spread_key_symbol_range: _,
             fields,
         } => {
             if let Some(record_node) = maybe_record
@@ -6214,7 +6214,7 @@ fn still_syntax_expression_uses_of_reference_into(
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
-            bar_key_symbol_range: _,
+            spread_key_symbol_range: _,
             fields,
         } => {
             if let Some(record_node) = maybe_record {
@@ -7128,7 +7128,7 @@ fn still_syntax_highlight_expression_into(
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
-            bar_key_symbol_range,
+            spread_key_symbol_range,
             fields,
         } => {
             if let Some(record_node) = maybe_record {
@@ -7138,7 +7138,7 @@ fn still_syntax_highlight_expression_into(
                 });
             }
             highlighted_so_far.push(StillSyntaxNode {
-                range: *bar_key_symbol_range,
+                range: *spread_key_symbol_range,
                 value: StillSyntaxHighlightKind::KeySymbol,
             });
             for field in fields {
@@ -8250,7 +8250,7 @@ fn parse_still_syntax_expression_record_or_record_update(
     while parse_symbol(state, ",") {
         parse_still_whitespace_and_comments(state);
     }
-    if let Some(bar_key_symbol_range) = parse_symbol_as_range(state, "..") {
+    if let Some(spread_key_symbol_range) = parse_symbol_as_range(state, "..") {
         parse_still_whitespace_and_comments(state);
         let maybe_record: Option<StillSyntaxNode<StillSyntaxExpression>> =
             parse_still_syntax_expression_space_separated_node(state);
@@ -8269,7 +8269,7 @@ fn parse_still_syntax_expression_record_or_record_update(
         let _: bool = parse_symbol(state, "}");
         Some(StillSyntaxExpression::RecordUpdate {
             record: maybe_record.map(still_syntax_node_box),
-            bar_key_symbol_range: bar_key_symbol_range,
+            spread_key_symbol_range,
             fields: fields,
         })
     } else if let Some(field0_name_node) = parse_still_lowercase_name_node(state) {
