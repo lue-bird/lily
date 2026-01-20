@@ -2690,25 +2690,16 @@ enum StillSyntaxPattern {
         content: String,
         quoting_style: StillSyntaxStringQuotingStyle,
     },
-    Parenthesized(Option<StillSyntaxNode<Box<StillSyntaxPattern>>>),
     Typed {
         type_: Option<StillSyntaxNode<StillSyntaxType>>,
         pattern: Option<StillSyntaxNode<StillSyntaxPatternUntyped>>,
     },
-    // TODO combine with VecExactFilled as [ start_elements, ..remaining_vec:Variable|Ignored(without type), ?end_elements ]
-    VecHeadTail {
-        head: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-        cons_key_symbol: lsp_types::Range,
-        tail: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
-    },
-    VecExactFilled(Vec<StillSyntaxNode<StillSyntaxPattern>>),
     Record(Vec<StillSyntaxNode<StillName>>),
 }
 #[derive(Clone, Debug, PartialEq)]
 enum StillSyntaxPatternUntyped {
     Variable(StillName),
     Ignored,
-    VecEmpty,
     Variant {
         name: StillSyntaxNode<StillName>,
         value: Option<StillSyntaxNode<Box<StillSyntaxPattern>>>,
@@ -3494,12 +3485,6 @@ fn still_syntax_pattern_not_parenthesized_into(
             content,
             quoting_style,
         } => still_string_into(so_far, *quoting_style, content),
-        StillSyntaxPattern::Parenthesized(None) => {
-            so_far.push_str("()");
-        }
-        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
-            still_syntax_pattern_not_parenthesized_into(so_far, still_syntax_node_unbox(in_parens));
-        }
         StillSyntaxPattern::Typed {
             type_: maybe_type_node,
             pattern: maybe_pattern_node_in_types,
@@ -3522,64 +3507,19 @@ fn still_syntax_pattern_not_parenthesized_into(
                     StillSyntaxPatternUntyped::Variable(name) => {
                         so_far.push_str(name);
                     }
-                    StillSyntaxPatternUntyped::VecEmpty => {
-                        so_far.push_str("[]");
-                    }
                     StillSyntaxPatternUntyped::Variant {
                         name: reference,
                         value: maybe_value,
                     } => {
-                        still_qualified_name_into(so_far, &reference.value);
+                        still_name_into(so_far, &reference.value);
                         if let Some(value_node) = maybe_value {
                             so_far.push(' ');
-                            still_syntax_pattern_parenthesized_if_space_separated_into(
+                            still_syntax_pattern_not_parenthesized_into(
                                 so_far,
                                 still_syntax_node_unbox(value_node),
                             );
                         }
                     }
-                }
-            }
-        }
-        StillSyntaxPattern::VecHeadTail {
-            head: maybe_head,
-            cons_key_symbol: _,
-            tail: maybe_tail,
-        } => {
-            if let Some(head_node) = maybe_head {
-                still_syntax_pattern_parenthesized_if_space_separated_into(
-                    so_far,
-                    still_syntax_node_unbox(head_node),
-                );
-            }
-            so_far.push_str(" :: ");
-            if let Some(tail_node) = maybe_tail {
-                still_syntax_pattern_not_parenthesized_into(
-                    so_far,
-                    still_syntax_node_unbox(tail_node),
-                );
-            }
-        }
-        StillSyntaxPattern::VecExactFilled(elements) => {
-            let mut elements_iterator = elements.iter();
-            match elements_iterator.next() {
-                None => {
-                    so_far.push_str("[]");
-                }
-                Some(element_node0) => {
-                    so_far.push_str("[ ");
-                    still_syntax_pattern_not_parenthesized_into(
-                        so_far,
-                        still_syntax_node_as_ref(element_node0),
-                    );
-                    for element_node in elements_iterator {
-                        so_far.push_str(", ");
-                        still_syntax_pattern_not_parenthesized_into(
-                            so_far,
-                            still_syntax_node_as_ref(element_node),
-                        );
-                    }
-                    so_far.push_str(" ]");
                 }
             }
         }
@@ -3603,29 +3543,8 @@ fn still_syntax_pattern_not_parenthesized_into(
     }
 }
 /// TODO inline
-fn still_qualified_name_into(so_far: &mut String, name: &StillName) {
+fn still_name_into(so_far: &mut String, name: &StillName) {
     so_far.push_str(name);
-}
-fn still_syntax_pattern_parenthesized_into(
-    so_far: &mut String,
-    pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
-) {
-    so_far.push('(');
-    still_syntax_pattern_not_parenthesized_into(so_far, pattern_node);
-    so_far.push(')');
-}
-fn still_syntax_pattern_parenthesized_if_space_separated_into(
-    so_far: &mut String,
-    pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
-) {
-    match pattern_node.value {
-        StillSyntaxPattern::VecHeadTail { .. } => {
-            still_syntax_pattern_parenthesized_into(so_far, pattern_node);
-        }
-        _ => {
-            still_syntax_pattern_not_parenthesized_into(so_far, pattern_node);
-        }
-    }
 }
 fn still_char_into(so_far: &mut String, maybe_char: Option<char>) {
     match maybe_char {
@@ -4510,7 +4429,7 @@ fn still_syntax_let_declaration_into(
                     },
                 ),
             );
-            still_syntax_pattern_parenthesized_if_space_separated_into(
+            still_syntax_pattern_not_parenthesized_into(
                 so_far,
                 still_syntax_node_as_ref(pattern_node),
             );
@@ -5466,43 +5385,6 @@ fn still_syntax_pattern_find_reference_at_position<'a>(
     match still_syntax_pattern_node.value {
         StillSyntaxPattern::Char(_) => None,
         StillSyntaxPattern::Int { .. } => None,
-        StillSyntaxPattern::VecHeadTail {
-            head: maybe_head,
-            cons_key_symbol: _,
-            tail: maybe_tail,
-        } => maybe_head
-            .as_ref()
-            .and_then(|head_node| {
-                still_syntax_pattern_find_reference_at_position(
-                    scope_declaration,
-                    still_syntax_node_unbox(head_node),
-                    position,
-                )
-            })
-            .or_else(|| {
-                maybe_tail.as_ref().and_then(|tail_node| {
-                    still_syntax_pattern_find_reference_at_position(
-                        scope_declaration,
-                        still_syntax_node_unbox(tail_node),
-                        position,
-                    )
-                })
-            }),
-        StillSyntaxPattern::VecExactFilled(elements) => elements.iter().find_map(|element| {
-            still_syntax_pattern_find_reference_at_position(
-                scope_declaration,
-                still_syntax_node_as_ref(element),
-                position,
-            )
-        }),
-        StillSyntaxPattern::Parenthesized(None) => None,
-        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
-            still_syntax_pattern_find_reference_at_position(
-                scope_declaration,
-                still_syntax_node_unbox(in_parens),
-                position,
-            )
-        }
         StillSyntaxPattern::Typed {
             type_: maybe_type_node,
             pattern: maybe_pattern_node_in_typed,
@@ -5520,7 +5402,6 @@ fn still_syntax_pattern_find_reference_at_position<'a>(
                 match &pattern_node_in_typed.value {
                     StillSyntaxPatternUntyped::Ignored => None,
                     StillSyntaxPatternUntyped::Variable(_) => None,
-                    StillSyntaxPatternUntyped::VecEmpty => None,
                     StillSyntaxPatternUntyped::Variant {
                         name: reference,
                         value: maybe_value,
@@ -6550,43 +6431,6 @@ fn still_syntax_pattern_uses_of_reference_into(
     match still_syntax_pattern_node.value {
         StillSyntaxPattern::Char(_) => {}
         StillSyntaxPattern::Int { .. } => {}
-        StillSyntaxPattern::VecHeadTail {
-            head: maybe_head,
-            cons_key_symbol: _,
-            tail: maybe_tail,
-        } => {
-            if let Some(head_node) = maybe_head {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_unbox(head_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            if let Some(tail_node) = maybe_tail {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_unbox(tail_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
-        StillSyntaxPattern::VecExactFilled(elements) => {
-            for element in elements {
-                still_syntax_pattern_uses_of_reference_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(element),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
-        StillSyntaxPattern::Parenthesized(None) => {}
-        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
-            still_syntax_pattern_uses_of_reference_into(
-                uses_so_far,
-                still_syntax_node_unbox(in_parens),
-                symbol_to_collect_uses_of,
-            );
-        }
         StillSyntaxPattern::Typed {
             type_: maybe_type_node,
             pattern: maybe_pattern_node_in_typed,
@@ -6601,7 +6445,6 @@ fn still_syntax_pattern_uses_of_reference_into(
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
                 match &pattern_node_in_typed.value {
                     StillSyntaxPatternUntyped::Ignored => {}
-                    StillSyntaxPatternUntyped::VecEmpty => {}
                     StillSyntaxPatternUntyped::Variable(_) => {}
                     StillSyntaxPatternUntyped::Variant {
                         name: reference,
@@ -6670,36 +6513,6 @@ fn still_syntax_pattern_bindings_into<'a>(
     match still_syntax_pattern_node.value {
         StillSyntaxPattern::Char(_) => {}
         StillSyntaxPattern::Int { .. } => {}
-        StillSyntaxPattern::VecHeadTail {
-            head: maybe_head,
-            cons_key_symbol: _,
-            tail: maybe_tail,
-        } => {
-            if let Some(head_node) = maybe_head {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(head_node),
-                );
-            }
-            if let Some(tail_node) = maybe_tail {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_unbox(tail_node),
-                );
-            }
-        }
-        StillSyntaxPattern::VecExactFilled(elements) => {
-            for element_node in elements {
-                still_syntax_pattern_bindings_into(
-                    bindings_so_far,
-                    still_syntax_node_as_ref(element_node),
-                );
-            }
-        }
-        StillSyntaxPattern::Parenthesized(None) => {}
-        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
-            still_syntax_pattern_bindings_into(bindings_so_far, still_syntax_node_unbox(in_parens));
-        }
         StillSyntaxPattern::Typed {
             type_: _,
             pattern: maybe_pattern_node_in_typed,
@@ -6707,7 +6520,6 @@ fn still_syntax_pattern_bindings_into<'a>(
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
                 match &pattern_node_in_typed.value {
                     StillSyntaxPatternUntyped::Ignored => {}
-                    StillSyntaxPatternUntyped::VecEmpty => {}
                     StillSyntaxPatternUntyped::Variable(variable) => {
                         bindings_so_far.push(StillLocalBinding {
                             origin: LocalBindingOrigin::PatternVariable(
@@ -7043,43 +6855,6 @@ fn still_syntax_highlight_pattern_into(
                 value: StillSyntaxHighlightKind::Number,
             });
         }
-        StillSyntaxPattern::VecHeadTail {
-            head: maybe_head,
-            cons_key_symbol,
-            tail: maybe_tail,
-        } => {
-            if let Some(head_node) = maybe_head {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(head_node),
-                );
-            }
-            highlighted_so_far.push(StillSyntaxNode {
-                range: *cons_key_symbol,
-                value: StillSyntaxHighlightKind::Variant,
-            });
-            if let Some(tail_node) = maybe_tail {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_unbox(tail_node),
-                );
-            }
-        }
-        StillSyntaxPattern::VecExactFilled(elements) => {
-            for element_node in elements {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_as_ref(element_node),
-                );
-            }
-        }
-        StillSyntaxPattern::Parenthesized(None) => {}
-        StillSyntaxPattern::Parenthesized(Some(in_parens)) => {
-            still_syntax_highlight_pattern_into(
-                highlighted_so_far,
-                still_syntax_node_unbox(in_parens),
-            );
-        }
         StillSyntaxPattern::Typed {
             type_: maybe_type_node,
             pattern: maybe_pattern_node_in_typed,
@@ -7092,7 +6867,6 @@ fn still_syntax_highlight_pattern_into(
             }
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
                 match &pattern_node_in_typed.value {
-                    StillSyntaxPatternUntyped::VecEmpty => {}
                     StillSyntaxPatternUntyped::Ignored => {
                         highlighted_so_far.push(StillSyntaxNode {
                             range: pattern_node_in_typed.range,
@@ -8211,91 +7985,17 @@ fn parse_still_syntax_type_parenthesized(state: &mut ParseState) -> Option<Still
         maybe_in_parens_0.map(still_syntax_node_box),
     ))
 }
+
 fn parse_still_syntax_pattern_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxPattern>> {
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
-    parse_still_syntax_pattern_space_separated_node_starting_at_any_indent(state)
-}
-fn parse_still_syntax_pattern_space_separated_node_starting_at_any_indent(
-    state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxPattern>> {
-    let start_pattern: StillSyntaxNode<StillSyntaxPattern> =
-        parse_still_syntax_pattern_not_cons_node(state)?;
-    parse_still_whitespace_and_comments(state);
-    let mut consed_left_to_right: Vec<(
-        lsp_types::Range,
-        Option<StillSyntaxNode<StillSyntaxPattern>>,
-    )> = Vec::new();
-    while let Some(cons_key_symbol_range) = parse_symbol_as_range(state, "::") {
-        parse_still_whitespace_and_comments(state);
-        let maybe_tail_pattern: Option<StillSyntaxNode<StillSyntaxPattern>> =
-            if state.position.character <= u32::from(state.indent) {
-                None
-            } else {
-                parse_still_syntax_pattern_not_cons_node(state)
-            };
-        consed_left_to_right.push((cons_key_symbol_range, maybe_tail_pattern));
-        parse_still_whitespace_and_comments(state);
-    }
-    parse_still_whitespace_and_comments(state);
-    let maybe_combined_tail_cons: Option<(
-        lsp_types::Range,
-        Option<StillSyntaxNode<StillSyntaxPattern>>,
-    )> = consed_left_to_right.into_iter().rev().reduce(
-        |(cons_tail_key_symbol_range, maybe_tail), (cons_head_key_symbol_range, maybe_head)| {
-            (
-                cons_head_key_symbol_range,
-                Some(StillSyntaxNode {
-                    range: lsp_types::Range {
-                        start: match &maybe_head {
-                            Some(head_node) => head_node.range.start,
-                            None => cons_tail_key_symbol_range.start,
-                        },
-                        end: match &maybe_tail {
-                            Some(tail_node) => tail_node.range.end,
-                            None => cons_tail_key_symbol_range.end,
-                        },
-                    },
-                    value: StillSyntaxPattern::VecHeadTail {
-                        head: maybe_head.map(still_syntax_node_box),
-                        cons_key_symbol: cons_tail_key_symbol_range,
-                        tail: maybe_tail.map(still_syntax_node_box),
-                    },
-                }),
-            )
-        },
-    );
-    Some(match maybe_combined_tail_cons {
-        None => start_pattern,
-        Some((cons_key_symbol_range, maybe_tail)) => StillSyntaxNode {
-            range: lsp_types::Range {
-                start: start_pattern.range.start,
-                end: match &maybe_tail {
-                    Some(tail_node) => tail_node.range.end,
-                    None => cons_key_symbol_range.end,
-                },
-            },
-            value: StillSyntaxPattern::VecHeadTail {
-                head: Some(still_syntax_node_box(start_pattern)),
-                cons_key_symbol: cons_key_symbol_range,
-                tail: maybe_tail.map(still_syntax_node_box),
-            },
-        },
-    })
-}
-
-fn parse_still_syntax_pattern_not_cons_node(
-    state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxPattern>> {
     let start_position: lsp_types::Position = state.position;
     parse_still_char(state)
         .map(StillSyntaxPattern::Char)
         .or_else(|| parse_still_syntax_pattern_string(state))
-        .or_else(|| parse_still_syntax_pattern_parenthesized(state))
-        .or_else(|| parse_still_syntax_pattern_vec_exact(state))
         .or_else(|| parse_still_syntax_pattern_record(state))
         .or_else(|| parse_still_syntax_pattern_int(state))
         .map(|pattern| StillSyntaxNode {
@@ -8306,25 +8006,6 @@ fn parse_still_syntax_pattern_not_cons_node(
             value: pattern,
         })
         .or_else(|| parse_still_syntax_pattern_typed(state))
-}
-fn parse_still_syntax_pattern_vec_exact(state: &mut ParseState) -> Option<StillSyntaxPattern> {
-    if !parse_symbol(state, "[") {
-        return None;
-    }
-    parse_still_whitespace_and_comments(state);
-    while parse_symbol(state, ",") {
-        parse_still_whitespace_and_comments(state);
-    }
-    let mut elements: Vec<StillSyntaxNode<StillSyntaxPattern>> = Vec::new();
-    while let Some(pattern_node) = parse_still_syntax_pattern_node(state) {
-        elements.push(pattern_node);
-        parse_still_whitespace_and_comments(state);
-        while parse_symbol(state, ",") {
-            parse_still_whitespace_and_comments(state);
-        }
-    }
-    let _: bool = parse_symbol(state, "]");
-    Some(StillSyntaxPattern::VecExactFilled(elements))
 }
 fn parse_still_syntax_pattern_record(state: &mut ParseState) -> Option<StillSyntaxPattern> {
     if state.source[state.offset_utf8..].starts_with("{-|") {
@@ -8394,25 +8075,7 @@ fn parse_still_syntax_pattern_untyped_node(
             parse_still_lowercase_name_node(state)
                 .map(|n| still_syntax_node_map(n, StillSyntaxPatternUntyped::Variable))
         })
-        .or_else(|| parse_still_pattern_vec_empty(state))
         .or_else(|| parse_still_syntax_pattern_variant_node(state))
-}
-fn parse_still_pattern_vec_empty(
-    state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxPatternUntyped>> {
-    let start_position: lsp_types::Position = state.position;
-    if !parse_symbol(state, "[") {
-        return None;
-    }
-    parse_still_whitespace_and_comments(state);
-    let _: bool = parse_symbol(state, "]");
-    Some(StillSyntaxNode {
-        range: lsp_types::Range {
-            start: start_position,
-            end: state.position,
-        },
-        value: StillSyntaxPatternUntyped::VecEmpty,
-    })
 }
 fn parse_still_syntax_pattern_variant_node(
     state: &mut ParseState,
@@ -8453,19 +8116,6 @@ fn parse_still_syntax_pattern_string(state: &mut ParseState) -> Option<StillSynt
 fn parse_still_syntax_pattern_int(state: &mut ParseState) -> Option<StillSyntaxPattern> {
     parse_still_unsigned_integer_base10_as_i64(state)
         .map(|value| StillSyntaxPattern::Int { value: value })
-}
-fn parse_still_syntax_pattern_parenthesized(state: &mut ParseState) -> Option<StillSyntaxPattern> {
-    if !parse_symbol(state, "(") {
-        return None;
-    }
-    parse_still_whitespace_and_comments(state);
-    let maybe_in_parens_0: Option<StillSyntaxNode<StillSyntaxPattern>> =
-        parse_still_syntax_pattern_node(state);
-    parse_still_whitespace_and_comments(state);
-    let _ = parse_symbol(state, ")");
-    Some(StillSyntaxPattern::Parenthesized(
-        maybe_in_parens_0.map(still_syntax_node_box),
-    ))
 }
 fn parse_still_unsigned_integer_base10_as_i64(
     state: &mut ParseState,
@@ -8929,7 +8579,7 @@ fn parse_still_syntax_expression_case(state: &mut ParseState) -> Option<StillSyn
         return None;
     }
     let case_pattern_node: StillSyntaxNode<StillSyntaxPattern> =
-        parse_still_syntax_pattern_space_separated_node_starting_at_any_indent(state)?;
+        parse_still_syntax_pattern_node(state)?;
     parse_still_whitespace_and_comments(state);
     Some(match parse_symbol_as_range(state, "->") {
         None => StillSyntaxExpressionCase {
@@ -9003,37 +8653,27 @@ fn parse_still_syntax_let_declaration(
 fn parse_still_syntax_let_destructuring_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxLetDeclaration>> {
-    let pattern_node: StillSyntaxNode<StillSyntaxPattern> =
-        parse_still_syntax_pattern_space_separated_node_starting_at_any_indent(state)?;
+    let pattern_node: StillSyntaxNode<StillSyntaxPattern> = parse_still_syntax_pattern_node(state)?;
     parse_still_whitespace_and_comments(state);
-    Some(match parse_symbol_as_range(state, "=") {
-        None => StillSyntaxNode {
-            range: pattern_node.range,
-            value: StillSyntaxLetDeclaration::Destructuring {
-                pattern: pattern_node,
-                equals_key_symbol_range: None,
-                expression: None,
+    let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
+    parse_still_whitespace_and_comments(state);
+    let maybe_expression: Option<StillSyntaxNode<StillSyntaxExpression>> =
+        parse_still_syntax_expression_space_separated_node(state);
+    Some(StillSyntaxNode {
+        range: lsp_types::Range {
+            start: pattern_node.range.start,
+            end: match &maybe_expression {
+                None => maybe_equals_key_symbol_range
+                    .map(|r| r.end)
+                    .unwrap_or_else(|| pattern_node.range.end),
+                Some(expression_node) => expression_node.range.end,
             },
         },
-        Some(equals_key_symbol_range) => {
-            parse_still_whitespace_and_comments(state);
-            let maybe_expression: Option<StillSyntaxNode<StillSyntaxExpression>> =
-                parse_still_syntax_expression_space_separated_node(state);
-            StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: pattern_node.range.start,
-                    end: match &maybe_expression {
-                        None => equals_key_symbol_range.end,
-                        Some(expression_node) => expression_node.range.end,
-                    },
-                },
-                value: StillSyntaxLetDeclaration::Destructuring {
-                    pattern: pattern_node,
-                    equals_key_symbol_range: Some(equals_key_symbol_range),
-                    expression: maybe_expression.map(still_syntax_node_box),
-                },
-            }
-        }
+        value: StillSyntaxLetDeclaration::Destructuring {
+            pattern: pattern_node,
+            equals_key_symbol_range: maybe_equals_key_symbol_range,
+            expression: maybe_expression.map(still_syntax_node_box),
+        },
     })
 }
 fn parse_still_syntax_let_variable_declaration_node(
