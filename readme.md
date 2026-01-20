@@ -1,42 +1,64 @@
-small programming language, heavily inspired by [elm](https://elm-lang.org/).
-Just for experimentation.
+small programming language that compiles to rust, heavily inspired by [elm](https://elm-lang.org/).
+Just experimentation.
 
 ## hello world
 
 ```still
-\state_or_uninitialized : ( Uninitialized Initialized.int )
-  Standard_out_write.string_flatten."Hello, world\n"
+\:uninitialized_or {}:_ -> Standard_out_write "hello, world\n"
 ```
 
-## echo
+## echo in loop
 
 ```still
-\state_or_uninitialized : ( Uninitialized Initialized.int )
-  val state
-        ( Uninitialized 0
-          Initialized.initialized initialized
-        ).state_or_uninitialized
-  io_flatten.
-    [ standard_out_write.string_flatten.[ state.int_to_string "\n" ]
-      io_future_change.{ Change \line:string Io standard_out_read_line }
+\:uninitialized_or str:state_or_uninitialized ->
+  let state
+        case state_or_uninitialized of
+        Uninitialized -> ""
+        Initialized :str:initialized -> initialized
+  Io_batch
+    [ Standard_out_write
+        (str_flatten [ ansi_clear_screen, state, "\nType a sentence to echo: " ])
+    , Standard_in_read_line (\:str:line -> line)
     ]
+
+ansi_clear_screen "\u{001B}c"
 ```
 
 ## cons-list map
 
 ```still
-typ cons_list \element ( Empty Cons.{ head element tail cons_list.element })
+type stack A = Empty | Cons { head A, tail stack A }
 
-\state_or_uninitialized : ( Uninitialized Initialized.int )
-  let state
-        ( Uninitialized 0
-          Initialized.initialized initialized
-        ).state_or_uninitialized
-  io_flatten.
-    [ standard_out_write.string_flatten.[ state.int_to_string "\n" ]
-      io_future_change.{ io standard_out_read_line change \_: string add.[ state 1 ] }
-    ]
+stack_map \{ change :\A -> B:element_change, stack :stack A:stack } ->
+  case stack of
+  :stack A:Empty -> :stack B:Empty
+  :stack A:Cons { head :A:head, tail :stack A:tail } ->
+    :stack B:Cons
+      { head element_change head
+      , tail stack_map { change element_change, stack tail }
+      }
 ```
+
+## TODO
+- remove record extension type
+- allow any record in record update
+- remove parse_still_documentation_comment_block_str
+- change comment system to `Expression::WithComment` and `Pattern::WithComment` and `Type::WithComment` (each meaning it is prefixed by `--`) and _always_ preserve line-spread of original range! Then, remove all &comments parameters
+- remove `Pattern::Parenthesized`
+- split call and variant expression syntax tree
+- require types for lambda variable and ignored
+- `:type:expression`/`:type:pattern` for (extra) type-checking, like `:option int:None` or `add \:int:n -> :int:some expression`
+- type checking
+- `still build`
+- small standard library (`str`, `vec`, `int` (i32), `dec` (f32), ?`order`, ?`char`(unicode_scalar/rune), `int_to_str`, `dec_to_str`, `int/dec_add`, `int/dec_multiply`, `dec_power`, `str_compare`, `int_compare`, `dec_compare`, ...)
+- simple io (`standard_in_read_line`, `standard_out_write`, ?`type uninitialized_or Initialized = Uninitialized | Initialized Initialized`)
+
+## considering
+- anonymous choice types
+- introduce `nat` type and require regular ints to be prefixed with `+`/`-`
+- find better function call syntax that makes it easy to unwrap the last argument
+- somehow find better string literal syntax
+- add or pattern `| first | second | third` (potentially allow `:overall:| A | B | C` (where the inner variant patterns don't need a type) specifically for variant)
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
 ```bash

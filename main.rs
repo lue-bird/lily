@@ -2762,7 +2762,6 @@ enum StillSyntaxExpression {
         result: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
     List(Vec<StillSyntaxNode<StillSyntaxExpression>>),
-    Negation(Option<StillSyntaxNode<Box<StillSyntaxExpression>>>),
     Parenthesized(Option<StillSyntaxNode<Box<StillSyntaxExpression>>>),
     Record(Vec<StillSyntaxExpressionField>),
     RecordAccess {
@@ -2926,8 +2925,7 @@ fn still_syntax_expression_type_with<'a>(
             declaration: maybe_declaration,
             result,
         } => todo!(),
-        StillSyntaxExpression::List(still_syntax_nodes) => todo!(),
-        StillSyntaxExpression::Negation(still_syntax_node) => todo!(),
+        StillSyntaxExpression::List(elements) => todo!(),
         StillSyntaxExpression::Parenthesized(None) => Err(vec![]),
         StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_type_with(bindings, still_syntax_node_unbox(in_parens))
@@ -4219,34 +4217,6 @@ fn still_syntax_expression_not_parenthesized_into(
                 }
             }
         }
-        StillSyntaxExpression::Negation(maybe_in_negation) => {
-            so_far.push('-');
-            if let Some(in_negation_node) = maybe_in_negation {
-                let in_negation_innermost = still_syntax_expression_to_unparenthesized(
-                    still_syntax_node_unbox(in_negation_node),
-                );
-                match in_negation_innermost.value {
-                    StillSyntaxExpression::Negation(_) => {
-                        // -(-...)
-                        still_syntax_expression_parenthesized_into(
-                            so_far,
-                            indent + 1,
-                            comments,
-                            in_negation_node.range,
-                            in_negation_innermost,
-                        );
-                    }
-                    _ => {
-                        still_syntax_expression_parenthesized_if_space_separated_into(
-                            so_far,
-                            indent + 1,
-                            comments,
-                            still_syntax_node_unbox(in_negation_node),
-                        );
-                    }
-                }
-            }
-        }
         StillSyntaxExpression::Parenthesized(None) => {
             so_far.push('(');
             let comments_in_parens: &[StillSyntaxNode<StillSyntaxComment>] =
@@ -4717,7 +4687,6 @@ fn still_syntax_expression_line_span(
             StillSyntaxExpression::Int { .. }
             | StillSyntaxExpression::Dec(_)
             | StillSyntaxExpression::Char(_)
-            | StillSyntaxExpression::Negation(_)
             | StillSyntaxExpression::Parenthesized(_)
             | StillSyntaxExpression::List(_)
             | StillSyntaxExpression::Lambda { .. }
@@ -4787,7 +4756,6 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
         StillSyntaxExpression::Dec(_) => false,
         StillSyntaxExpression::Int { .. } => false,
         StillSyntaxExpression::List(_) => false,
-        StillSyntaxExpression::Negation(_) => false,
         StillSyntaxExpression::Parenthesized(_) => false,
         StillSyntaxExpression::Record(_) => false,
         StillSyntaxExpression::RecordAccess { .. } => false,
@@ -4886,11 +4854,6 @@ fn still_syntax_expression_any_sub(
         StillSyntaxExpression::List(elements) => elements.iter().any(|element_node| {
             still_syntax_expression_any_sub(still_syntax_node_as_ref(element_node), is_needle)
         }),
-        StillSyntaxExpression::Negation(maybe_in_negation) => {
-            maybe_in_negation.as_ref().is_some_and(|in_negation| {
-                still_syntax_expression_any_sub(still_syntax_node_unbox(in_negation), is_needle)
-            })
-        }
         StillSyntaxExpression::Parenthesized(None) => false,
         StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_any_sub(still_syntax_node_unbox(in_parens), is_needle)
@@ -5919,15 +5882,6 @@ fn still_syntax_expression_find_reference_at_position<'a>(
                     )
                 })
         }
-        StillSyntaxExpression::Negation(maybe_in_negation) => match maybe_in_negation {
-            Some(in_negation_node) => still_syntax_expression_find_reference_at_position(
-                local_bindings,
-                scope_declaration,
-                still_syntax_node_unbox(in_negation_node),
-                position,
-            ),
-            None => std::ops::ControlFlow::Continue(local_bindings),
-        },
         StillSyntaxExpression::Parenthesized(None) => {
             std::ops::ControlFlow::Continue(local_bindings)
         }
@@ -6462,16 +6416,6 @@ fn still_syntax_expression_uses_of_reference_into(
                     uses_so_far,
                     local_bindings,
                     still_syntax_node_as_ref(element_node),
-                    symbol_to_collect_uses_of,
-                );
-            }
-        }
-        StillSyntaxExpression::Negation(maybe_in_negation) => {
-            if let Some(in_negation_node) = maybe_in_negation {
-                still_syntax_expression_uses_of_reference_into(
-                    uses_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(in_negation_node),
                     symbol_to_collect_uses_of,
                 );
             }
@@ -7511,15 +7455,6 @@ fn still_syntax_highlight_expression_into(
                     highlighted_so_far,
                     local_bindings,
                     still_syntax_node_as_ref(element_node),
-                );
-            }
-        }
-        StillSyntaxExpression::Negation(maybe_in_negation) => {
-            if let Some(in_negation_node) = maybe_in_negation {
-                still_syntax_highlight_expression_into(
-                    highlighted_so_far,
-                    local_bindings,
-                    still_syntax_node_unbox(in_negation_node),
                 );
             }
         }
@@ -8565,7 +8500,10 @@ fn parse_still_unsigned_integer_base10_as_i64(
 }
 fn parse_still_syntax_expression_number(state: &mut ParseState) -> Option<StillSyntaxExpression> {
     let start_offset_utf8: usize = state.offset_utf8;
-    if !parse_unsigned_integer_base10(state) {
+    if !(parse_unsigned_integer_base10(state)
+        || parse_symbol(state, "-")
+        || parse_symbol(state, "+"))
+    {
         return None;
     }
     let has_decimal_point: bool = parse_symbol(state, ".");
@@ -8772,8 +8710,7 @@ fn parse_still_syntax_expression_not_space_separated_node(
         .or_else(|| parse_still_syntax_expression_reference(state))
         .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
         .or_else(|| parse_still_syntax_expression_number(state))
-        .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))
-        .or_else(|| parse_still_syntax_expression_negation(state))?;
+        .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))?;
     let mut result_node: StillSyntaxNode<StillSyntaxExpression> = StillSyntaxNode {
         range: lsp_types::Range {
             start: start_position,
@@ -8796,22 +8733,6 @@ fn parse_still_syntax_expression_not_space_separated_node(
         }
     }
     Some(result_node)
-}
-fn parse_still_syntax_expression_negation(state: &mut ParseState) -> Option<StillSyntaxExpression> {
-    if state.source[state.offset_utf8..]
-        .chars()
-        .nth(1)
-        .is_some_and(char::is_whitespace)
-    {
-        // exit if - is followed by whitespace, as that means it is a subtraction operation instead
-        return None;
-    }
-    if !parse_symbol(state, "-") {
-        return None;
-    }
-    Some(StillSyntaxExpression::Negation(
-        parse_still_syntax_expression_not_space_separated_node(state).map(still_syntax_node_box),
-    ))
 }
 fn str_starts_with_keyword(source: &str, keyword: &'static str) -> bool {
     source.starts_with(keyword)
