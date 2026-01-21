@@ -2729,6 +2729,10 @@ enum StillSyntaxExpression {
     },
     Vec(Vec<StillSyntaxNode<StillSyntaxExpression>>),
     Parenthesized(Option<StillSyntaxNode<Box<StillSyntaxExpression>>>),
+    Typed {
+        type_: Option<StillSyntaxNode<StillSyntaxType>>,
+        expression: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
+    },
     Record(Vec<StillSyntaxExpressionField>),
     RecordAccess {
         record: StillSyntaxNode<Box<StillSyntaxExpression>>,
@@ -2923,7 +2927,22 @@ fn still_syntax_expression_type_with(
     mut bindings: std::collections::HashMap<StillName, StillSyntaxNode<StillSyntaxType>>,
     expression_node: StillSyntaxNode<&StillSyntaxExpression>,
 ) -> Result<StillSyntaxNode<StillSyntaxType>, Vec<RetrieveTypeError>> {
-    match &expression_node.value {
+    match expression_node.value {
+        StillSyntaxExpression::Typed {
+            type_: maybe_type,
+            expression: _,
+        } => {
+            let Some(type_node) = maybe_type else {
+                return Err(vec![RetrieveTypeError {
+                    range: expression_node.range,
+                    message: Box::from("type missing between :here:"),
+                }]);
+            };
+            Ok(still_syntax_node_as_ref_map(
+                type_node,
+                StillSyntaxType::clone,
+            ))
+        }
         StillSyntaxExpression::ReferenceOrCall {
             reference: reference_node,
             arguments,
@@ -4199,6 +4218,39 @@ fn still_syntax_expression_not_parenthesized_into(
                 );
             }
         }
+        StillSyntaxExpression::Typed {
+            type_: maybe_type,
+            expression: maybe_expression,
+        } => {
+            so_far.push(':');
+            if let Some(type_node) = maybe_type {
+                still_syntax_type_not_parenthesized_into(
+                    so_far,
+                    1,
+                    &[],
+                    still_syntax_node_as_ref(type_node),
+                );
+                space_or_linebreak_indented_into(
+                    so_far,
+                    still_syntax_range_line_span(type_node.range, comments),
+                    indent,
+                );
+            }
+            so_far.push(':');
+            if let Some(expression_node_in_typed) = maybe_expression {
+                space_or_linebreak_indented_into(
+                    so_far,
+                    still_syntax_range_line_span(expression_node.range, comments),
+                    indent,
+                );
+                still_syntax_expression_not_parenthesized_into(
+                    so_far,
+                    indent,
+                    comments,
+                    still_syntax_node_unbox(expression_node_in_typed),
+                );
+            }
+        }
         StillSyntaxExpression::Record(fields) => match fields.split_first() {
             None => {
                 let comments_in_curlies: &[StillSyntaxNode<Box<str>>] =
@@ -4630,6 +4682,7 @@ fn still_syntax_expression_line_span(
             | StillSyntaxExpression::Dec(_)
             | StillSyntaxExpression::Char(_)
             | StillSyntaxExpression::Parenthesized(_)
+            | StillSyntaxExpression::Typed { .. }
             | StillSyntaxExpression::Vec(_)
             | StillSyntaxExpression::Lambda { .. }
             | StillSyntaxExpression::Record(_)
@@ -4693,6 +4746,7 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
         StillSyntaxExpression::Let { .. } => true,
         StillSyntaxExpression::ReferenceOrCall { .. } => true,
         StillSyntaxExpression::CaseOf { .. } => true,
+        StillSyntaxExpression::Typed { .. } => true,
         StillSyntaxExpression::Char(_) => false,
         StillSyntaxExpression::Dec(_) => false,
         StillSyntaxExpression::Int { .. } => false,
@@ -4790,6 +4844,17 @@ fn still_syntax_expression_any_sub(
         StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
             still_syntax_expression_any_sub(still_syntax_node_unbox(in_parens), is_needle)
         }
+        StillSyntaxExpression::Typed {
+            type_: _,
+            expression: maybe_expression,
+        } => maybe_expression
+            .as_ref()
+            .is_some_and(|expression_node_in_typed| {
+                still_syntax_expression_any_sub(
+                    still_syntax_node_unbox(expression_node_in_typed),
+                    is_needle,
+                )
+            }),
         StillSyntaxExpression::Record(fields) => fields
             .iter()
             .filter_map(|field| field.value.as_ref())
@@ -5758,6 +5823,31 @@ fn still_syntax_expression_find_reference_at_position<'a>(
                 position,
             )
         }
+        StillSyntaxExpression::Typed {
+            type_: maybe_type,
+            expression: maybe_expression_in_types,
+        } => {
+            if let Some(found) = maybe_type.as_ref().and_then(|type_node| {
+                still_syntax_type_find_reference_at_position(
+                    scope_declaration,
+                    still_syntax_node_as_ref(type_node),
+                    position,
+                )
+            }) {
+                return std::ops::ControlFlow::Break(found);
+            }
+            match maybe_expression_in_types {
+                None => std::ops::ControlFlow::Continue(local_bindings),
+                Some(expression_node_in_types) => {
+                    still_syntax_expression_find_reference_at_position(
+                        local_bindings,
+                        scope_declaration,
+                        still_syntax_node_unbox(expression_node_in_types),
+                        position,
+                    )
+                }
+            }
+        }
         StillSyntaxExpression::Record(fields) => {
             fields
                 .iter()
@@ -6280,6 +6370,26 @@ fn still_syntax_expression_uses_of_reference_into(
                 still_syntax_node_unbox(in_parens),
                 symbol_to_collect_uses_of,
             );
+        }
+        StillSyntaxExpression::Typed {
+            type_: maybe_type,
+            expression: maybe_expression_in_types,
+        } => {
+            if let Some(type_node) = maybe_type {
+                still_syntax_type_uses_of_reference_into(
+                    uses_so_far,
+                    still_syntax_node_as_ref(type_node),
+                    symbol_to_collect_uses_of,
+                );
+            }
+            if let Some(expression_node_in_types) = maybe_expression_in_types {
+                still_syntax_expression_uses_of_reference_into(
+                    uses_so_far,
+                    local_bindings,
+                    still_syntax_node_unbox(expression_node_in_types),
+                    symbol_to_collect_uses_of,
+                );
+            }
         }
         StillSyntaxExpression::Record(fields) => {
             for field in fields {
@@ -7138,6 +7248,24 @@ fn still_syntax_highlight_expression_into(
                 still_syntax_node_unbox(in_parens),
             );
         }
+        StillSyntaxExpression::Typed {
+            type_: maybe_type,
+            expression: maybe_expression_in_types,
+        } => {
+            if let Some(type_node) = maybe_type {
+                still_syntax_highlight_type_into(
+                    highlighted_so_far,
+                    still_syntax_node_as_ref(type_node),
+                );
+            }
+            if let Some(expression_node_in_types) = maybe_expression_in_types {
+                still_syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    local_bindings,
+                    still_syntax_node_unbox(expression_node_in_types),
+                );
+            }
+        }
         StillSyntaxExpression::Record(fields) => {
             for field in fields {
                 highlighted_so_far.push(StillSyntaxNode {
@@ -7840,7 +7968,7 @@ fn parse_still_syntax_pattern_typed(
     let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
         parse_still_syntax_type_space_separated_node(state);
     parse_still_whitespace_and_comments(state);
-    let closing_colon_range = parse_symbol_as_range(state, ":");
+    let closing_colon_range: Option<lsp_types::Range> = parse_symbol_as_range(state, ":");
     let maybe_pattern: Option<StillSyntaxNode<StillSyntaxPatternUntyped>> =
         parse_still_syntax_pattern_untyped_node(state);
     Some(StillSyntaxNode {
@@ -8077,11 +8205,42 @@ fn parse_still_syntax_expression_space_separated_node(
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
-    parse_still_syntax_expression_case_of(state)
+    parse_still_syntax_expression_typed(state)
+        .or_else(|| parse_still_syntax_expression_case_of(state))
         .or_else(|| parse_still_syntax_expression_let_in(state))
         .or_else(|| parse_still_syntax_expression_lambda(state))
         .or_else(|| parse_still_syntax_expression_call_or_not_space_separated_node(state))
         .or_else(|| parse_still_syntax_expression_not_space_separated_node(state))
+}
+fn parse_still_syntax_expression_typed(
+    state: &mut ParseState,
+) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
+    let start_position: lsp_types::Position = state.position;
+    if !parse_symbol(state, ":") {
+        return None;
+    }
+    parse_still_whitespace_and_comments(state);
+    let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
+        parse_still_syntax_type_space_separated_node(state);
+    parse_still_whitespace_and_comments(state);
+    let closing_colon_range: Option<lsp_types::Range> = parse_symbol_as_range(state, ":");
+    let maybe_expression: Option<StillSyntaxNode<StillSyntaxExpression>> =
+        parse_still_syntax_expression_space_separated_node(state);
+    Some(StillSyntaxNode {
+        range: lsp_types::Range {
+            start: start_position,
+            end: maybe_expression
+                .as_ref()
+                .map(|n| n.range.end)
+                .or_else(|| closing_colon_range.map(|r| r.end))
+                .or_else(|| maybe_type.as_ref().map(|n| n.range.end))
+                .unwrap_or_else(|| lsp_position_add_characters(start_position, 1)),
+        },
+        value: StillSyntaxExpression::Typed {
+            type_: maybe_type,
+            expression: maybe_expression.map(still_syntax_node_box),
+        },
+    })
 }
 fn parse_still_syntax_expression_call_or_not_space_separated_node(
     state: &mut ParseState,

@@ -48,8 +48,8 @@ stack_map \{ change :\A -> B:element_change, stack :stack A:stack } ->
 ```
 
 ## TODO
-- `:type:expression` for (extra) type-checking, like `:option int:Some -1`
-- split call and variant expression syntax tree
+- split `ReferenceOrCall` into `Variant` and `VariableOrCall`
+- `Expression::Typed` use introduce StillSyntaxExpressionUntyped for VariableOrCall
 - change comment system to `Expression::WithComment` and `Pattern::WithComment` and `Type::WithComment` (each meaning it is prefixed by `#`) and _always_ preserve line-spread of original range! Then, remove all &comments parameters
 - type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables)
 - `still build`
