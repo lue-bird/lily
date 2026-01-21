@@ -48,11 +48,10 @@ stack-map :\A -> B:element-change, :stack A:stack ->
 ```
 
 ## TODO
-- revert lambda only taking one parameter
 - change comment system to `Expression::WithComment` and `Pattern::WithComment` and `Type::WithComment` (each meaning it is prefixed by `#`) and _always_ preserve line-spread of original range! Then, remove all &comments parameters
-- type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables)
 - `still build`
 - small standard library in rust (`str` (&str), `vec` (Rc<Vec<>>), `int` (i32), `dec` (f32), ?`order`, ?`char`(unicode-scalar/rune), `int-to-str`, `dec-to-str`, `int/dec-add`, `int/dec-multiply`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, ...)
+- type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables; in the error say "unknown type variable")
 - simple io (`standard-in-read-line`, `standard-out-write`, ?`type uninitialized-or Initialized = Uninitialized | Initialized Initialized`)
 - `case of` exhaustiveness checking
 - unused checking
