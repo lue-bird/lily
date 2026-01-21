@@ -3,8 +3,8 @@ Just experimentation.
 
 ## maybe interesting deviations
 
-- full type-inference considered not useful. Instead, each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str_append \:str:a -> \:str:b -> :str:`, `0.0`, `:vec int:[]` are used instead.
-  
+- full type-inference considered not useful. Instead, each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str-append \:str:a, :str:b -> :str:`, `0.0`, `:vec int:[]` are used instead.
+
   Having concrete types everywhere also makes type checking faster, generates better errors and makes transpiling to almost any language very easy (e.g. elm's polymorphic number operations or `let`s are generally hard to infer and represent nicely in other languages)
 
 - no `|>`, infix operators, currying, modules
@@ -12,24 +12,24 @@ Just experimentation.
 ## hello world
 
 ```still
-\:uninitialized_or {}:_ -> :io {}:Standard_out_write "hello, world\n"
+\:uninitialized-or {}:_ -> :io {}:Standard-out-write "hello, world\n"
 ```
 
 ## echo in loop
 
 ```still
-\:uninitialized_or str:state_or_uninitialized ->
+\:uninitialized-or str:state-or-uninitialized ->
   let state
-        case state_or_uninitialized of
-        :uninitialized_or str:Uninitialized -> ""
-        :uninitialized_or str:Initialized :str:initialized -> initialized
-  :io str:Io_batch
-    [ :io str:Standard_out_write
-        (str_flatten [ ansi_clear_screen, state, "\nType a sentence to echo: " ])
-    , :io str:Standard_in_read_line (\:str:line -> line)
+        case state-or-uninitialized of
+        :uninitialized-or str:Uninitialized -> ""
+        :uninitialized-or str:Initialized :str:initialized -> initialized
+  :io str:Io-batch
+    [ :io str:Standard-out-write
+        (str-flatten [ ansi-clear-screen, state, "\nType a sentence to echo: " ])
+    , :io str:Standard-in-read-line (\:str:line -> line)
     ]
 
-ansi_clear_screen "\u{001B}c"
+ansi-clear-screen "\u{001B}c"
 ```
 
 ## cons-list
@@ -37,29 +37,31 @@ ansi_clear_screen "\u{001B}c"
 ```still
 type stack A = Empty | Cons { head A, tail stack A }
 
-stack_map \{ change :\A -> B:element_change, stack :stack A:stack } ->
+stack-map :\A -> B:element-change, :stack A:stack ->
   case stack of
   :stack A:Empty -> :stack B:Empty
   :stack A:Cons { head :A:head, tail :stack A:tail } ->
     :stack B:Cons
-      { head element_change head
-      , tail stack_map { change element_change, stack tail }
+      { head element-change head
+      , tail stack-map element-change tail
       }
 ```
 
 ## TODO
-- split `ReferenceOrCall` into `Variant` and `VariableOrCall`
-- `Expression::Typed` use introduce StillSyntaxExpressionUntyped for VariableOrCall
+- revert lambda only taking one parameter
 - change comment system to `Expression::WithComment` and `Pattern::WithComment` and `Type::WithComment` (each meaning it is prefixed by `#`) and _always_ preserve line-spread of original range! Then, remove all &comments parameters
 - type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables)
 - `still build`
-- small standard library in rust (`str` (&str), `vec` (Rc<Vec<>>), `int` (i32), `dec` (f32), ?`order`, ?`char`(unicode_scalar/rune), `int_to_str`, `dec_to_str`, `int/dec_add`, `int/dec_multiply`, `dec_power`, `str_compare`, `int_compare`, `dec_compare`, ...)
-- simple io (`standard_in_read_line`, `standard_out_write`, ?`type uninitialized_or Initialized = Uninitialized | Initialized Initialized`)
+- small standard library in rust (`str` (&str), `vec` (Rc<Vec<>>), `int` (i32), `dec` (f32), ?`order`, ?`char`(unicode-scalar/rune), `int-to-str`, `dec-to-str`, `int/dec-add`, `int/dec-multiply`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, ...)
+- simple io (`standard-in-read-line`, `standard-out-write`, ?`type uninitialized-or Initialized = Uninitialized | Initialized Initialized`)
 - `case of` exhaustiveness checking
+- unused checking
+- name collision checking
+- show errors and warning in lsp
 
 ## considering
 - (leaning towards yes) actually deeply consider limiting reference calls to at most 1 argument just like variant construction.
-  That would still not eliminate the need for parens in general (see lambda and case of) but allow e.g. `html_text int_to_str half window_width`
+  That would still not eliminate the need for parens in general (see lambda and case of) but allow e.g. `html-text int-to-str half window-width`
 - adding anonymous choice types. They are not allowed to be recursive. Use `type alias` for these. choice types can then be removed
 - find better function call syntax that makes it easy to unwrap the last argument
 - find better string literal syntax, like zig's `//` or js' `\`\``
