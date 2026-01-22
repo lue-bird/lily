@@ -2921,11 +2921,17 @@ fn still_syntax_expression_type(
     // TODO take local and project bindings
     expression_node: StillSyntaxNode<&StillSyntaxExpression>,
 ) -> Result<StillSyntaxNode<StillSyntaxType>, Vec<RetrieveTypeError>> {
-    still_syntax_expression_type_with(std::collections::HashMap::new(), expression_node)
+    still_syntax_expression_type_with(
+        std::rc::Rc::new(std::collections::HashMap::new()),
+        expression_node,
+    )
 }
-fn still_syntax_expression_type_with(
-    mut bindings: std::collections::HashMap<StillName, StillSyntaxNode<StillSyntaxType>>,
-    expression_node: StillSyntaxNode<&StillSyntaxExpression>,
+
+fn still_syntax_expression_type_with<'a>(
+    local_bindings: std::rc::Rc<
+        std::collections::HashMap<&'a str, Option<StillSyntaxNode<StillSyntaxType>>>,
+    >,
+    expression_node: StillSyntaxNode<&'a StillSyntaxExpression>,
 ) -> Result<StillSyntaxNode<StillSyntaxType>, Vec<RetrieveTypeError>> {
     match expression_node.value {
         StillSyntaxExpression::Typed {
@@ -2947,18 +2953,65 @@ fn still_syntax_expression_type_with(
             variable: variable_node,
             arguments,
         } => {
-            if arguments.is_empty() {
-                bindings
-                    .get(variable_node.value.as_str())
-                    .map(|n| still_syntax_node_as_ref_map(n, StillSyntaxType::clone))
-                    .ok_or_else(|| {
-                        vec![RetrieveTypeError {
-                            range: expression_node.range,
-                            message: Box::from("could not find this name in scope"),
-                        }]
-                    })
-            } else {
-                todo!()
+            match local_bindings.get(variable_node.value.as_str()) {
+                None => {
+                    // TODO look at file-scope declarations
+                    Err(vec![RetrieveTypeError {
+                        range: expression_node.range,
+                        message: Box::from("no variable with this name in scope"),
+                    }])
+                }
+                Some(maybe_variable_type) => {
+                    let Some(variable_type_node) = maybe_variable_type.as_ref() else {
+                        // errors are already reported in the patterns themselves
+                        return Err(vec![]);
+                    };
+                    if arguments.is_empty() {
+                        Ok(variable_type_node.clone())
+                    } else {
+                        let StillSyntaxType::Function {
+                            inputs: variable_type_inputs,
+                            arrow_key_symbol_range: _,
+                            output: maybe_variable_type_output,
+                        } = still_syntax_type_resolve_while_type_alias(
+                            variable_type_node.value.clone(),
+                        )
+                        else {
+                            return Err(vec![RetrieveTypeError {
+                                range: expression_node.range,
+                                message: Box::from("called variable is not a function"),
+                            }]);
+                        };
+                        let Some(variable_type_output_node) = maybe_variable_type_output else {
+                            return Err(vec![RetrieveTypeError {
+                                range: expression_node.range,
+                                message: Box::from(
+                                    "called variable function type does not have an output type",
+                                ),
+                            }]);
+                        };
+                        if arguments.len() == variable_type_inputs.len() {
+                            Ok(StillSyntaxNode {
+                                range: variable_type_output_node.range,
+                                value: variable_type_output_node.value.as_ref().clone(),
+                            })
+                        } else {
+                            Err(vec![RetrieveTypeError {
+                                range: expression_node.range,
+                                message: Box::from(format!(
+                                    "called variable takes {required} {argument_s} but you provided {provided}",
+                                    required = variable_type_inputs.len(),
+                                    argument_s = if variable_type_inputs.len() <= 1 {
+                                        "argument"
+                                    } else {
+                                        "arguments"
+                                    },
+                                    provided = arguments.len(),
+                                )),
+                            }])
+                        }
+                    }
+                }
             }
         }
         StillSyntaxExpression::CaseOf {
@@ -2976,7 +3029,7 @@ fn still_syntax_expression_type_with(
                     message: Box::from("first case result is missing"),
                 }]),
                 Some(case0_result_node) => still_syntax_expression_type_with(
-                    bindings,
+                    local_bindings,
                     still_syntax_node_as_ref(case0_result_node),
                 ),
             },
@@ -3003,6 +3056,10 @@ fn still_syntax_expression_type_with(
             }
             let mut parameter_errors: Vec<RetrieveTypeError> = Vec::new();
             let mut input_types: Vec<StillSyntaxNode<StillSyntaxType>> = Vec::new();
+            let mut local_bindings: std::collections::HashMap<
+                &str,
+                Option<StillSyntaxNode<StillSyntaxType>>,
+            > = std::rc::Rc::unwrap_or_clone(local_bindings);
             for parameter_node in parameters {
                 match still_syntax_pattern_type(still_syntax_node_as_ref(parameter_node)) {
                     Err(parameter_error) => {
@@ -3012,13 +3069,19 @@ fn still_syntax_expression_type_with(
                         input_types.push(input_type);
                     }
                 }
+                still_syntax_pattern_binding_types_into(
+                    &mut local_bindings,
+                    &mut parameter_errors,
+                    still_syntax_node_as_ref(parameter_node),
+                );
             }
             if !parameter_errors.is_empty() {
                 return Err(parameter_errors);
             }
-            todo!("add introduced pattern bindings to bindings");
-            let result_type =
-                still_syntax_expression_type_with(bindings, still_syntax_node_unbox(result_node))?;
+            let result_type = still_syntax_expression_type_with(
+                std::rc::Rc::new(local_bindings),
+                still_syntax_node_unbox(result_node),
+            )?;
             Ok(still_syntax_node_empty(StillSyntaxType::Function {
                 inputs: input_types,
                 arrow_key_symbol_range: None,
@@ -3027,8 +3090,74 @@ fn still_syntax_expression_type_with(
         }
         StillSyntaxExpression::Let {
             declaration: maybe_declaration,
-            result,
-        } => todo!(),
+            result: maybe_result,
+        } => {
+            let Some(declaration_node) = maybe_declaration else {
+                return Err(vec![RetrieveTypeError {
+                    range: expression_node.range,
+                    message: Box::from("missing declaration"),
+                }]);
+            };
+            let Some(result_node) = maybe_result else {
+                return Err(vec![RetrieveTypeError {
+                    range: expression_node.range,
+                    message: Box::from("missing result after the let declaration"),
+                }]);
+            };
+            let mut let_declaration_errors: Vec<RetrieveTypeError> = Vec::new();
+            let local_bindings_with_let: std::collections::HashMap<
+                &str,
+                Option<StillSyntaxNode<StillSyntaxType>>,
+            > = match &declaration_node.value {
+                StillSyntaxLetDeclaration::VariableDeclaration {
+                    start_name: name_node,
+                    result: declaration_maybe_result,
+                } => {
+                    let Some(declaration_result_node) = declaration_maybe_result else {
+                        return Err(vec![RetrieveTypeError {
+                            range: expression_node.range,
+                            message: Box::from("let variable declaration is missing a result"),
+                        }]);
+                    };
+                    let result_type_result = still_syntax_expression_type_with(
+                        local_bindings.clone(),
+                        still_syntax_node_unbox(declaration_result_node),
+                    );
+                    let mut local_bindings_with_let = std::rc::Rc::unwrap_or_clone(local_bindings);
+                    match result_type_result {
+                        Err(errors) => {
+                            let_declaration_errors.extend(errors);
+                            local_bindings_with_let.insert(&name_node.value, None);
+                        }
+                        Ok(result_type_node) => {
+                            local_bindings_with_let
+                                .insert(&name_node.value, Some(result_type_node));
+                        }
+                    }
+                    local_bindings_with_let
+                }
+                StillSyntaxLetDeclaration::Destructuring {
+                    pattern: pattern_node,
+                    equals_key_symbol_range: _,
+                    expression: _,
+                } => {
+                    let mut local_bindings_with_let = std::rc::Rc::unwrap_or_clone(local_bindings);
+                    still_syntax_pattern_binding_types_into(
+                        &mut local_bindings_with_let,
+                        &mut let_declaration_errors,
+                        still_syntax_node_as_ref(pattern_node),
+                    );
+                    local_bindings_with_let
+                }
+            };
+            if !let_declaration_errors.is_empty() {
+                return Err(let_declaration_errors);
+            }
+            still_syntax_expression_type_with(
+                std::rc::Rc::new(local_bindings_with_let),
+                still_syntax_node_unbox(result_node),
+            )
+        }
         StillSyntaxExpression::Vec(elements) => match elements.as_slice() {
             [] => Err(vec![RetrieveTypeError {
                 range: expression_node.range,
@@ -3039,7 +3168,7 @@ fn still_syntax_expression_type_with(
             [element0_node, ..] => {
                 let element_type: StillSyntaxNode<StillSyntaxType> =
                     still_syntax_expression_type_with(
-                        bindings,
+                        local_bindings,
                         still_syntax_node_as_ref(element0_node),
                     )?;
                 Ok(still_syntax_node_empty(still_syntax_type_vec(element_type)))
@@ -3050,7 +3179,7 @@ fn still_syntax_expression_type_with(
             message: Box::from("missing expression inside the parens between (here)"),
         }]),
         StillSyntaxExpression::Parenthesized(Some(in_parens)) => {
-            still_syntax_expression_type_with(bindings, still_syntax_node_unbox(in_parens))
+            still_syntax_expression_type_with(local_bindings, still_syntax_node_unbox(in_parens))
         }
         StillSyntaxExpression::WithComment {
             comment: _,
@@ -3061,27 +3190,111 @@ fn still_syntax_expression_type_with(
                 message: Box::from("missing expression after the comment"),
             }]),
             Some(expression_node_after_comment) => still_syntax_expression_type_with(
-                bindings,
+                local_bindings,
                 still_syntax_node_unbox(expression_node_after_comment),
             ),
         },
-        StillSyntaxExpression::Record(fields) => todo!(),
-        StillSyntaxExpression::RecordAccess { record, field } => todo!(),
+        StillSyntaxExpression::Record(fields) => {
+            let mut field_types: Vec<StillSyntaxTypeField> = Vec::new();
+            let mut errors: Vec<RetrieveTypeError> = Vec::new();
+            for field in fields {
+                match &field.value {
+                    None => {
+                        errors.push(RetrieveTypeError {
+                            range: expression_node.range,
+                            message: Box::from("missing expression after the comment"),
+                        });
+                    }
+                    Some(field_value_node) => {
+                        match still_syntax_expression_type_with(
+                            local_bindings.clone(),
+                            still_syntax_node_as_ref(field_value_node),
+                        ) {
+                            Err(field_value_errors) => {
+                                errors.extend(field_value_errors);
+                            }
+                            Ok(field_value_type_node) => {
+                                if errors.is_empty() {
+                                    field_types.push(StillSyntaxTypeField {
+                                        name: field.name.clone(),
+                                        value: Some(field_value_type_node),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !errors.is_empty() {
+                return Err(errors);
+            }
+            Ok(still_syntax_node_empty(StillSyntaxType::Record(
+                field_types,
+            )))
+        }
+        StillSyntaxExpression::RecordAccess {
+            record: record_node,
+            field: maybe_field_name,
+        } => {
+            let Some(field_name_node) = maybe_field_name else {
+                return Err(vec![RetrieveTypeError {
+                    range: expression_node.range,
+                    message: Box::from("missing field name to access"),
+                }]);
+            };
+            let record_type_node: StillSyntaxNode<StillSyntaxType> =
+                still_syntax_expression_type_with(
+                    local_bindings,
+                    still_syntax_node_unbox(record_node),
+                )?;
+            let StillSyntaxType::Record(record_type_fields) =
+                still_syntax_type_resolve_while_type_alias(record_type_node.value)
+            else {
+                return Err(vec![RetrieveTypeError {
+                    range: expression_node.range,
+                    message: Box::from("cannot access field on expression with non-record type"),
+                }]);
+            };
+            match record_type_fields
+                .into_iter()
+                .find(|field| field.name.value == field_name_node.value)
+            {
+                None => Err(vec![RetrieveTypeError {
+                    range: expression_node.range,
+                    message: Box::from("the accessed record does not contain this field"),
+                }]),
+                Some(accessed_field) => accessed_field.value.ok_or_else(|| {
+                    vec![RetrieveTypeError {
+                        range: expression_node.range,
+                        message: Box::from(
+                            "the accessed record contains this field but is missing its value type",
+                        ),
+                    }]
+                }),
+            }
+        }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
             spread_key_symbol_range: _,
-            fields,
+            fields: _,
         } => match maybe_record {
             None => Err(vec![RetrieveTypeError {
                 range: expression_node.range,
                 message: Box::from("updated record is missing"),
             }]),
-            Some(record_node) => {
-                still_syntax_expression_type_with(bindings, still_syntax_node_unbox(record_node))
-            }
+            Some(record_node) => still_syntax_expression_type_with(
+                local_bindings,
+                still_syntax_node_unbox(record_node),
+            ),
         },
         StillSyntaxExpression::String { .. } => Ok(still_syntax_node_empty(still_syntax_type_str)),
     }
+}
+/// Keep peeling until the type is not a type alias anymore. This does not mean
+/// inner type aliases will be resolved
+fn still_syntax_type_resolve_while_type_alias(type_node: StillSyntaxType) -> StillSyntaxType {
+    // TODO actually implement using given aliases HashMap, and keep peeling
+    type_node
 }
 
 const still_syntax_type_char: StillSyntaxType = StillSyntaxType::Construct {
@@ -5782,6 +5995,7 @@ fn still_syntax_pattern_bindings_into<'a>(
     match still_syntax_pattern_node.value {
         StillSyntaxPattern::Char(_) => {}
         StillSyntaxPattern::Int { .. } => {}
+        StillSyntaxPattern::String { .. } => {}
         StillSyntaxPattern::Typed {
             type_: _,
             pattern: maybe_pattern_node_in_typed,
@@ -5832,7 +6046,78 @@ fn still_syntax_pattern_bindings_into<'a>(
                 }
             }
         }
+    }
+}
+fn still_syntax_pattern_binding_types_into<'a>(
+    bindings_so_far: &mut std::collections::HashMap<
+        &'a str,
+        Option<StillSyntaxNode<StillSyntaxType>>,
+    >,
+    errors_so_far: &mut Vec<RetrieveTypeError>,
+    still_syntax_pattern_node: StillSyntaxNode<&'a StillSyntaxPattern>,
+) {
+    match still_syntax_pattern_node.value {
+        StillSyntaxPattern::Char(_) => {}
+        StillSyntaxPattern::Int { .. } => {}
         StillSyntaxPattern::String { .. } => {}
+        StillSyntaxPattern::Typed {
+            type_: maybe_type,
+            pattern: maybe_pattern_node_in_typed,
+        } => {
+            if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
+                match &pattern_node_in_typed.value {
+                    StillSyntaxPatternUntyped::Ignored => {}
+                    StillSyntaxPatternUntyped::Variable(variable) => match maybe_type {
+                        None => {
+                            errors_so_far.push(RetrieveTypeError {
+                                range: still_syntax_pattern_node.range,
+                                message: Box::from("missing type between :here:"),
+                            });
+
+                            bindings_so_far.insert(variable, None);
+                        }
+                        Some(type_node) => {
+                            bindings_so_far.insert(variable, Some(type_node.clone()));
+                        }
+                    },
+                    StillSyntaxPatternUntyped::Variant {
+                        name: _,
+                        value: maybe_value,
+                    } => {
+                        if let Some(value_node) = maybe_value {
+                            still_syntax_pattern_binding_types_into(
+                                bindings_so_far,
+                                errors_so_far,
+                                still_syntax_node_unbox(value_node),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        StillSyntaxPattern::WithComment {
+            comment: _,
+            pattern: maybe_pattern_after_comment,
+        } => {
+            if let Some(pattern_node_after_comment) = maybe_pattern_after_comment {
+                still_syntax_pattern_binding_types_into(
+                    bindings_so_far,
+                    errors_so_far,
+                    still_syntax_node_unbox(pattern_node_after_comment),
+                );
+            }
+        }
+        StillSyntaxPattern::Record(fields) => {
+            for field in fields {
+                if let Some(field_value_node) = &field.value {
+                    still_syntax_pattern_binding_types_into(
+                        bindings_so_far,
+                        errors_so_far,
+                        still_syntax_node_as_ref(field_value_node),
+                    );
+                }
+            }
+        }
     }
 }
 

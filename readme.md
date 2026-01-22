@@ -3,9 +3,9 @@ Just experimentation.
 
 ## maybe interesting deviations
 
-- full type-inference considered not useful. Instead, each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str-append \:str:l, :str:r -> :str:`, `0.0`, `:vec int:[]` are used instead.
+- each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str-append \:str:l, :str:r -> :str:`, `0.0`, `:vec int:[]` are used instead.
 
-  Having concrete types everywhere also makes type checking faster, generates better errors and makes transpiling to almost any language very easy (e.g. elm's polymorphic number operations or `let`s are generally hard to infer and represent nicely in other languages)
+  Having concrete types everywhere also makes type checking faster, generates better errors and makes transpiling to almost any language very easy (e.g. elm's polymorphic number operations or mutually recursive `let`s are generally hard to infer and represent nicely in other languages)
 
 - no `|>`, infix operators, currying, modules
 
@@ -24,10 +24,10 @@ run \:uninitialized-or str:state-or-uninitialized ->
         :uninitialized-or str:Uninitialized -> ""
         :uninitialized-or str:Initialized :str:initialized -> initialized
   :io str:Io-batch
-    [ :io str:Standard-out-write
-        (str-flatten [ ansi-clear-screen, state, "\nType a sentence to echo: " ])
-    , :io str:Standard-in-read-line (\:str:line -> line)
-    ]
+      [ :io str:Standard-out-write
+          (str-flatten [ ansi-clear-screen, state, "\nType a sentence to echo: " ])
+      , :io str:Standard-in-read-line (\:str:line -> line)
+      ]
 
 ansi-clear-screen "\u{001B}c"
 ```
@@ -35,16 +35,18 @@ ansi-clear-screen "\u{001B}c"
 ## cons-list
 
 ```still
-type stack A = Empty | Cons { head A, tail stack A }
+type stack A
+    = Empty
+    | Cons { head A, tail stack A }
 
 stack-map :\A -> B:element-change, :stack A:stack ->
-  case stack of
-  :stack A:Empty -> :stack B:Empty
-  :stack A:Cons { head :A:head, tail :stack A:tail } ->
-    :stack B:Cons
-      { head element-change head
-      , tail stack-map element-change tail
-      }
+    case stack of
+    :stack A:Empty -> :stack B:Empty
+    :stack A:Cons { head :A:head, tail :stack A:tail } ->
+        :stack B:Cons
+            { head element-change head
+            , tail stack-map element-change tail
+            }
 ```
 
 ## TODO
@@ -58,6 +60,7 @@ stack-map :\A -> B:element-change, :stack A:stack ->
 - show errors and warning in lsp
 
 ## considering
+- (leaning slightly towards no as it can be nice to give short type names to common things, but that means increase in complexity) remove type aliases?
 - (leaning towards yes) actually deeply consider limiting reference calls to at most 1 argument just like variant construction.
   That would still not eliminate the need for parens in general (see lambda and case of) but allow e.g. `html-text int-to-str half window-width`
 - adding anonymous choice types. They are not allowed to be recursive. Use `type alias` for these. choice types can then be removed
@@ -67,7 +70,6 @@ stack-map :\A -> B:element-change, :stack A:stack ->
 - introduce `nat` type and require regular ints to be prefixed with `+`/`-`
 - make formatter range independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
 - output rust on save
-- support out-of-order let declarations
 - closed lambda, call and case-of syntax like `\pattern -> expression/`, `call<arg`, `if x ( A -> x | B -> y )`, then remove ::Parenthesized
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
