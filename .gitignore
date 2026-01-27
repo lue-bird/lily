@@ -6,6 +6,7 @@ node_modules
 dist
 elm.rs
 elmMain.js
+run.rs
 
 zombie
 

@@ -1,0 +1,4 @@
+greet \:str:name ->
+    case name of
+        "me" -> "Hello, you!"
+        :str:_ -> "Hello!"
