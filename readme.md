@@ -91,6 +91,7 @@ stack-map \:\A -> B:element-change, :stack A:stack ->
 - name collision checking
 - name shadowing checking
 - show errors and warning in lsp
+- use still lambda parameter names instead of parameter·index
 
 ## considering
 - reintroduce vec matching
@@ -119,6 +120,8 @@ stack-map \:\A -> B:element-change, :stack A:stack ->
   ```
   This generally removes some verbosity, is consistent with choice type/ type alias construction,
   allows non-called generic functions, would allow the removal of all "::Typed" patterns and expressions (except recursion? but maybe there is a better solution for that).
+- infer constness of generated variable/fn items
+- find better record access syntax, maybe closer to `:field:
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
 ```bash

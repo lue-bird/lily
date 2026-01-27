@@ -9484,56 +9484,151 @@ fn variable_declaration_to_rust(
             still_syntax_node_as_ref(still_type_node),
         );
     }
+    let rust_attrs: Vec<syn::Attribute> = variable_declaration_info
+        .documentation
+        .map(|n| syn_attribute_doc(n.value))
+        .into_iter()
+        .collect::<Vec<_>>();
+    let rust_ident: syn::Ident = syn_ident(&still_name_to_lowercase_rust(
+        variable_declaration_info.name,
+    ));
+    let rust_generics: syn::Generics = syn::Generics {
+        lt_token: Some(syn::token::Lt(syn_span())),
+        params: std::iter::once(syn::GenericParam::Lifetime(syn_default_lifetime_parameter()))
+            .chain(still_type_parameters.iter().map(|name| {
+                syn::GenericParam::Type(syn::TypeParam {
+                    attrs: vec![],
+                    ident: syn_ident(name),
+                    colon_token: Some(syn::token::Colon(syn_span())),
+                    bounds: default_parameter_bounds().collect(),
+                    eq_token: None,
+                    default: None,
+                })
+            }))
+            .collect(),
+        gt_token: Some(syn::token::Gt(syn_span())),
+        where_clause: None,
+    };
     // TODO when contains type contains neither type variables nor lifetime variables and is not a function type,
     // use syn::Item::Static(syn::ItemStatic
     // TODO consider moving some parameters here if type is function, either generated
     // or with existing names if expression is lambda
-    // consider inferring constness
-    syn::Item::Fn(syn::ItemFn {
-        attrs: variable_declaration_info
-            .documentation
-            .map(|n| syn_attribute_doc(n.value))
-            .into_iter()
-            .collect::<Vec<_>>(),
-        vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
-        sig: syn::Signature {
-            constness: None,
-            asyncness: None,
-            unsafety: None,
-            abi: None,
-            fn_token: syn::token::Fn(syn_span()),
-            ident: syn_ident(&still_name_to_lowercase_rust(
-                variable_declaration_info.name,
-            )),
-            generics: syn::Generics {
-                lt_token: Some(syn::token::Lt(syn_span())),
-                params: std::iter::once(syn::GenericParam::Lifetime(
-                    syn_default_lifetime_parameter(),
-                ))
-                .chain(still_type_parameters.iter().map(|name| {
-                    syn::GenericParam::Type(syn::TypeParam {
-                        attrs: vec![],
-                        ident: syn_ident(name),
-                        colon_token: Some(syn::token::Colon(syn_span())),
-                        bounds: default_parameter_bounds().collect(),
-                        eq_token: None,
-                        default: None,
+    match maybe_still_type_node
+        .as_ref()
+        .and_then(|n| still_syntax_type_to_function(still_syntax_node_as_ref(n)))
+    {
+        Some((inputs, maybe_output)) => syn::Item::Fn(syn::ItemFn {
+            attrs: rust_attrs,
+            vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
+            sig: syn::Signature {
+                constness: None,
+                asyncness: None,
+                unsafety: None,
+                abi: None,
+                fn_token: syn::token::Fn(syn_span()),
+                ident: rust_ident,
+                generics: rust_generics,
+                paren_token: syn::token::Paren(syn_span()),
+                inputs: inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, input_type_node)| {
+                        syn::FnArg::Typed(syn::PatType {
+                            pat: Box::new(syn::Pat::Path(syn::ExprPath {
+                                attrs: vec![],
+                                qself: None,
+                                path: syn_path_reference([&rust_generated_fn_parameter_name(i)]),
+                            })),
+                            attrs: vec![],
+                            colon_token: syn::token::Colon(syn_span()),
+                            ty: Box::new(still_syntax_type_to_rust(
+                                errors,
+                                still_syntax_node_as_ref(input_type_node),
+                            )),
+                        })
                     })
-                }))
-                .collect(),
-                gt_token: Some(syn::token::Gt(syn_span())),
-                where_clause: None,
+                    .collect(),
+                output: syn::ReturnType::Type(
+                    syn::token::RArrow(syn_span()),
+                    Box::new(maybe_still_syntax_type_to_rust(
+                        errors,
+                        || StillErrorNode {
+                            range: variable_declaration_info.range,
+                            message: Box::from(
+                                "missing function result type \\..parameters.. -> here",
+                            ),
+                        },
+                        maybe_output,
+                    )),
+                ),
+                variadic: None,
             },
-            paren_token: syn::token::Paren(syn_span()),
-            inputs: syn::punctuated::Punctuated::new(),
-            output: syn::ReturnType::Type(syn::token::RArrow(syn_span()), Box::new(rust_type)),
-            variadic: None,
-        },
-        block: Box::new(syn::Block {
-            brace_token: syn::token::Brace(syn_span()),
-            stmts: vec![syn::Stmt::Expr(rust_expression, None)],
+            block: Box::new(syn::Block {
+                brace_token: syn::token::Brace(syn_span()),
+                // TODO call with generated parameters
+                stmts: vec![syn::Stmt::Expr(
+                    syn::Expr::Call(syn::ExprCall {
+                        attrs: vec![],
+                        func: Box::new(rust_expression),
+                        paren_token: syn::token::Paren(syn_span()),
+                        args: inputs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| {
+                                syn::Expr::Path(syn::ExprPath {
+                                    attrs: vec![],
+                                    qself: None,
+                                    path: syn_path_reference([&rust_generated_fn_parameter_name(
+                                        i,
+                                    )]),
+                                })
+                            })
+                            .collect(),
+                    }),
+                    None,
+                )],
+            }),
         }),
-    })
+        None => syn::Item::Fn(syn::ItemFn {
+            attrs: rust_attrs,
+            vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
+            sig: syn::Signature {
+                constness: None,
+                asyncness: None,
+                unsafety: None,
+                abi: None,
+                fn_token: syn::token::Fn(syn_span()),
+                ident: rust_ident,
+                generics: rust_generics,
+                paren_token: syn::token::Paren(syn_span()),
+                inputs: syn::punctuated::Punctuated::new(),
+                output: syn::ReturnType::Type(syn::token::RArrow(syn_span()), Box::new(rust_type)),
+                variadic: None,
+            },
+            block: Box::new(syn::Block {
+                brace_token: syn::token::Brace(syn_span()),
+                stmts: vec![syn::Stmt::Expr(rust_expression, None)],
+            }),
+        }),
+    }
+}
+fn rust_generated_fn_parameter_name(index: usize) -> String {
+    format!("parameter·{index}")
+}
+fn still_syntax_type_to_function(
+    still_type_node: StillSyntaxNode<&StillSyntaxType>,
+) -> Option<(
+    &[StillSyntaxNode<StillSyntaxType>],
+    Option<StillSyntaxNode<&StillSyntaxType>>,
+)> {
+    match still_type_node.value {
+        StillSyntaxType::Function {
+            inputs,
+            arrow_key_symbol_range: _,
+            output: maybe_output,
+        } => Some((inputs, maybe_output.as_ref().map(still_syntax_node_unbox))),
+        _ => None,
+    }
 }
 fn maybe_still_syntax_type_to_rust(
     errors: &mut Vec<StillErrorNode>,
