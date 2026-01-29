@@ -9400,7 +9400,7 @@ fn type_alias_declaration_to_rust(
     rust_parameters.push(syn::GenericParam::Lifetime(syn_default_lifetime_parameter()));
     for parameter_node in parameters {
         rust_parameters.push(syn::GenericParam::Type(syn::TypeParam::from(syn_ident(
-            &parameter_node.value,
+            &still_name_to_uppercase_rust(&parameter_node.value),
         ))));
     }
     // TODO add PartialEq, Clone, add parameters including default lifetime param
@@ -9439,7 +9439,7 @@ fn choice_type_declaration_to_rust(
     rust_parameters.push(syn::GenericParam::Lifetime(syn_default_lifetime_parameter()));
     for parameter_node in parameters {
         rust_parameters.push(syn::GenericParam::Type(syn::TypeParam::from(syn_ident(
-            &parameter_node.value,
+            &still_name_to_uppercase_rust(&parameter_node.value),
         ))));
     }
     let mut rust_variants: syn::punctuated::Punctuated<syn::Variant, syn::token::Comma> =
@@ -9500,7 +9500,7 @@ fn syn_variant(
 ) -> syn::Variant {
     syn::Variant {
         attrs: vec![],
-        ident: syn_ident(variant_name.value),
+        ident: syn_ident(&still_name_to_uppercase_rust(variant_name.value)),
         fields: match variant_value {
             None => syn::Fields::Unit,
             Some(variant_value_node) => {
@@ -9583,7 +9583,7 @@ fn variable_declaration_to_rust(
             .chain(still_type_parameters.iter().map(|name| {
                 syn::GenericParam::Type(syn::TypeParam {
                     attrs: vec![],
-                    ident: syn_ident(name),
+                    ident: syn_ident(&still_name_to_uppercase_rust(name)),
                     colon_token: Some(syn::token::Colon(syn_span())),
                     bounds: default_parameter_bounds().collect(),
                     eq_token: None,
@@ -10492,6 +10492,7 @@ fn still_syntax_expression_to_rust(
             variable: variable_node,
             arguments,
         } => {
+            let rust_variable_name: String = still_name_to_lowercase_rust(&variable_node.value);
             if arguments.is_empty() {
                 match project_variable_declarations.get(variable_node.value.as_str()) {
                     None => {
@@ -10499,14 +10500,14 @@ fn still_syntax_expression_to_rust(
                         syn::Expr::Path(syn::ExprPath {
                             attrs: vec![],
                             qself: None,
-                            path: syn_path_reference([&variable_node.value]),
+                            path: syn_path_reference([&rust_variable_name]),
                         })
                     }
                     Some(_) => {
                         // TODO currently all rust compiled variable declarations are fn(&Alloc)s
                         syn::Expr::Call(syn::ExprCall {
                             attrs: vec![],
-                            func: Box::new(syn_expr_reference([&variable_node.value])),
+                            func: Box::new(syn_expr_reference([&rust_variable_name])),
                             paren_token: syn::token::Paren(syn_span()),
                             args: std::iter::once(syn_expr_reference([
                                 default_allocator_parameter_name,
@@ -10518,7 +10519,7 @@ fn still_syntax_expression_to_rust(
             } else {
                 syn::Expr::Call(syn::ExprCall {
                     attrs: vec![],
-                    func: Box::new(syn_expr_reference([&variable_node.value])),
+                    func: Box::new(syn_expr_reference([&rust_variable_name])),
                     paren_token: syn::token::Paren(syn_span()),
                     args: std::iter::once(syn_expr_reference([default_allocator_parameter_name]))
                         .chain(arguments.iter().map(|argument_node| {
@@ -10615,7 +10616,9 @@ fn still_syntax_expression_to_rust(
                 .iter()
                 .map(|field| syn::FieldValue {
                     attrs: vec![],
-                    member: syn::Member::Named(syn_ident(&field.name.value)),
+                    member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
+                        &field.name.value,
+                    ))),
                     colon_token: Some(syn::token::Colon(syn_span())),
                     expr: maybe_still_syntax_expression_to_rust(
                         errors,
@@ -10675,7 +10678,9 @@ fn still_syntax_expression_to_rust(
                     .iter()
                     .map(|field| syn::FieldValue {
                         attrs: vec![],
-                        member: syn::Member::Named(syn_ident(&field.name.value)),
+                        member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
+                            &field.name.value,
+                        ))),
                         colon_token: Some(syn::token::Colon(syn_span())),
                         expr: maybe_still_syntax_expression_to_rust(
                             errors,
@@ -10742,7 +10747,7 @@ fn still_syntax_let_declaration_to_rust(
                 attrs: vec![],
                 by_ref: None,
                 mutability: None,
-                ident: syn_ident(&name_node.value),
+                ident: syn_ident(&still_name_to_lowercase_rust(&name_node.value)),
                 subpat: None,
             }),
             init: Some(syn::LocalInit {
@@ -10891,7 +10896,9 @@ fn still_syntax_pattern_to_rust(
                 .iter()
                 .map(|field| syn::FieldPat {
                     attrs: vec![],
-                    member: syn::Member::Named(syn_ident(&field.name.value)),
+                    member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
+                        &field.name.value,
+                    ))),
                     colon_token: Some(syn::token::Colon(syn_span())),
                     pat: Box::new(maybe_still_syntax_pattern_to_rust(
                         errors,
