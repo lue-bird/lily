@@ -1,16 +1,24 @@
 very small, explicitly boring programming language that compiles to rust, inspired by [elm](https://elm-lang.org/).
 Just experimentation, use with a bucket of caution and salt.
 
-## maybe interesting deviations
+## maybe interesting ideas
 
 - each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str-append \:str:l, :str:r -> :str:`, `0.0`, `:vec int:[]` are used instead.
 
-  Having concrete types everywhere also makes type checking faster, generates better errors and makes transpiling to almost any language very easy (e.g. elm's polymorphic number operations or mutually recursive `let`s are generally hard to infer and represent nicely in other languages)
+  Having concrete types everywhere makes type checking faster, generates better errors and makes transpiling to almost any language very easy (e.g. elm's polymorphic number operations or mutually recursive `let`s are generally hard to infer and represent nicely in other languages)
 
 - no blocking compile errors. You can always build, even if your record is still missing a field value, your matching is still inexhaustive, some parens are empty, etc.
-  You will still get all the errors, though.
+  You will still see all the errors, though.
 
-- no `|>`, infix operators, currying, modules
+- io and memory is handled in steps.
+  Each step builds new io from the current state (the io also specifies how to build new state based on events).
+  During that step, any function anywhere can liberally allocate memory as needed.
+  After that step, the updated state is cloned into a loop-global variable and the allocator containing all the memory allocated in this step is reset.
+  See [`example/`](/example/)
+
+  Requiring clones of the state alone disqualifies this memory model for performance-critical programs. It should however be competitive for regular applications which tend to have simple state but a bunch of memory waste at each frame/update/...
+
+- no `Task`/`async`, detectable mutation, side effects, `|>`, infix operators, currying, modules
 
 ## hello world
 
@@ -54,9 +62,11 @@ stack-map \:\A -> B:element-change, :stack A:stack ->
 
 ## TODO
 - actually switch to f32 and i32
+- add `alloc: &'a impl Alloc` parameter to all declarations
+- track which variable declaration actually requires an allocator
 - clone local value variables (unless their type suggests `Copy`)
 - generate record structs (derive Clone, [Copy], [Debug], [PartialEq])
-- add derive macro for `StillToOwned` and `OwnedToStill`
+- generate implementations for `StillToOwned` and `OwnedToStill` for all generated types
 - capture context in local function declarations
 - rename `case of` to `if x = ... -> ... = ... -> ...` and remove let destructuring. previous:
   ```still
@@ -83,7 +93,7 @@ stack-map \:\A -> B:element-change, :stack A:stack ->
   this solves the nesting problem of early exits and "if else"
 - complete `still build`
 - complete small standard library in rust (TODO `order`, `int/dec-add`, `int/dec-multiply`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, `map`, `set`, `type opt A = Absent | Present A` ...)
-- for generated rust variant and struct types, implement `ToOwned` and `Borrow` which recursively go and call `to_owned()` and `borrow()` on all values. And for recursive variant values, turn references into boxes and vice versa.
+- For recursive variant values, use reference. Also introduce an owned version which uses Box
 - type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables; in the error say "unknown type variable")
 - simple io (`standard-in-read-line`, `standard-out-write`)
 - `case of` exhaustiveness checking
