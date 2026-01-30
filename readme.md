@@ -18,7 +18,7 @@ Just experimentation, use with a bucket of caution and salt.
 
   Requiring clones of the state alone disqualifies this memory model for performance-critical programs. It should however be competitive for regular applications which tend to have simple state but a bunch of memory waste at each frame/update/...
 
-- no `Task`/`async`, detectable mutation, side effects, `|>`, infix operators, currying, modules
+- no `Task`/`async`, detectable mutation, side effects, `|>`, infix operators, currying, modules, lifetime tracking
 
 ## hello world
 

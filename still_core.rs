@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, non_shorthand_field_patterns)]
 
 // core //
 
