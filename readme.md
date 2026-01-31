@@ -51,10 +51,8 @@ run \:opt str:state-or-uninitialized >
 - no `Task`/`async`, detectable mutation, side effects, `|>`, infix operators, currying, modules, lifetime tracking
 
 ## TODO
-- track which variable declaration actually requires an allocator
-- clone local value variables (unless their type suggests `Copy`)
+- do not clone local value variables whose type is `Copy`
 - generate implementations for `StillToOwned` and `OwnedToStill` for generated choice types
-- capture context in local function declarations
 - rename `case of` to `if x = ... > ... = ... > ...` and remove let destructuring. previous:
   ```still
   let :some:Variant member = variant
@@ -78,7 +76,6 @@ run \:opt str:state-or-uninitialized >
   n + 1
   ```
   this solves the nesting problem of early exits and "if else"
-- complete `still build`
 - complete small standard library in rust (TODO `order`, `int/dec-add`, `int/dec-multiply`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, `map`, `set`, `type opt A = Absent | Present A` ...)
 - For recursive variant values, use reference. Also introduce an owned version which uses Box
 - type checking (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables; in the error say "unknown type variable")

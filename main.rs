@@ -103,10 +103,6 @@ fn build_main(
                     std::process::exit(1)
                 }
                 Ok(()) => {
-                    println!(
-                        "if you find that the resulting rust file is missing functions or doesn't compile, make sure to check for errors in your editor with `still lsp` running. \
-                         Type errors are not yet reported by `still build`!"
-                    );
                     if !output_errors.is_empty() {
                         std::process::exit(1)
                     }
@@ -10228,49 +10224,20 @@ fn variable_declaration_to_rust<'a>(
         .as_ref()
         .and_then(|n| still_syntax_type_to_function(type_aliases, still_syntax_node_as_ref(n)))
     {
-        None => (
-            syn::Item::Fn(syn::ItemFn {
-                attrs: rust_attrs,
-                vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
-                sig: syn::Signature {
-                    constness: None,
-                    asyncness: None,
-                    unsafety: None,
-                    abi: None,
-                    fn_token: syn::token::Fn(syn_span()),
-                    ident: rust_ident,
-                    generics: rust_generics,
-                    paren_token: syn::token::Paren(syn_span()),
-                    inputs: std::iter::once(default_allocator_fn_arg()).collect(),
-                    output: syn::ReturnType::Type(
-                        syn::token::RArrow(syn_span()),
-                        Box::new(rust_type),
-                    ),
-                    variadic: None,
+        None => {
+            let compiled_result: CompiledStillExpression = match variable_declaration_info.result {
+                None => CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
                 },
-                block: Box::new(syn::Block {
-                    brace_token: syn::token::Brace(syn_span()),
-                    stmts: vec![syn::Stmt::Expr(
-                        match variable_declaration_info.result {
-                            None => syn_expr_todo(),
-                            Some(result_node) => still_syntax_expression_to_rust(
-                                errors,
-                                records_used,
-                                variable_declarations,
-                                result_node,
-                            ),
-                        },
-                        None,
-                    )],
-                }),
-            }),
-            true,
-        ),
-        Some((inputs, maybe_output)) => match variable_declaration_info
-            .result
-            .and_then(still_syntax_expression_to_lambda)
-        {
-            Some((result_lambda_parameters, result_lambda_result)) => (
+                Some(result_node) => still_syntax_expression_to_rust(
+                    errors,
+                    records_used,
+                    variable_declarations,
+                    result_node,
+                ),
+            };
+            (
                 syn::Item::Fn(syn::ItemFn {
                     attrs: rust_attrs,
                     vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
@@ -10283,7 +10250,64 @@ fn variable_declaration_to_rust<'a>(
                         ident: rust_ident,
                         generics: rust_generics,
                         paren_token: syn::token::Paren(syn_span()),
-                        inputs: std::iter::once(default_allocator_fn_arg())
+                        inputs: (if compiled_result.uses_allocator {
+                            Some(default_allocator_fn_arg())
+                        } else {
+                            None
+                        })
+                        .into_iter()
+                        .collect(),
+                        output: syn::ReturnType::Type(
+                            syn::token::RArrow(syn_span()),
+                            Box::new(rust_type),
+                        ),
+                        variadic: None,
+                    },
+                    block: Box::new(syn::Block {
+                        brace_token: syn::token::Brace(syn_span()),
+                        stmts: vec![syn::Stmt::Expr(compiled_result.rust, None)],
+                    }),
+                }),
+                compiled_result.uses_allocator,
+            )
+        }
+        Some((inputs, maybe_output)) => match variable_declaration_info
+            .result
+            .and_then(still_syntax_expression_to_lambda)
+        {
+            Some((result_lambda_parameters, result_lambda_result)) => {
+                let compiled_result_lambda_result: CompiledStillExpression =
+                    maybe_still_syntax_expression_to_rust(
+                        errors,
+                        || StillErrorNode {
+                            range: variable_declaration_info.range,
+                            message: Box::from(
+                                "missing lambda result expression after \\..parameters.. -> here",
+                            ),
+                        },
+                        records_used,
+                        variable_declarations,
+                        result_lambda_result,
+                    );
+                (
+                    syn::Item::Fn(syn::ItemFn {
+                        attrs: rust_attrs,
+                        vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
+                        sig: syn::Signature {
+                            constness: None,
+                            asyncness: None,
+                            unsafety: None,
+                            abi: None,
+                            fn_token: syn::token::Fn(syn_span()),
+                            ident: rust_ident,
+                            generics: rust_generics,
+                            paren_token: syn::token::Paren(syn_span()),
+                            inputs: (if compiled_result_lambda_result.uses_allocator {
+                                Some(default_allocator_fn_arg())
+                            } else {
+                                None
+                            })
+                            .into_iter()
                             .chain(result_lambda_parameters.iter().zip(inputs.iter()).map(
                                 |(parameter_node, input_type_node)| {
                                     syn::FnArg::Typed(syn::PatType {
@@ -10305,59 +10329,65 @@ fn variable_declaration_to_rust<'a>(
                                 },
                             ))
                             .collect(),
-                        output: syn::ReturnType::Type(
-                            syn::token::RArrow(syn_span()),
-                            Box::new(maybe_still_syntax_type_to_rust(
-                                errors,
-                                || StillErrorNode {
-                                    range: variable_declaration_info.range,
-                                    message: Box::from(
-                                        "missing function result type \\..parameters.. -> here",
-                                    ),
-                                },
-                                // TODO this is dumb.
-                                // consider separating out to_rust from collecting records
-                                &mut std::collections::HashSet::new(),
-                                maybe_output.as_ref().map(still_syntax_node_as_ref),
-                            )),
-                        ),
-                        variadic: None,
-                    },
-                    block: Box::new(syn::Block {
-                        brace_token: syn::token::Brace(syn_span()),
-                        stmts: vec![syn::Stmt::Expr(
-                            maybe_still_syntax_expression_to_rust(
-                                errors,
-                                || StillErrorNode {
-                                    range: variable_declaration_info.range,
-                                    message: Box::from(
-                                        "missing lambda result expression after \\..parameters.. -> here",
-                                    ),
-                                },
-                                records_used,
-                                variable_declarations,
-                                result_lambda_result,
+                            output: syn::ReturnType::Type(
+                                syn::token::RArrow(syn_span()),
+                                Box::new(maybe_still_syntax_type_to_rust(
+                                    errors,
+                                    || StillErrorNode {
+                                        range: variable_declaration_info.range,
+                                        message: Box::from(
+                                            "missing function result type \\..parameters.. -> here",
+                                        ),
+                                    },
+                                    // TODO this is dumb.
+                                    // consider separating out to_rust from collecting records
+                                    &mut std::collections::HashSet::new(),
+                                    maybe_output.as_ref().map(still_syntax_node_as_ref),
+                                )),
                             ),
-                            None,
-                        )],
+                            variadic: None,
+                        },
+                        block: Box::new(syn::Block {
+                            brace_token: syn::token::Brace(syn_span()),
+                            stmts: vec![syn::Stmt::Expr(compiled_result_lambda_result.rust, None)],
+                        }),
                     }),
-                }),
-                true,
-            ),
-            None => (
-                syn::Item::Fn(syn::ItemFn {
-                    attrs: rust_attrs,
-                    vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
-                    sig: syn::Signature {
-                        constness: None,
-                        asyncness: None,
-                        unsafety: None,
-                        abi: None,
-                        fn_token: syn::token::Fn(syn_span()),
-                        ident: rust_ident,
-                        generics: rust_generics,
-                        paren_token: syn::token::Paren(syn_span()),
-                        inputs: std::iter::once(default_allocator_fn_arg())
+                    compiled_result_lambda_result.uses_allocator,
+                )
+            }
+            None => {
+                let compiled_result: CompiledStillExpression =
+                    match variable_declaration_info.result {
+                        None => CompiledStillExpression {
+                            uses_allocator: false,
+                            rust: syn_expr_todo(),
+                        },
+                        Some(result_node) => still_syntax_expression_to_rust(
+                            errors,
+                            records_used,
+                            variable_declarations,
+                            result_node,
+                        ),
+                    };
+                (
+                    syn::Item::Fn(syn::ItemFn {
+                        attrs: rust_attrs,
+                        vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
+                        sig: syn::Signature {
+                            constness: None,
+                            asyncness: None,
+                            unsafety: None,
+                            abi: None,
+                            fn_token: syn::token::Fn(syn_span()),
+                            ident: rust_ident,
+                            generics: rust_generics,
+                            paren_token: syn::token::Paren(syn_span()),
+                            inputs: (if compiled_result.uses_allocator {
+                                Some(default_allocator_fn_arg())
+                            } else {
+                                None
+                            })
+                            .into_iter()
                             .chain(inputs.iter().enumerate().map(|(i, input_type_node)| {
                                 syn::FnArg::Typed(syn::PatType {
                                     pat: Box::new(syn::Pat::Path(syn::ExprPath {
@@ -10379,59 +10409,52 @@ fn variable_declaration_to_rust<'a>(
                                 })
                             }))
                             .collect(),
-                        output: syn::ReturnType::Type(
-                            syn::token::RArrow(syn_span()),
-                            Box::new(maybe_still_syntax_type_to_rust(
-                                errors,
-                                || StillErrorNode {
-                                    range: variable_declaration_info.range,
-                                    message: Box::from(
-                                        "missing function result type \\..parameters.. -> here",
-                                    ),
-                                },
-                                // TODO this is dumb.
-                                // consider separating out to_rust from collecting records
-                                &mut std::collections::HashSet::new(),
-                                maybe_output.as_ref().map(still_syntax_node_as_ref),
-                            )),
-                        ),
-                        variadic: None,
-                    },
-                    block: Box::new(syn::Block {
-                        brace_token: syn::token::Brace(syn_span()),
-                        stmts: vec![syn::Stmt::Expr(
-                            syn::Expr::Call(syn::ExprCall {
-                                attrs: vec![],
-                                func: Box::new(match variable_declaration_info.result {
-                                    None => syn_expr_todo(),
-                                    Some(result_node) => still_syntax_expression_to_rust(
-                                        errors,
-                                        records_used,
-                                        variable_declarations,
-                                        result_node,
-                                    ),
-                                }),
-                                paren_token: syn::token::Paren(syn_span()),
-                                args: inputs
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, _)| {
-                                        syn::Expr::Path(syn::ExprPath {
-                                            attrs: vec![],
-                                            qself: None,
-                                            path: syn_path_reference([
-                                                &rust_generated_fn_parameter_name(i),
-                                            ]),
+                            output: syn::ReturnType::Type(
+                                syn::token::RArrow(syn_span()),
+                                Box::new(maybe_still_syntax_type_to_rust(
+                                    errors,
+                                    || StillErrorNode {
+                                        range: variable_declaration_info.range,
+                                        message: Box::from(
+                                            "missing function result type \\..parameters.. -> here",
+                                        ),
+                                    },
+                                    // TODO this is dumb.
+                                    // consider separating out to_rust from collecting records
+                                    &mut std::collections::HashSet::new(),
+                                    maybe_output.as_ref().map(still_syntax_node_as_ref),
+                                )),
+                            ),
+                            variadic: None,
+                        },
+                        block: Box::new(syn::Block {
+                            brace_token: syn::token::Brace(syn_span()),
+                            stmts: vec![syn::Stmt::Expr(
+                                syn::Expr::Call(syn::ExprCall {
+                                    attrs: vec![],
+                                    func: Box::new(compiled_result.rust),
+                                    paren_token: syn::token::Paren(syn_span()),
+                                    args: inputs
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, _)| {
+                                            syn::Expr::Path(syn::ExprPath {
+                                                attrs: vec![],
+                                                qself: None,
+                                                path: syn_path_reference([
+                                                    &rust_generated_fn_parameter_name(i),
+                                                ]),
+                                            })
                                         })
-                                    })
-                                    .collect(),
-                            }),
-                            None,
-                        )],
+                                        .collect(),
+                                }),
+                                None,
+                            )],
+                        }),
                     }),
-                }),
-                true,
-            ),
+                    compiled_result.uses_allocator,
+                )
+            }
         },
     }
 }
@@ -10701,7 +10724,7 @@ fn still_syntax_expression_to_lambda(
 }
 fn maybe_still_syntax_type_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
-    error_on_none: impl Fn() -> StillErrorNode,
+    error_on_none: impl FnOnce() -> StillErrorNode,
     records_used: &mut std::collections::HashSet<Vec<&'a str>>,
     maybe_type: Option<StillSyntaxNode<&'a StillSyntaxType>>,
 ) -> syn::Type {
@@ -10738,7 +10761,7 @@ fn still_syntax_type_to_rust<'a>(
             errors,
             || StillErrorNode {
                 range: type_node.range,
-                message: Box::from("missing type inside after the comment"),
+                message: Box::from("missing type after the comment # ...\\n here"),
             },
             records_used,
             maybe_type.as_ref().map(still_syntax_node_unbox),
@@ -10938,18 +10961,21 @@ fn still_syntax_type_variables_into<'a>(
 }
 fn maybe_still_syntax_expression_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
-    error_on_none: impl Fn() -> StillErrorNode,
+    error_on_none: impl FnOnce() -> StillErrorNode,
     records_used: &mut std::collections::HashSet<Vec<&'a str>>,
     project_variable_declarations: &std::collections::HashMap<
         &str,
         CompiledVariableDeclarationInfo,
     >,
     maybe_expression: Option<StillSyntaxNode<&'a StillSyntaxExpression>>,
-) -> syn::Expr {
+) -> CompiledStillExpression {
     match maybe_expression {
         None => {
             errors.push(error_on_none());
-            syn_expr_todo()
+            CompiledStillExpression {
+                rust: syn_expr_todo(),
+                uses_allocator: false,
+            }
         }
         Some(expression_node) => still_syntax_expression_to_rust(
             errors,
@@ -10959,6 +10985,10 @@ fn maybe_still_syntax_expression_to_rust<'a>(
         ),
     }
 }
+struct CompiledStillExpression {
+    rust: syn::Expr,
+    uses_allocator: bool,
+}
 fn still_syntax_expression_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<&'a str>>,
@@ -10967,27 +10997,36 @@ fn still_syntax_expression_to_rust<'a>(
         CompiledVariableDeclarationInfo,
     >,
     expression_node: StillSyntaxNode<&'a StillSyntaxExpression>,
-) -> syn::Expr {
+) -> CompiledStillExpression {
     match expression_node.value {
         StillSyntaxExpression::String {
             content,
             quoting_style: _,
-        } => syn::Expr::Lit(syn::ExprLit {
-            attrs: vec![],
-            lit: syn::Lit::Str(syn::LitStr::new(content, syn_span())),
-        }),
+        } => CompiledStillExpression {
+            uses_allocator: false,
+            rust: syn::Expr::Lit(syn::ExprLit {
+                attrs: vec![],
+                lit: syn::Lit::Str(syn::LitStr::new(content, syn_span())),
+            }),
+        },
         StillSyntaxExpression::Char(maybe_char) => match *maybe_char {
             None => {
                 errors.push(StillErrorNode {
                     range: expression_node.range,
                     message: Box::from("missing character between 'here'"),
                 });
-                syn_expr_todo()
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
+                }
             }
-            Some(char) => syn::Expr::Lit(syn::ExprLit {
-                attrs: vec![],
-                lit: syn::Lit::Char(syn::LitChar::new(char, syn_span())),
-            }),
+            Some(char) => CompiledStillExpression {
+                uses_allocator: false,
+                rust: syn::Expr::Lit(syn::ExprLit {
+                    attrs: vec![],
+                    lit: syn::Lit::Char(syn::LitChar::new(char, syn_span())),
+                }),
+            },
         },
         StillSyntaxExpression::Dec(dec_or_err) => match dec_or_err.parse::<f64>() {
             Err(parse_error) => {
@@ -10995,12 +11034,18 @@ fn still_syntax_expression_to_rust<'a>(
                     range: expression_node.range,
                     message: Box::from(format!("dec literal cannot be parsed: {parse_error}")),
                 });
-                syn_expr_todo()
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
+                }
             }
-            Ok(dec) => syn::Expr::Lit(syn::ExprLit {
-                attrs: vec![],
-                lit: syn::Lit::Float(syn::LitFloat::new(&dec.to_string(), syn_span())),
-            }),
+            Ok(dec) => CompiledStillExpression {
+                uses_allocator: false,
+                rust: syn::Expr::Lit(syn::ExprLit {
+                    attrs: vec![],
+                    lit: syn::Lit::Float(syn::LitFloat::new(&dec.to_string(), syn_span())),
+                }),
+            },
         },
         StillSyntaxExpression::Int(representation) => match representation.parse::<isize>() {
             Err(parse_error) => {
@@ -11008,105 +11053,151 @@ fn still_syntax_expression_to_rust<'a>(
                     range: expression_node.range,
                     message: Box::from(format!("int literal cannot be parsed: {parse_error}")),
                 });
-                syn_expr_todo()
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
+                }
             }
-            Ok(int) => syn::Expr::Lit(syn::ExprLit {
-                attrs: vec![],
-                lit: syn::Lit::Int(syn::LitInt::new(&int.to_string(), syn_span())),
-            }),
+            Ok(int) => CompiledStillExpression {
+                uses_allocator: false,
+                rust: syn::Expr::Lit(syn::ExprLit {
+                    attrs: vec![],
+                    lit: syn::Lit::Int(syn::LitInt::new(&int.to_string(), syn_span())),
+                }),
+            },
         },
         StillSyntaxExpression::Lambda {
             parameters,
             arrow_key_symbol_range: _,
             result: maybe_result,
-        } => syn_expr_call_alloc_method(syn::Expr::Closure(syn::ExprClosure {
-            attrs: vec![],
-            lifetimes: None,
-            constness: None,
-            movability: None,
-            asyncness: None,
-            capture: Some(syn::token::Move(syn_span())),
-            or1_token: syn::token::Or(syn_span()),
-            inputs: parameters
-                .iter()
-                .map(|pattern_node| {
-                    still_syntax_pattern_to_rust(
+        } => CompiledStillExpression {
+            uses_allocator: true,
+            rust: syn_expr_call_alloc_method(syn::Expr::Closure(syn::ExprClosure {
+                attrs: vec![],
+                lifetimes: None,
+                constness: None,
+                movability: None,
+                asyncness: None,
+                capture: Some(syn::token::Move(syn_span())),
+                or1_token: syn::token::Or(syn_span()),
+                inputs: parameters
+                    .iter()
+                    .map(|pattern_node| {
+                        still_syntax_pattern_to_rust(
+                            errors,
+                            records_used,
+                            still_syntax_node_as_ref(pattern_node),
+                        )
+                    })
+                    .collect(),
+                or2_token: syn::token::Or(syn_span()),
+                output: syn::ReturnType::Default,
+                body: Box::new(
+                    maybe_still_syntax_expression_to_rust(
                         errors,
+                        || StillErrorNode {
+                            range: expression_node.range,
+                            message: Box::from(
+                                "missing lambda result after \\..parameters.. -> here",
+                            ),
+                        },
                         records_used,
-                        still_syntax_node_as_ref(pattern_node),
+                        project_variable_declarations,
+                        maybe_result.as_ref().map(still_syntax_node_unbox),
                     )
-                })
-                .collect(),
-            or2_token: syn::token::Or(syn_span()),
-            output: syn::ReturnType::Default,
-            body: Box::new(maybe_still_syntax_expression_to_rust(
-                errors,
-                || StillErrorNode {
-                    range: expression_node.range,
-                    message: Box::from("missing lambda result after \\..parameters.. -> here"),
-                },
-                records_used,
-                project_variable_declarations,
-                maybe_result.as_ref().map(still_syntax_node_unbox),
-            )),
-        })),
+                    .rust,
+                ),
+            })),
+        },
         StillSyntaxExpression::Let {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
-            let maybe_rust_result: syn::Expr = maybe_still_syntax_expression_to_rust(
-                errors,
-                || StillErrorNode {
-                    range: expression_node.range,
-                    message: Box::from(
-                        "missing result expression after let declaration let ... here",
-                    ),
-                },
-                records_used,
-                project_variable_declarations,
-                maybe_result.as_ref().map(still_syntax_node_unbox),
-            );
-            match maybe_declaration {
-                None => maybe_rust_result,
-                Some(declaration) => syn::Expr::Block(syn::ExprBlock {
-                    label: None,
-                    attrs: vec![],
-                    block: syn::Block {
-                        brace_token: syn::token::Brace(syn_span()),
-                        stmts: vec![
-                            syn::Stmt::Local(still_syntax_let_declaration_to_rust(
-                                errors,
-                                records_used,
-                                project_variable_declarations,
-                                still_syntax_node_as_ref(declaration),
-                            )),
-                            syn::Stmt::Expr(maybe_rust_result, None),
-                        ],
+            let maybe_result_compiled: CompiledStillExpression =
+                maybe_still_syntax_expression_to_rust(
+                    errors,
+                    || StillErrorNode {
+                        range: expression_node.range,
+                        message: Box::from(
+                            "missing result expression after let declaration let ... here",
+                        ),
                     },
+                    records_used,
+                    project_variable_declarations,
+                    maybe_result.as_ref().map(still_syntax_node_unbox),
+                );
+            match maybe_declaration {
+                None => maybe_result_compiled,
+                Some(declaration) => {
+                    let let_declaration_compiled = still_syntax_let_declaration_to_rust(
+                        errors,
+                        records_used,
+                        project_variable_declarations,
+                        still_syntax_node_as_ref(declaration),
+                    );
+                    CompiledStillExpression {
+                        uses_allocator: let_declaration_compiled.uses_allocator
+                            || maybe_result_compiled.uses_allocator,
+                        rust: match maybe_result_compiled.rust {
+                            syn::Expr::Block(rust_let_result_block) => {
+                                let mut stmts: Vec<syn::Stmt> =
+                                    vec![syn::Stmt::Local(let_declaration_compiled.rust)];
+                                stmts.extend(rust_let_result_block.block.stmts);
+                                syn::Expr::Block(syn::ExprBlock {
+                                    label: rust_let_result_block.label,
+                                    attrs: rust_let_result_block.attrs,
+                                    block: syn::Block {
+                                        brace_token: syn::token::Brace(syn_span()),
+                                        stmts: stmts,
+                                    },
+                                })
+                            }
+                            _ => syn::Expr::Block(syn::ExprBlock {
+                                label: None,
+                                attrs: vec![],
+                                block: syn::Block {
+                                    brace_token: syn::token::Brace(syn_span()),
+                                    stmts: vec![
+                                        syn::Stmt::Local(let_declaration_compiled.rust),
+                                        syn::Stmt::Expr(maybe_result_compiled.rust, None),
+                                    ],
+                                },
+                            }),
+                        },
+                    }
+                }
+            }
+        }
+        StillSyntaxExpression::Vec(elements) => {
+            let mut uses_allocator: bool = false;
+            let rust_elements: syn::punctuated::Punctuated<syn::Expr, syn::token::Comma> = elements
+                .iter()
+                .map(|element_node| {
+                    let compiled = still_syntax_expression_to_rust(
+                        errors,
+                        records_used,
+                        project_variable_declarations,
+                        still_syntax_node_as_ref(element_node),
+                    );
+                    uses_allocator = uses_allocator || compiled.uses_allocator;
+                    compiled.rust
+                })
+                .collect();
+            CompiledStillExpression {
+                uses_allocator: uses_allocator,
+                rust: syn::Expr::Call(syn::ExprCall {
+                    attrs: vec![],
+                    func: Box::new(syn_expr_reference(["vec_literal"])),
+                    paren_token: syn::token::Paren(syn_span()),
+                    args: std::iter::once(syn::Expr::Array(syn::ExprArray {
+                        attrs: vec![],
+                        bracket_token: syn::token::Bracket(syn_span()),
+                        elems: rust_elements,
+                    }))
+                    .collect(),
                 }),
             }
         }
-        StillSyntaxExpression::Vec(elements) => syn::Expr::Call(syn::ExprCall {
-            attrs: vec![],
-            func: Box::new(syn_expr_reference(["vec_literal"])),
-            paren_token: syn::token::Paren(syn_span()),
-            args: std::iter::once(syn::Expr::Array(syn::ExprArray {
-                attrs: vec![],
-                bracket_token: syn::token::Bracket(syn_span()),
-                elems: elements
-                    .iter()
-                    .map(|element_node| {
-                        still_syntax_expression_to_rust(
-                            errors,
-                            records_used,
-                            project_variable_declarations,
-                            still_syntax_node_as_ref(element_node),
-                        )
-                    })
-                    .collect(),
-            }))
-            .collect(),
-        }),
         StillSyntaxExpression::Parenthesized(maybe_in_parens) => {
             maybe_still_syntax_expression_to_rust(
                 errors,
@@ -11120,20 +11211,54 @@ fn still_syntax_expression_to_rust<'a>(
             )
         }
         StillSyntaxExpression::WithComment {
-            comment: _,
+            comment: comment_node,
             expression: maybe_after_comment,
-        } => maybe_still_syntax_expression_to_rust(
-            errors,
-            || StillErrorNode {
-                range: expression_node.range,
-                message: Box::from(
-                    "missing expression after linebreak after comment # ...\\n here",
-                ),
-            },
-            records_used,
-            project_variable_declarations,
-            maybe_after_comment.as_ref().map(still_syntax_node_unbox),
-        ),
+        } => match maybe_after_comment {
+            None => {
+                errors.push(StillErrorNode {
+                    range: expression_node.range,
+                    message: Box::from(
+                        "missing expression after linebreak after comment # ...\\n here",
+                    ),
+                });
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn::Expr::Macro(syn::ExprMacro {
+                        attrs: vec![],
+                        mac: syn::Macro {
+                            path: syn::Path::from(syn_ident("todo")),
+                            bang_token: syn::token::Not(syn_span()),
+                            delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(syn_span())),
+                            tokens: proc_macro2::TokenStream::from(
+                                proc_macro2::TokenTree::Literal(proc_macro2::Literal::string(
+                                    &comment_node.value,
+                                )),
+                            ),
+                        },
+                    }),
+                }
+            }
+            Some(after_comment_node) => {
+                let compiled_after_comment: CompiledStillExpression =
+                    still_syntax_expression_to_rust(
+                        errors,
+                        records_used,
+                        project_variable_declarations,
+                        still_syntax_node_unbox(after_comment_node),
+                    );
+                CompiledStillExpression {
+                    uses_allocator: compiled_after_comment.uses_allocator,
+                    rust: syn::Expr::Block(syn::ExprBlock {
+                        attrs: vec![syn_attribute_doc(&comment_node.value)],
+                        label: None,
+                        block: syn::Block {
+                            brace_token: syn::token::Brace(syn_span()),
+                            stmts: vec![syn::Stmt::Expr(compiled_after_comment.rust, None)],
+                        },
+                    }),
+                }
+            }
+        },
         StillSyntaxExpression::Typed {
             type_: _,
             expression: maybe_in_typed,
@@ -11143,7 +11268,10 @@ fn still_syntax_expression_to_rust<'a>(
                     range: expression_node.range,
                     message: Box::from("missing expression after type :...: here"),
                 });
-                syn_expr_todo()
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
+                }
             }
             Some(untyped_node) => match &untyped_node.value {
                 StillSyntaxExpressionUntyped::Variant {
@@ -11153,22 +11281,32 @@ fn still_syntax_expression_to_rust<'a>(
                     let rust_variant_reference: syn::Expr =
                         syn_expr_reference([&still_name_to_uppercase_rust(&name.value)]);
                     match maybe_value {
-                        None => rust_variant_reference,
-                        Some(value_node) => syn::Expr::Call(syn::ExprCall {
-                            attrs: vec![],
-                            func: Box::new(rust_variant_reference),
-                            paren_token: syn::token::Paren(syn_span()),
-                            args: std::iter::once({
-                                // TODO if variant value is recursive, wrap in reference
+                        None => CompiledStillExpression {
+                            uses_allocator: false,
+                            rust: rust_variant_reference,
+                        },
+                        Some(value_node) => {
+                            let value_compiled: CompiledStillExpression =
                                 still_syntax_expression_to_rust(
                                     errors,
                                     records_used,
                                     project_variable_declarations,
                                     still_syntax_node_unbox(value_node),
-                                )
-                            })
-                            .collect(),
-                        }),
+                                );
+                            CompiledStillExpression {
+                                uses_allocator: value_compiled.uses_allocator,
+                                rust: syn::Expr::Call(syn::ExprCall {
+                                    attrs: vec![],
+                                    func: Box::new(rust_variant_reference),
+                                    paren_token: syn::token::Paren(syn_span()),
+                                    args: std::iter::once({
+                                        // TODO if variant value is recursive, wrap in alloc.alloc
+                                        value_compiled.rust
+                                    })
+                                    .collect(),
+                                }),
+                            }
+                        }
                     }
                 }
                 StillSyntaxExpressionUntyped::Other(other_expression) => {
@@ -11189,32 +11327,39 @@ fn still_syntax_expression_to_rust<'a>(
             arguments,
         } => {
             let rust_variable_name: String = still_name_to_lowercase_rust(&variable_node.value);
+            let mut uses_allocator: bool = false;
             let rust_arguments = arguments.iter().map(|argument_node| {
-                still_syntax_expression_to_rust(
+                let compiled_argument: CompiledStillExpression = still_syntax_expression_to_rust(
                     errors,
                     records_used,
                     project_variable_declarations,
                     still_syntax_node_as_ref(argument_node),
-                )
+                );
+                uses_allocator = uses_allocator || compiled_argument.uses_allocator;
+                compiled_argument.rust
             });
             let rust_reference: syn::Expr = syn_expr_reference([&rust_variable_name]);
             match project_variable_declarations.get(variable_node.value.as_str()) {
                 Some(compiled_origin_variable_declaration) => {
                     // TODO currently all rust compiled variable declarations are fn(&Alloc)s,
                     // once some can be static, return variable without call
-                    syn::Expr::Call(syn::ExprCall {
-                        attrs: vec![],
-                        func: Box::new(rust_reference),
-                        paren_token: syn::token::Paren(syn_span()),
-                        args: if compiled_origin_variable_declaration.has_allocator_parameter {
-                            Some(syn_expr_reference([default_allocator_parameter_name]))
-                        } else {
-                            None
-                        }
-                        .into_iter()
-                        .chain(rust_arguments)
-                        .collect(),
-                    })
+                    CompiledStillExpression {
+                        rust: syn::Expr::Call(syn::ExprCall {
+                            attrs: vec![],
+                            func: Box::new(rust_reference),
+                            paren_token: syn::token::Paren(syn_span()),
+                            args: if compiled_origin_variable_declaration.has_allocator_parameter {
+                                Some(syn_expr_reference([default_allocator_parameter_name]))
+                            } else {
+                                None
+                            }
+                            .into_iter()
+                            .chain(rust_arguments)
+                            .collect(),
+                        }),
+                        uses_allocator: uses_allocator
+                            || compiled_origin_variable_declaration.has_allocator_parameter,
+                    }
                 }
                 None => {
                     let variable_is_copy: bool = {
@@ -11226,15 +11371,18 @@ fn still_syntax_expression_to_rust<'a>(
                     } else {
                         syn_expr_call_clone_method(rust_reference)
                     };
-                    if arguments.is_empty() {
-                        rust_variable
-                    } else {
-                        syn::Expr::Call(syn::ExprCall {
-                            attrs: vec![],
-                            func: Box::new(rust_variable),
-                            paren_token: syn::token::Paren(syn_span()),
-                            args: rust_arguments.collect(),
-                        })
+                    CompiledStillExpression {
+                        rust: if arguments.is_empty() {
+                            rust_variable
+                        } else {
+                            syn::Expr::Call(syn::ExprCall {
+                                attrs: vec![],
+                                func: Box::new(rust_variable),
+                                paren_token: syn::token::Paren(syn_span()),
+                                args: rust_arguments.collect(),
+                            })
+                        },
+                        uses_allocator: uses_allocator,
                     }
                 }
             }
@@ -11249,52 +11397,54 @@ fn still_syntax_expression_to_rust<'a>(
                     range: expression_node.range,
                     message: Box::from("missing matched expression in case here of ..."),
                 });
-                syn_expr_todo()
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
+                }
             }
-            Some(matched_node) => syn::Expr::Match(syn::ExprMatch {
-                attrs: vec![],
-                match_token: syn::token::Match(syn_span()),
-                expr: Box::new(still_syntax_expression_to_rust(
+            Some(matched_node) => {
+                let compiled_matched: CompiledStillExpression = still_syntax_expression_to_rust(
                     errors,
                     records_used,
                     project_variable_declarations,
                     still_syntax_node_unbox(matched_node),
-                )),
-                brace_token: syn::token::Brace(syn_span()),
-                arms: cases
+                );
+                let mut arms_use_allocator: bool = false;
+                let rust_arms: Vec<syn::Arm> = cases
                     .iter()
-                    .map(|case| syn::Arm {
-                        attrs: vec![],
-                        pat: still_syntax_pattern_to_rust(
-                            errors,
-                            records_used,
-                            still_syntax_node_as_ref(&case.pattern),
-                        ),
-                        guard: None,
-                        fat_arrow_token: syn::token::FatArrow(syn_span()),
-                        body: Box::new(syn::Expr::Block(syn::ExprBlock {
+                    .map(|case| {
+                        let compiled_case_result: CompiledStillExpression =
+                            maybe_still_syntax_expression_to_rust(
+                                errors,
+                                || StillErrorNode {
+                                    range: case.pattern.range,
+                                    message: Box::from("missing case result after pattern -> here"),
+                                },
+                                records_used,
+                                project_variable_declarations,
+                                case.result.as_ref().map(still_syntax_node_as_ref),
+                            );
+                        arms_use_allocator =
+                            arms_use_allocator || compiled_case_result.uses_allocator;
+                        syn::Arm {
                             attrs: vec![],
-                            label: None,
-                            block: syn::Block {
-                                brace_token: syn::token::Brace(syn_span()),
-                                stmts: vec![syn::Stmt::Expr(
-                                    maybe_still_syntax_expression_to_rust(
-                                        errors,
-                                        || StillErrorNode {
-                                            range: case.pattern.range,
-                                            message: Box::from(
-                                                "missing case result after pattern -> here",
-                                            ),
-                                        },
-                                        records_used,
-                                        project_variable_declarations,
-                                        case.result.as_ref().map(still_syntax_node_as_ref),
-                                    ),
-                                    None,
-                                )],
-                            },
-                        })),
-                        comma: None,
+                            pat: still_syntax_pattern_to_rust(
+                                errors,
+                                records_used,
+                                still_syntax_node_as_ref(&case.pattern),
+                            ),
+                            guard: None,
+                            fat_arrow_token: syn::token::FatArrow(syn_span()),
+                            body: Box::new(syn::Expr::Block(syn::ExprBlock {
+                                attrs: vec![],
+                                label: None,
+                                block: syn::Block {
+                                    brace_token: syn::token::Brace(syn_span()),
+                                    stmts: vec![syn::Stmt::Expr(compiled_case_result.rust, None)],
+                                },
+                            })),
+                            comma: None,
+                        }
                     })
                     // we append a _ => todo!() to still make inexhaustive matching compile
                     // and be able to be run, rust will emit a warning
@@ -11311,64 +11461,89 @@ fn still_syntax_expression_to_rust<'a>(
                         body: Box::new(syn_expr_todo()),
                         comma: None,
                     }))
-                    .collect::<Vec<_>>(),
-            }),
+                    .collect::<Vec<_>>();
+                CompiledStillExpression {
+                    rust: syn::Expr::Match(syn::ExprMatch {
+                        attrs: vec![],
+                        match_token: syn::token::Match(syn_span()),
+                        expr: Box::new(compiled_matched.rust),
+                        brace_token: syn::token::Brace(syn_span()),
+                        arms: rust_arms,
+                    }),
+                    uses_allocator: compiled_matched.uses_allocator || arms_use_allocator,
+                }
+            }
         },
         StillSyntaxExpression::Record(fields) => {
             records_used.insert(sorted_field_names(
                 fields.iter().map(|field| field.name.value.as_str()),
             ));
-            syn::Expr::Struct(syn::ExprStruct {
-                attrs: vec![],
-                qself: None,
-                path: syn_path_reference([&still_field_names_to_rust_record_struct_name(
-                    fields.iter().map(|field| field.name.value.as_ref()),
-                )]),
-                brace_token: syn::token::Brace(syn_span()),
-                fields: fields
+            let mut fields_use_allocator: bool = false;
+            let rust_fields: syn::punctuated::Punctuated<syn::FieldValue, syn::token::Comma> =
+                fields
                     .iter()
-                    .map(|field| syn::FieldValue {
-                        attrs: vec![],
-                        member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
-                            &field.name.value,
-                        ))),
-                        colon_token: Some(syn::token::Colon(syn_span())),
-                        expr: maybe_still_syntax_expression_to_rust(
-                            errors,
-                            || StillErrorNode {
-                                range: field.name.range,
-                                message: Box::from("missing field value after this field name"),
-                            },
-                            records_used,
-                            project_variable_declarations,
-                            field.value.as_ref().map(still_syntax_node_as_ref),
-                        ),
+                    .map(|field| {
+                        let compiled_field_value: CompiledStillExpression =
+                            maybe_still_syntax_expression_to_rust(
+                                errors,
+                                || StillErrorNode {
+                                    range: field.name.range,
+                                    message: Box::from("missing field value after this field name"),
+                                },
+                                records_used,
+                                project_variable_declarations,
+                                field.value.as_ref().map(still_syntax_node_as_ref),
+                            );
+                        fields_use_allocator =
+                            fields_use_allocator || compiled_field_value.uses_allocator;
+                        syn::FieldValue {
+                            attrs: vec![],
+                            member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
+                                &field.name.value,
+                            ))),
+                            colon_token: Some(syn::token::Colon(syn_span())),
+                            expr: compiled_field_value.rust,
+                        }
                     })
-                    .collect(),
-                dot2_token: None,
-                rest: None,
-            })
+                    .collect();
+            CompiledStillExpression {
+                rust: syn::Expr::Struct(syn::ExprStruct {
+                    attrs: vec![],
+                    qself: None,
+                    path: syn_path_reference([&still_field_names_to_rust_record_struct_name(
+                        fields.iter().map(|field| field.name.value.as_ref()),
+                    )]),
+                    brace_token: syn::token::Brace(syn_span()),
+                    fields: rust_fields,
+                    dot2_token: None,
+                    rest: None,
+                }),
+                uses_allocator: fields_use_allocator,
+            }
         }
         StillSyntaxExpression::RecordAccess {
             record: record_node,
             field: maybe_field_name,
         } => {
-            let record_rust_expr: syn::Expr = still_syntax_expression_to_rust(
+            let compiled_record: CompiledStillExpression = still_syntax_expression_to_rust(
                 errors,
                 records_used,
                 project_variable_declarations,
                 still_syntax_node_unbox(record_node),
             );
             match maybe_field_name {
-                None => record_rust_expr,
-                Some(field_name_node) => syn::Expr::Field(syn::ExprField {
-                    attrs: vec![],
-                    base: Box::new(record_rust_expr),
-                    dot_token: syn::token::Dot(syn_span()),
-                    member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
-                        &field_name_node.value,
-                    ))),
-                }),
+                None => compiled_record,
+                Some(field_name_node) => CompiledStillExpression {
+                    uses_allocator: compiled_record.uses_allocator,
+                    rust: syn::Expr::Field(syn::ExprField {
+                        attrs: vec![],
+                        base: Box::new(compiled_record.rust),
+                        dot_token: syn::token::Dot(syn_span()),
+                        member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
+                            &field_name_node.value,
+                        ))),
+                    }),
+                },
             }
         }
         StillSyntaxExpression::RecordUpdate {
@@ -11381,45 +11556,66 @@ fn still_syntax_expression_to_rust<'a>(
                     range: expression_node.range,
                     message: Box::from("missing record to update in { ..here, ... ... }"),
                 });
-                syn_expr_todo()
+                CompiledStillExpression {
+                    uses_allocator: false,
+                    rust: syn_expr_todo(),
+                }
             }
-            Some(record_node) => syn::Expr::Struct(syn::ExprStruct {
-                attrs: vec![],
-                qself: None,
-                path: syn_path_reference([&still_field_names_to_rust_record_struct_name(
-                    fields.iter().map(|field| field.name.value.as_ref()),
-                )]),
-                brace_token: syn::token::Brace(syn_span()),
-                fields: fields
-                    .iter()
-                    .map(|field| syn::FieldValue {
-                        attrs: vec![],
-                        member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
-                            &field.name.value,
-                        ))),
-                        colon_token: Some(syn::token::Colon(syn_span())),
-                        expr: maybe_still_syntax_expression_to_rust(
-                            errors,
-                            || StillErrorNode {
-                                range: field.name.range,
-                                message: Box::from("missing field value after this field name"),
-                            },
-                            records_used,
-                            project_variable_declarations,
-                            field.value.as_ref().map(still_syntax_node_as_ref),
-                        ),
-                    })
-                    .collect(),
-                dot2_token: Some(syn::token::DotDot(syn_span())),
-                rest: Some(Box::new(still_syntax_expression_to_rust(
+            Some(record_node) => {
+                let compiled_record: CompiledStillExpression = still_syntax_expression_to_rust(
                     errors,
                     records_used,
                     project_variable_declarations,
                     still_syntax_node_unbox(record_node),
-                ))),
-            }),
+                );
+                let mut fields_use_allocator: bool = false;
+                let rust_fields = fields
+                    .iter()
+                    .map(|field| {
+                        let compiled_field_value: CompiledStillExpression =
+                            maybe_still_syntax_expression_to_rust(
+                                errors,
+                                || StillErrorNode {
+                                    range: field.name.range,
+                                    message: Box::from("missing field value after this field name"),
+                                },
+                                records_used,
+                                project_variable_declarations,
+                                field.value.as_ref().map(still_syntax_node_as_ref),
+                            );
+                        fields_use_allocator =
+                            fields_use_allocator || compiled_field_value.uses_allocator;
+                        syn::FieldValue {
+                            attrs: vec![],
+                            member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
+                                &field.name.value,
+                            ))),
+                            colon_token: Some(syn::token::Colon(syn_span())),
+                            expr: compiled_field_value.rust,
+                        }
+                    })
+                    .collect();
+                CompiledStillExpression {
+                    rust: syn::Expr::Struct(syn::ExprStruct {
+                        attrs: vec![],
+                        qself: None,
+                        path: syn_path_reference([&still_field_names_to_rust_record_struct_name(
+                            fields.iter().map(|field| field.name.value.as_ref()),
+                        )]),
+                        brace_token: syn::token::Brace(syn_span()),
+                        fields: rust_fields,
+                        dot2_token: Some(syn::token::DotDot(syn_span())),
+                        rest: Some(Box::new(compiled_record.rust)),
+                    }),
+                    uses_allocator: compiled_record.uses_allocator || fields_use_allocator,
+                }
+            }
         },
     }
+}
+struct CompiledStillLetDeclaration {
+    rust: syn::Local,
+    uses_allocator: bool,
 }
 fn still_syntax_let_declaration_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
@@ -11429,74 +11625,86 @@ fn still_syntax_let_declaration_to_rust<'a>(
         CompiledVariableDeclarationInfo,
     >,
     declaration_node: StillSyntaxNode<&'a StillSyntaxLetDeclaration>,
-) -> syn::Local {
+) -> CompiledStillLetDeclaration {
     match &declaration_node.value {
         StillSyntaxLetDeclaration::Destructuring {
             pattern: pattern_node,
             equals_key_symbol_range: _,
             expression: maybe_destructured_expression,
-        } => syn::Local {
-            attrs: vec![],
-            let_token: syn::token::Let(syn_span()),
-            pat: still_syntax_pattern_to_rust(
+        } => {
+            let compiled_destructured = maybe_still_syntax_expression_to_rust(
                 errors,
+                || StillErrorNode {
+                    range: declaration_node.range,
+                    message: Box::from("missing let destructuring result in let ... = here"),
+                },
                 records_used,
-                still_syntax_node_as_ref(pattern_node),
-            ),
-            init: Some(syn::LocalInit {
-                eq_token: syn::token::Eq(syn_span()),
-                expr: Box::new(maybe_still_syntax_expression_to_rust(
-                    errors,
-                    || StillErrorNode {
-                        range: declaration_node.range,
-                        message: Box::from("missing let destructuring result in let ... = here"),
-                    },
-                    records_used,
-                    project_variable_declarations,
-                    maybe_destructured_expression
-                        .as_ref()
-                        .map(still_syntax_node_unbox),
-                )),
-                diverge: None,
-            }),
-            semi_token: syn::token::Semi(syn_span()),
-        },
+                project_variable_declarations,
+                maybe_destructured_expression
+                    .as_ref()
+                    .map(still_syntax_node_unbox),
+            );
+            CompiledStillLetDeclaration {
+                uses_allocator: compiled_destructured.uses_allocator,
+                rust: syn::Local {
+                    attrs: vec![],
+                    let_token: syn::token::Let(syn_span()),
+                    pat: still_syntax_pattern_to_rust(
+                        errors,
+                        records_used,
+                        still_syntax_node_as_ref(pattern_node),
+                    ),
+                    init: Some(syn::LocalInit {
+                        eq_token: syn::token::Eq(syn_span()),
+                        expr: Box::new(compiled_destructured.rust),
+                        diverge: None,
+                    }),
+                    semi_token: syn::token::Semi(syn_span()),
+                },
+            }
+        }
         StillSyntaxLetDeclaration::VariableDeclaration {
             name: name_node,
             result: maybe_result,
-        } => syn::Local {
-            attrs: vec![],
-            let_token: syn::token::Let(syn_span()),
-            pat: syn::Pat::Ident(syn::PatIdent {
-                attrs: vec![],
-                by_ref: None,
-                mutability: None,
-                ident: syn_ident(&still_name_to_lowercase_rust(&name_node.value)),
-                subpat: None,
-            }),
-            init: Some(syn::LocalInit {
-                eq_token: syn::token::Eq(syn_span()),
-                expr: Box::new(maybe_still_syntax_expression_to_rust(
-                    errors,
-                    || StillErrorNode {
-                        range: declaration_node.range,
-                        message: Box::from(
-                            "missing assigned let variable declaration expression in let ..name.. here",
-                        ),
-                    },
-                    records_used,
-                    project_variable_declarations,
-                    maybe_result.as_ref().map(still_syntax_node_unbox),
-                )),
-                diverge: None,
-            }),
-            semi_token: syn::token::Semi(syn_span()),
-        },
+        } => {
+            let compiled_result: CompiledStillExpression = maybe_still_syntax_expression_to_rust(
+                errors,
+                || StillErrorNode {
+                    range: declaration_node.range,
+                    message: Box::from(
+                        "missing assigned let variable declaration expression in let ..name.. here",
+                    ),
+                },
+                records_used,
+                project_variable_declarations,
+                maybe_result.as_ref().map(still_syntax_node_unbox),
+            );
+            CompiledStillLetDeclaration {
+                uses_allocator: compiled_result.uses_allocator,
+                rust: syn::Local {
+                    attrs: vec![],
+                    let_token: syn::token::Let(syn_span()),
+                    pat: syn::Pat::Ident(syn::PatIdent {
+                        attrs: vec![],
+                        by_ref: None,
+                        mutability: None,
+                        ident: syn_ident(&still_name_to_lowercase_rust(&name_node.value)),
+                        subpat: None,
+                    }),
+                    init: Some(syn::LocalInit {
+                        eq_token: syn::token::Eq(syn_span()),
+                        expr: Box::new(compiled_result.rust),
+                        diverge: None,
+                    }),
+                    semi_token: syn::token::Semi(syn_span()),
+                },
+            }
+        }
     }
 }
 fn maybe_still_syntax_pattern_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
-    error_on_none: impl Fn() -> StillErrorNode,
+    error_on_none: impl FnOnce() -> StillErrorNode,
     records_used: &mut std::collections::HashSet<Vec<&'a str>>,
     maybe_pattern_node: Option<StillSyntaxNode<&'a StillSyntaxPattern>>,
 ) -> syn::Pat {
