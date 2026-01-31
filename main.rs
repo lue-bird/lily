@@ -11226,7 +11226,7 @@ fn still_syntax_expression_to_rust<'a>(
                     rust: syn::Expr::Macro(syn::ExprMacro {
                         attrs: vec![],
                         mac: syn::Macro {
-                            path: syn::Path::from(syn_ident("todo")),
+                            path: syn_path_reference(["std", "todo"]),
                             bang_token: syn::token::Not(syn_span()),
                             delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(syn_span())),
                             tokens: proc_macro2::TokenStream::from(
@@ -11859,21 +11859,99 @@ fn still_syntax_pattern_to_rust<'a>(
     }
 }
 fn still_name_to_uppercase_rust(name: &str) -> String {
-    // TODO disambiguate from Self
     let mut sanitized: String = name.replace("-", "_");
     if let Some(first) = sanitized.get_mut(0..=0) {
         first.make_ascii_uppercase();
     }
-    sanitized
+    if [
+        "Self",
+        "Clone",
+        "Copy",
+        "PartialEq",
+        "Eq",
+        "Debug",
+        "Hash",
+        "PartialOrd",
+        "Ord",
+    ]
+    .contains(&sanitized.as_str())
+    {
+        sanitized + "ø_"
+    } else {
+        sanitized
+    }
 }
 fn still_name_to_lowercase_rust(name: &str) -> String {
-    // TODO disambiguate from keywords
     let mut sanitized: String = name.replace("-", "_");
     if let Some(first) = sanitized.get_mut(0..=0) {
         first.make_ascii_lowercase();
     }
-    sanitized
+    if rust_lowercase_keywords.contains(&sanitized.as_str()) || sanitized == "vec_literal" {
+        sanitized + "ø"
+    } else {
+        sanitized
+    }
 }
+/// both weak, reserved and strong.
+/// see <https://doc.rust-lang.org/reference/keywords.html>
+const rust_lowercase_keywords: [&str; 56] = [
+    "as",
+    "break",
+    "const",
+    "continue",
+    "crate",
+    "else",
+    "enum",
+    "extern",
+    "false",
+    "fn",
+    "for",
+    "if",
+    "impl",
+    "in",
+    "let",
+    "loop",
+    "match",
+    "mod",
+    "move",
+    "mut",
+    "pub",
+    "ref",
+    "return",
+    "self",
+    "Self",
+    "struct",
+    "super",
+    "trait",
+    "true",
+    "type",
+    "unsafe",
+    "use",
+    "where",
+    "while",
+    "async",
+    "await",
+    "dyn",
+    "abstract",
+    "become",
+    "box",
+    "do",
+    "final",
+    "macro",
+    "override",
+    "priv",
+    "typeof",
+    "unsized",
+    "virtual",
+    "yield",
+    "try",
+    "gen",
+    "static",
+    "macro_rules",
+    "raw",
+    "safe",
+    "union",
+];
 fn still_type_variable_to_rust(name: &str) -> String {
     // to disambiguate from choice type and type alias names
     still_name_to_uppercase_rust(name) + "ø"
@@ -12099,7 +12177,7 @@ fn syn_expr_todo() -> syn::Expr {
     syn::Expr::Macro(syn::ExprMacro {
         attrs: vec![],
         mac: syn::Macro {
-            path: syn::Path::from(syn_ident("todo")),
+            path: syn_path_reference(["std", "todo"]),
             bang_token: syn::token::Not(syn_span()),
             delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(syn_span())),
             tokens: proc_macro2::TokenStream::new(),
