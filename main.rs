@@ -1371,23 +1371,6 @@ fn respond_to_prepare_rename(
     })
 }
 
-struct ProjectProjectOriginAndState<'a> {
-    project_state: &'a ProjectState,
-    project_path: &'a std::path::PathBuf,
-}
-/// TODO inline
-fn state_iter_all_projects<'a>(
-    state: &'a State,
-) -> impl Iterator<Item = ProjectProjectOriginAndState<'a>> {
-    state
-        .projects
-        .iter()
-        .map(|(path, state)| ProjectProjectOriginAndState {
-            project_path: path,
-            project_state: state,
-        })
-}
-
 fn respond_to_rename(
     state: &State,
     rename_arguments: lsp_types::RenameParams,
@@ -1446,16 +1429,18 @@ fn respond_to_rename(
                         including_declaration_name: true,
                     }
                 };
-            state_iter_all_projects(state)
-                .filter_map(move |project| {
+            state
+                .projects
+                .iter()
+                .filter_map(move |(project_path, project_state)| {
                     let mut all_uses_of_at_docs_project_member: Vec<lsp_types::Range> = Vec::new();
                     still_syntax_project_uses_of_symbol_into(
                         &mut all_uses_of_at_docs_project_member,
-                        &project.project_state.syntax,
+                        &project_state.syntax,
                         still_declared_symbol_to_rename,
                     );
                     let still_project_uri: lsp_types::Url =
-                        lsp_types::Url::from_file_path(project.project_path).ok()?;
+                        lsp_types::Url::from_file_path(project_path).ok()?;
                     Some(lsp_types::TextDocumentEdit {
                         text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
                             uri: still_project_uri,
@@ -1554,16 +1539,18 @@ fn respond_to_rename(
                         name: to_rename_name,
                         including_declaration_name: true,
                     };
-                state_iter_all_projects(state)
-                    .filter_map(|project| {
+                state
+                    .projects
+                    .iter()
+                    .filter_map(|(project_path, project_state)| {
                         let mut all_uses_of_renamed_variable: Vec<lsp_types::Range> = Vec::new();
                         still_syntax_project_uses_of_symbol_into(
                             &mut all_uses_of_renamed_variable,
-                            &project.project_state.syntax,
+                            &project_state.syntax,
                             symbol_to_find,
                         );
                         let still_project_uri: lsp_types::Url =
-                            lsp_types::Url::from_file_path(project.project_path).ok()?;
+                            lsp_types::Url::from_file_path(project_path).ok()?;
                         Some(lsp_types::TextDocumentEdit {
                             text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
                                 uri: still_project_uri,
@@ -1591,16 +1578,18 @@ fn respond_to_rename(
                     name: type_name_to_rename,
                     including_declaration_name: true,
                 };
-            state_iter_all_projects(state)
-                .filter_map(|project| {
+            state
+                .projects
+                .iter()
+                .filter_map(|(project_path, project_state)| {
                     let mut all_uses_of_renamed_type: Vec<lsp_types::Range> = Vec::new();
                     still_syntax_project_uses_of_symbol_into(
                         &mut all_uses_of_renamed_type,
-                        &project.project_state.syntax,
+                        &project_state.syntax,
                         still_declared_symbol_to_rename,
                     );
                     let still_project_uri: lsp_types::Url =
-                        lsp_types::Url::from_file_path(project.project_path).ok()?;
+                        lsp_types::Url::from_file_path(project_path).ok()?;
                     Some(lsp_types::TextDocumentEdit {
                         text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
                             uri: still_project_uri,
