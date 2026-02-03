@@ -797,7 +797,7 @@ fn respond_to_hover(
         }
         StillSyntaxSymbol::LetDeclarationName {
             name: hovered_name,
-            type_type: maybe_type_type,
+            type_: maybe_type_type,
             name_range,
             scope_expression: _,
         } => Some(lsp_types::Hover {
@@ -818,7 +818,7 @@ fn respond_to_hover(
             local_bindings,
         } => {
             if let Some(hovered_local_binding_info) =
-                find_local_binding_scope_expression(&local_bindings, hovered_name)
+                find_local_binding_info(&local_bindings, hovered_name)
             {
                 return Some(lsp_types::Hover {
                     contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
@@ -955,10 +955,19 @@ fn local_binding_info_markdown(
     origin: LocalBindingOrigin,
 ) -> String {
     match origin {
-        LocalBindingOrigin::PatternVariable(_) => {
-            // TODO show type
-            "variable introduced in pattern".to_string()
-        }
+        LocalBindingOrigin::PatternVariable(_) => match maybe_type {
+            None => "variable introduced in pattern".to_string(),
+            Some(type_node) => {
+                format!(
+                    "variable introduced in pattern, of type
+```still
+{}
+```
+",
+                    still_syntax_type_to_string(type_node, 0)
+                )
+            }
+        },
         LocalBindingOrigin::LetDeclaredVariable { name_range } => let_declaration_info_markdown(
             StillSyntaxNode {
                 value: name,
@@ -974,20 +983,32 @@ fn let_declaration_info_markdown(
 ) -> String {
     match maybe_type_type {
         None => {
-            format!("```still\nlet {}\n```\n", name_node.value)
+            format!(
+                "```still
+let {}
+```
+",
+                name_node.value
+            )
         }
         Some(hovered_local_binding_type) => {
+            let line_span: LineSpan =
+                still_syntax_range_line_span(hovered_local_binding_type.range);
             format!(
-                "```still\nlet {}{}:{}:\n```\n",
-                name_node.value,
-                match still_syntax_range_line_span(lsp_types::Range {
-                    start: name_node.range.end,
-                    end: hovered_local_binding_type.range.end
-                }) {
+                "```still
+let {name}{space_or_linebreak}:{type_}{empty_or_linebreak}:
+```
+",
+                name = name_node.value,
+                space_or_linebreak = match line_span {
                     LineSpan::Single => " ",
                     LineSpan::Multiple => "\n    ",
                 },
-                &still_syntax_type_to_string(hovered_local_binding_type, 4)
+                type_ = &still_syntax_type_to_string(hovered_local_binding_type, 5),
+                empty_or_linebreak = match line_span {
+                    LineSpan::Single => "",
+                    LineSpan::Multiple => "\n    ",
+                },
             )
         }
     }
@@ -1076,7 +1097,7 @@ fn respond_to_goto_definition(
             local_bindings,
         } => {
             if let Some(goto_local_binding_info) =
-                find_local_binding_scope_expression(&local_bindings, goto_name)
+                find_local_binding_info(&local_bindings, goto_name)
             {
                 return Some(lsp_types::GotoDefinitionResponse::Scalar(
                     lsp_types::Location {
@@ -1180,7 +1201,7 @@ fn respond_to_prepare_rename(
         }
         | StillSyntaxSymbol::LetDeclarationName {
             name,
-            type_type: _,
+            type_: _,
             name_range: _,
             scope_expression: _,
         }
@@ -1194,7 +1215,7 @@ fn respond_to_prepare_rename(
         StillSyntaxSymbol::VariableOrVariant {
             name,
             local_bindings,
-        } => match find_local_binding_scope_expression(&local_bindings, name) {
+        } => match find_local_binding_info(&local_bindings, name) {
             Some(_) => Ok(lsp_types::PrepareRenameResponse::RangeWithPlaceholder {
                 range: prepare_rename_symbol_node.range,
                 placeholder: name.to_string(),
@@ -1316,7 +1337,7 @@ fn respond_to_rename(
         StillSyntaxSymbol::LetDeclarationName {
             name: to_rename_name,
             name_range: _,
-            type_type: _,
+            type_: _,
             scope_expression,
         } => {
             let mut all_uses_of_let_declaration_to_rename: Vec<lsp_types::Range> = Vec::new();
@@ -1350,7 +1371,7 @@ fn respond_to_rename(
             local_bindings,
         } => {
             if let Some(to_rename_local_binding_info) =
-                find_local_binding_scope_expression(&local_bindings, to_rename_name)
+                find_local_binding_info(&local_bindings, to_rename_name)
             {
                 let mut all_uses_of_local_binding_to_rename: Vec<lsp_types::Range> = Vec::new();
                 match to_rename_local_binding_info.origin {
@@ -1541,7 +1562,7 @@ fn respond_to_references(
         StillSyntaxSymbol::LetDeclarationName {
             name: to_find_name,
             name_range: _,
-            type_type: _,
+            type_: _,
             scope_expression,
         } => {
             let mut all_uses_of_found_let_declaration: Vec<lsp_types::Range> = Vec::new();
@@ -1573,7 +1594,7 @@ fn respond_to_references(
             local_bindings,
         } => {
             if let Some(to_find_local_binding_info) =
-                find_local_binding_scope_expression(&local_bindings, to_find_name)
+                find_local_binding_info(&local_bindings, to_find_name)
             {
                 let mut all_uses_of_found_local_binding: Vec<lsp_types::Range> = Vec::new();
                 if references_arguments.context.include_declaration {
@@ -4343,7 +4364,7 @@ enum StillSyntaxSymbol<'a> {
     LetDeclarationName {
         name: &'a str,
         name_range: lsp_types::Range,
-        type_type: Option<StillSyntaxNode<StillSyntaxType>>,
+        type_: Option<StillSyntaxNode<StillSyntaxType>>,
         scope_expression: StillSyntaxNode<&'a StillSyntaxExpression>,
     },
     VariableOrVariant {
@@ -4370,7 +4391,7 @@ struct StillLocalBindingInfo<'a> {
     origin: LocalBindingOrigin,
     scope_expression: StillSyntaxNode<&'a StillSyntaxExpression>,
 }
-fn find_local_binding_scope_expression<'a>(
+fn find_local_binding_info<'a>(
     local_bindings: &'a StillLocalBindings<'a>,
     to_find: &str,
 ) -> Option<StillLocalBindingInfo<'a>> {
@@ -4569,7 +4590,7 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                 } else {
                     maybe_result.as_ref().and_then(|result_node| {
                         still_syntax_expression_find_symbol_at_position(
-                            vec![(still_syntax_node_as_ref(result_node), Vec::new())],
+                            vec![],
                             type_aliases,
                             still_syntax_declaration_node.value,
                             still_syntax_node_as_ref(result_node),
@@ -5120,7 +5141,7 @@ fn still_syntax_let_declaration_find_symbol_at_position<'a>(
                     value: StillSyntaxSymbol::LetDeclarationName {
                         name: &name.value,
                         name_range: name.range,
-                        type_type: maybe_result_node.as_ref().map(|result_node| {
+                        type_: maybe_result_node.as_ref().map(|result_node| {
                             still_syntax_expression_type(
                                 type_aliases,
                                 still_syntax_node_unbox(result_node),
@@ -5845,7 +5866,7 @@ fn still_syntax_pattern_bindings_into<'a>(
         StillSyntaxPattern::Int { .. } => {}
         StillSyntaxPattern::String { .. } => {}
         StillSyntaxPattern::Typed {
-            type_: _,
+            type_: maybe_type,
             pattern: maybe_pattern_node_in_typed,
         } => {
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
@@ -5857,16 +5878,7 @@ fn still_syntax_pattern_bindings_into<'a>(
                                 pattern_node_in_typed.range,
                             ),
                             name: variable,
-                            type_: bindings_so_far
-                                .iter()
-                                .find_map(|introduced_binding| {
-                                    if introduced_binding.name == variable {
-                                        Some(introduced_binding.type_.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .flatten(),
+                            type_: maybe_type.clone(),
                         });
                     }
                     StillSyntaxPatternUntyped::Variant {
@@ -8878,13 +8890,13 @@ fn core_variable_declaration_infos()
                 StillName::from("vec-repeat"),
                 true,
                 function([still_syntax_type_int, variable("A")], vec(variable("A"))),
-                "Build a `vec` with a given length and an element at each index",
+                "Build a `vec` with a given length and a given element at each index",
             ),
             (
                 StillName::from("vec-length"),
                 false,
                 function([vec(variable("A"))], still_syntax_type_int),
-                "Count of its elements",
+                "Its element count",
             ),
             (
                 StillName::from("vec-element"),
