@@ -4000,7 +4000,18 @@ fn still_syntax_case_into(
         .unwrap_or(case.pattern.range.end);
     still_syntax_pattern_into(so_far, indent, still_syntax_node_as_ref(&case.pattern));
     so_far.push_str(" >");
-    linebreak_indented_into(so_far, next_indent(indent));
+    space_or_linebreak_indented_into(
+        so_far,
+        still_syntax_range_line_span(lsp_types::Range {
+            start: case.pattern.range.start,
+            end: case
+                .result
+                .as_ref()
+                .map(|n| n.range.end)
+                .unwrap_or(case.pattern.range.end),
+        }),
+        next_indent(indent),
+    );
     if let Some(result_node) = &case.result {
         still_syntax_expression_not_parenthesized_into(
             so_far,
