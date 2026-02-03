@@ -180,7 +180,7 @@
           "name": "punctuation.definition.comment.still"
         }
       },
-      "end": "\\#\\\\)",
+      "end": "\\#\\)",
       "name": "comment.block.still",
       "patterns": [
         {
@@ -370,7 +370,7 @@
           "name": "keyword.operator.assignment.still"
         },
         {
-          "match": "\\>",
+          "match": ">",
           "name": "keyword.operator.arrow.still"
         },
         {
@@ -446,7 +446,7 @@
       "patterns": [
         {
           "match": "\\\\",
-          "name": "punctuation.backslash.still"
+          "name": "keyword.start.lambda.still"
         },
         {
           "match": "\\s+",
