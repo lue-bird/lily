@@ -1905,7 +1905,11 @@ fn respond_to_completion(
         }
         StillSyntaxSymbol::Type { name: _ } => {
             let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
-            type_declaration_completions_into(&completion_project.syntax, &mut completion_items);
+            type_declaration_completions_into(
+                &completion_project.type_aliases,
+                &completion_project.choice_types,
+                &mut completion_items,
+            );
             Some(completion_items)
         }
         StillSyntaxSymbol::TypeVariable { .. } => {
@@ -1992,90 +1996,58 @@ fn variable_declaration_or_variant_completions_into(
     ));
 }
 fn type_declaration_completions_into(
-    project_syntax: &StillSyntaxProject,
+    type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     completion_items: &mut Vec<lsp_types::CompletionItem>,
 ) {
-    for (origin_project_declaration_node, origin_project_declaration_documentation) in
-        project_syntax
-            .declarations
-            .iter()
-            .filter_map(|declaration_or_err| declaration_or_err.as_ref().ok())
-            .filter_map(|documented_declaration| {
-                documented_declaration
-                    .declaration
-                    .as_ref()
-                    .map(|declaration_node| {
-                        (
-                            declaration_node,
-                            documented_declaration
-                                .documentation
+    completion_items.extend(choice_types.iter().map(
+        |(origin_project_choice_type_name, origin_project_choice_type_info)| {
+            lsp_types::CompletionItem {
+                label: origin_project_choice_type_name.to_string(),
+                kind: Some(lsp_types::CompletionItemKind::ENUM),
+                documentation: Some(lsp_types::Documentation::MarkupContent(
+                    lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value: present_choice_type_declaration_info_markdown(
+                            Some(origin_project_choice_type_name),
+                            origin_project_choice_type_info.documentation.as_deref(),
+                            &origin_project_choice_type_info.parameters,
+                            origin_project_choice_type_info
+                                .variant0_name
                                 .as_ref()
-                                .map(|node| node.value.as_ref()),
-                        )
-                    })
-            })
-    {
-        match &origin_project_declaration_node.value {
-            StillSyntaxDeclaration::ChoiceType {
-                name: maybe_name,
-                parameters,
-                equals_key_symbol_range: _,
-                variant0_name: maybe_variant0_name,
-                variant0_value: variant0_maybe_value,
-                variant1_up,
-            } => {
-                if let Some(name_node) = maybe_name.as_ref() {
-                    completion_items.push(lsp_types::CompletionItem {
-                        label: name_node.value.to_string(),
-                        kind: Some(lsp_types::CompletionItemKind::ENUM),
-                        documentation: Some(lsp_types::Documentation::MarkupContent(
-                            lsp_types::MarkupContent {
-                                kind: lsp_types::MarkupKind::Markdown,
-                                value: present_choice_type_declaration_info_markdown(
-                                    Some(name_node.value.as_str()),
-                                    origin_project_declaration_documentation,
-                                    parameters,
-                                    maybe_variant0_name.as_ref().map(|n| {
-                                        still_syntax_node_as_ref_map(n, StillName::as_str)
-                                    }),
-                                    variant0_maybe_value.as_ref().map(still_syntax_node_as_ref),
-                                    variant1_up,
-                                ),
-                            },
-                        )),
-                        ..lsp_types::CompletionItem::default()
-                    });
-                }
+                                .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
+                            origin_project_choice_type_info
+                                .variant0_value
+                                .as_ref()
+                                .map(still_syntax_node_as_ref),
+                            &origin_project_choice_type_info.variant1_up,
+                        ),
+                    },
+                )),
+                ..lsp_types::CompletionItem::default()
             }
-            StillSyntaxDeclaration::TypeAlias {
-                alias_keyword_range: _,
-                name: maybe_name,
-                parameters,
-                equals_key_symbol_range: _,
-                type_,
-            } => {
-                if let Some(name_node) = maybe_name.as_ref() {
-                    completion_items.push(lsp_types::CompletionItem {
-                        label: name_node.value.to_string(),
-                        kind: Some(lsp_types::CompletionItemKind::STRUCT),
-                        documentation: Some(lsp_types::Documentation::MarkupContent(
-                            lsp_types::MarkupContent {
-                                kind: lsp_types::MarkupKind::Markdown,
-                                value: present_type_alias_declaration_info_markdown(
-                                    Some(name_node.value.as_str()),
-                                    origin_project_declaration_documentation,
-                                    parameters,
-                                    type_.as_ref().map(still_syntax_node_as_ref),
-                                ),
-                            },
-                        )),
-                        ..lsp_types::CompletionItem::default()
-                    });
-                }
-            }
-            StillSyntaxDeclaration::Variable { .. } => {}
-        }
-    }
+        },
+    ));
+    completion_items.extend(
+        type_aliases.iter().map(
+            |(type_alias_name, type_alias_info)| lsp_types::CompletionItem {
+                label: type_alias_name.to_string(),
+                kind: Some(lsp_types::CompletionItemKind::STRUCT),
+                documentation: Some(lsp_types::Documentation::MarkupContent(
+                    lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value: present_type_alias_declaration_info_markdown(
+                            Some(type_alias_name),
+                            type_alias_info.documentation.as_deref(),
+                            &type_alias_info.parameters,
+                            type_alias_info.type_.as_ref().map(still_syntax_node_as_ref),
+                        ),
+                    },
+                )),
+                ..lsp_types::CompletionItem::default()
+            },
+        ),
+    );
 }
 
 fn respond_to_document_formatting(
@@ -3704,7 +3676,7 @@ fn still_syntax_expression_not_parenthesized_into(
         }
         StillSyntaxExpression::Lambda {
             parameters,
-            arrow_key_symbol_range: maybe_arrow_key_symbol_range,
+            arrow_key_symbol_range: _,
             result: maybe_result,
         } => {
             so_far.push('\\');
