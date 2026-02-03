@@ -538,7 +538,6 @@ fn publish_diagnostics(
     connection: &lsp_server::Connection,
     diagnostics: <lsp_types::notification::PublishDiagnostics as lsp_types::notification::Notification>::Params,
 ) {
-    eprintln!("trying to send diagnostics");
     let diagnostics_json: serde_json::Value = match serde_json::to_value(diagnostics) {
         Ok(diagnostics_json) => diagnostics_json,
         Err(err) => {
@@ -554,7 +553,6 @@ fn publish_diagnostics(
     )).unwrap_or_else(|err| {
         eprintln!("failed to send diagnostics {err}");
     });
-    eprintln!("sent diagnostics");
 }
 
 fn update_state_on_did_change_text_document(
@@ -773,10 +771,9 @@ fn respond_to_hover(
                     type_.as_ref().map(still_syntax_node_as_ref),
                 ),
                 StillSyntaxDeclaration::Variable {
-                    name: origin_project_declaration_name_node,
+                    name: _,
                     result: maybe_result_node,
                 } => present_variable_declaration_info_markdown(
-                    origin_project_declaration_name_node.value.as_str(),
                     documentation,
                     maybe_result_node
                         .as_ref()
@@ -800,18 +797,14 @@ fn respond_to_hover(
             })
         }
         StillSyntaxSymbol::LetDeclarationName {
-            name: hovered_name,
+            name: _,
             type_: maybe_type_type,
-            name_range,
+            name_range: _,
             scope_expression: _,
         } => Some(lsp_types::Hover {
             contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                 kind: lsp_types::MarkupKind::Markdown,
                 value: let_declaration_info_markdown(
-                    StillSyntaxNode {
-                        range: name_range,
-                        value: hovered_name,
-                    },
                     maybe_type_type.as_ref().map(still_syntax_node_as_ref),
                 ),
             }),
@@ -828,7 +821,6 @@ fn respond_to_hover(
                     contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                         kind: lsp_types::MarkupKind::Markdown,
                         value: local_binding_info_markdown(
-                            hovered_name,
                             hovered_local_binding_info.type_,
                             hovered_local_binding_info.origin,
                         ),
@@ -842,7 +834,6 @@ fn respond_to_hover(
                     .get(hovered_name)
                 {
                     present_variable_declaration_info_markdown(
-                        hovered_name,
                         origin_compiled_variable_declaration_info
                             .documentation
                             .as_deref(),
@@ -954,7 +945,6 @@ fn respond_to_hover(
 }
 
 fn local_binding_info_markdown(
-    name: &str,
     maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
     origin: LocalBindingOrigin,
 ) -> String {
@@ -963,53 +953,38 @@ fn local_binding_info_markdown(
             None => "variable introduced in pattern".to_string(),
             Some(type_node) => {
                 format!(
-                    "variable introduced in pattern, of type
+                    "variable introduced in pattern
 ```still
-{}
+:{}{}:
 ```
 ",
-                    still_syntax_type_to_string(type_node, 0)
+                    still_syntax_type_to_string(type_node, 1),
+                    match still_syntax_range_line_span(type_node.range) {
+                        LineSpan::Single => "",
+                        LineSpan::Multiple => "\n    ",
+                    }
                 )
             }
         },
-        LocalBindingOrigin::LetDeclaredVariable { name_range } => let_declaration_info_markdown(
-            StillSyntaxNode {
-                value: name,
-                range: name_range,
-            },
-            maybe_type,
-        ),
+        LocalBindingOrigin::LetDeclaredVariable { name_range: _ } => {
+            let_declaration_info_markdown(maybe_type)
+        }
     }
 }
 fn let_declaration_info_markdown(
-    name_node: StillSyntaxNode<&str>,
     maybe_type_type: Option<StillSyntaxNode<&StillSyntaxType>>,
 ) -> String {
     match maybe_type_type {
-        None => {
-            format!(
-                "```still
-let {}
-```
-",
-                name_node.value
-            )
-        }
+        None => "let variable".to_string(),
         Some(hovered_local_binding_type) => {
-            let line_span: LineSpan =
-                still_syntax_range_line_span(hovered_local_binding_type.range);
             format!(
-                "```still
-let {name}{space_or_linebreak}:{type_}{empty_or_linebreak}:
+                "let variable
+```still
+:{}{}:
 ```
 ",
-                name = name_node.value,
-                space_or_linebreak = match line_span {
-                    LineSpan::Single => " ",
-                    LineSpan::Multiple => "\n    ",
-                },
-                type_ = &still_syntax_type_to_string(hovered_local_binding_type, 5),
-                empty_or_linebreak = match line_span {
+                &still_syntax_type_to_string(hovered_local_binding_type, 1),
+                match still_syntax_range_line_span(hovered_local_binding_type.range) {
                     LineSpan::Single => "",
                     LineSpan::Multiple => "\n    ",
                 },
@@ -1785,23 +1760,25 @@ fn semantic_token_type_to_id(semantic_token: &lsp_types::SemanticTokenType) -> u
 }
 
 fn present_variable_declaration_info_markdown(
-    name: &str,
     maybe_documentation: Option<&str>,
     maybe_variable_type: Option<StillSyntaxNode<&StillSyntaxType>>,
 ) -> String {
     let description: String = match maybe_variable_type {
         Some(variable_type_node) => {
             format!(
-                "```still\n{}{}:{}:\n```\n",
-                name,
+                "project variable
+```still
+:{}{}:
+```
+",
+                &still_syntax_type_to_string(variable_type_node, 1),
                 match still_syntax_range_line_span(variable_type_node.range) {
-                    LineSpan::Single => " ",
+                    LineSpan::Single => "",
                     LineSpan::Multiple => "\n    ",
                 },
-                &still_syntax_type_to_string(variable_type_node, 4)
             )
         }
-        None => format!("```still\n{}\n```\n", name),
+        None => "project variable".to_string(),
     };
     match maybe_documentation {
         None => description,
@@ -1896,7 +1873,6 @@ fn respond_to_completion(
                         lsp_types::MarkupContent {
                             kind: lsp_types::MarkupKind::Markdown,
                             value: local_binding_info_markdown(
-                                local_binding.name,
                                 local_binding.type_.as_ref().map(still_syntax_node_as_ref),
                                 local_binding.origin,
                             ),
@@ -1945,7 +1921,6 @@ fn variable_declaration_or_variant_completions_into(
                     lsp_types::MarkupContent {
                         kind: lsp_types::MarkupKind::Markdown,
                         value: present_variable_declaration_info_markdown(
-                            variable_declaration_name,
                             variable_declaration_info.documentation.as_deref(),
                             variable_declaration_info
                                 .type_

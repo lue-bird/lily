@@ -11,6 +11,7 @@ tree-size \:tree A:tree >
         :tree A:Leaf :A:_ >
             1
 
+(#My docs#)
 greet \{ name :str:name } >
     let list
             [ 1, 2, 3 ]

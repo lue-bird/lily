@@ -6,9 +6,6 @@
   "scopeName": "source.still",
   "patterns": [
     {
-      "include": "#debug"
-    },
-    {
       "include": "#comments"
     },
     {
@@ -16,16 +13,13 @@
       "name": "keyword.unused.still"
     },
     {
-      "include": "#type-signature"
+      "include": "#colon-type-colon"
     },
     {
       "include": "#type-declaration"
     },
     {
       "include": "#type-alias-declaration"
-    },
-    {
-      "include": "#string-triple"
     },
     {
       "include": "#string-quote"
@@ -50,14 +44,11 @@
       "include": "#record-prefix"
     },
     {
-      "include": "#module-prefix"
-    },
-    {
-      "include": "#constructor"
+      "include": "#variant"
     },
     {
       "name": "meta.record.field.update.still",
-      "match": "(\\{)\\s+([a-z][a-zA-Z0-9_]*)\\s+(\\|)\\s+([a-z][a-zA-Z0-9_]*)",
+      "match": "(\\{)\\s+([a-z][a-zA-Z0-9-]*)\\s+(\\|)\\s+([a-z][a-zA-Z0-9-]*)",
       "captures": {
         "1": {
           "name": "punctuation.bracket.still"
@@ -66,7 +57,7 @@
           "name": "record.name.still"
         },
         "3": {
-          "name": "keyword.pipe.still"
+          "name": "punctuation.dotdot.still"
         },
         "4": {
           "name": "entity.name.record.field.still"
@@ -75,7 +66,7 @@
     },
     {
       "name": "meta.record.field.update.still",
-      "match": "(\\|)\\s+([a-z][a-zA-Z0-9_]*)\\s+(\\=)",
+      "match": "(,)\\s+([a-z][a-zA-Z0-9-]*)\\s+",
       "captures": {
         "1": {
           "name": "keyword.pipe.still"
@@ -90,7 +81,7 @@
     },
     {
       "name": "meta.record.field.update.still",
-      "match": "(\\{)\\s+([a-z][a-zA-Z0-9_]*)\\s+$",
+      "match": "(\\{)\\s+([a-z][a-zA-Z0-9-]*)\\s+$",
       "captures": {
         "1": {
           "name": "punctuation.bracket.still"
@@ -102,7 +93,7 @@
     },
     {
       "name": "meta.record.field.still",
-      "match": "(\\{)\\s+([a-z][a-zA-Z0-9_]*)\\s+(\\=)",
+      "match": "(\\{)\\s+([a-z][a-zA-Z0-9-]*)\\s+",
       "captures": {
         "1": {
           "name": "punctuation.bracket.still"
@@ -117,7 +108,7 @@
     },
     {
       "name": "meta.record.field.still",
-      "match": "(,)\\s+([a-z][a-zA-Z0-9_]*)\\s+(\\=)",
+      "match": "(,)\\s+([a-z][a-zA-Z0-9-]*)\\s+",
       "captures": {
         "1": {
           "name": "punctuation.separator.comma.still"
@@ -135,20 +126,14 @@
       "name": "punctuation.bracket.still"
     },
     {
-      "include": "#unit"
-    },
-    {
       "include": "#comma"
     },
     {
       "include": "#parens"
     },
     {
-      "match": "(->)",
+      "match": "(>)",
       "name": "keyword.operator.arrow.still"
-    },
-    {
-      "include": "#infix_op"
     },
     {
       "match": "(\\=|\\:|\\||\\\\)",
@@ -189,13 +174,13 @@
     },
     "block_comment": {
       "applyEndPatternLast": 1,
-      "begin": "\\{-(?!#)",
+      "begin": "\\(\\#(?!#)",
       "captures": {
         "0": {
           "name": "punctuation.definition.comment.still"
         }
       },
-      "end": "-\\}",
+      "end": "\\#\\\\)",
       "name": "comment.block.still",
       "patterns": [
         {
@@ -217,31 +202,6 @@
         },
         {
           "include": "#block_comment"
-        }
-      ]
-    },
-    "string-triple": {
-      "name": "string.quoted.triple.still",
-      "begin": "\"\"\"",
-      "beginCaptures": {
-        "0": {
-          "name": "punctuation.definition.string.begin.still"
-        }
-      },
-      "end": "\"\"\"",
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.definition.string.end.still"
-        }
-      },
-      "patterns": [
-        {
-          "match": "\\\\(NUL|SOH|STX|ETX|EOT|ENQ|ACK|BEL|BS|HT|LF|VT|FF|CR|SO|SI|DLE|DC1|DC2|DC3|DC4|NAK|SYN|ETB|CAN|EM|SUB|ESC|FS|GS|RS|US|SP|DEL|[abfnrtv\\\\\\\"'\\&]|x[0-9a-fA-F]{1,5})",
-          "name": "constant.character.escape.still"
-        },
-        {
-          "match": "\\^[A-Z@\\[\\]\\\\\\^_]",
-          "name": "constant.character.escape.control.still"
         }
       ]
     },
@@ -304,7 +264,7 @@
       "name": "punctuation.definition.list.still"
     },
     "record-prefix": {
-      "match": "([a-z][a-zA-Z0-9_]*)(\\.)([a-z][a-zA-Z0-9_]*)",
+      "match": "([a-z][a-zA-Z0-9-]*)(\\.)([a-z][a-zA-Z0-9-]*)",
       "name": "record.accessor.still",
       "captures": {
         "1": {
@@ -318,36 +278,20 @@
         }
       }
     },
-    "module-prefix": {
-      "match": "([A-Z][a-zA-Z0-9_]*)(\\.)",
-      "name": "meta.module.name.still",
-      "captures": {
-        "1": {
-          "name": "support.module.still"
-        },
-        "2": {
-          "name": "keyword.other.period.still"
-        }
-      }
-    },
-    "constructor": {
-      "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
-      "name": "constant.type-constructor.still"
+    "variant": {
+      "match": "\\b[A-Z][a-zA-Z0-9-]*\\b",
+      "name": "constant.type-variant.still"
     },
     "value": {
-      "match": "\\b[a-z][a-zA-Z0-9_]*\\b",
+      "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
       "name": "meta.value.still"
     },
-    "unit": {
-      "match": "\\(\\)",
-      "name": "constant.unit.still"
-    },
     "top_level_value": {
-      "match": "^[a-z][a-zA-Z0-9_]*\\b",
+      "match": "^[a-z][a-zA-Z0-9-]*\\b",
       "name": "entity.name.function.top_level.still"
     },
     "record-accessor": {
-      "match": "(\\.)([a-z][a-zA-Z0-9_]*)",
+      "match": "(\\.)([a-z][a-zA-Z0-9-]*)",
       "name": "meta.record.accessor",
       "captures": {
         "1": {
@@ -358,12 +302,33 @@
         }
       }
     },
-    "infix_op": {
-      "match": "(</>|<\\?>|<\\||<=|\\|\\||&&|>=|\\|>|\\|=|\\|\\.|\\+\\+|::|/=|==|//|>>|<<|<|>|\\^|\\+|-|/|\\*)",
-      "name": "keyword.operator.still"
+    "colon-type-colon": {
+      "begin": "^(:)",
+      "end": "^(:)",
+      "name": "meta.colon-type-colon.still",
+      "patterns": [
+        {
+          "match": "\\n\\s+",
+          "name": "punctuation.spaces.still"
+        },
+        {
+          "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
+          "name": "storage.type.still"
+        },
+        {
+          "match": "\\b[A-Z][a-zA-Z0-9-]*\\b",
+          "name": "variable.type.still"
+        },
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#type-record"
+        }
+      ]
     },
     "type-declaration": {
-      "begin": "^(type\\s+)([A-Z][a-zA-Z0-9_']*)\\s+",
+      "begin": "^(type\\s+)([a-z][a-zA-Z0-9-']*)\\s+",
       "beginCaptures": {
         "1": {
           "name": "keyword.type.still"
@@ -377,10 +342,10 @@
       "patterns": [
         {
           "name": "meta.record.field.still",
-          "match": "^\\s*([A-Z][a-zA-Z0-9_]*)\\b",
+          "match": "^\\s*([A-Z][a-zA-Z0-9-]*)\\b",
           "captures": {
             "1": {
-              "name": "constant.type-constructor.still"
+              "name": "constant.type-variant.still"
             }
           }
         },
@@ -390,13 +355,13 @@
         },
         {
           "name": "meta.record.field.still",
-          "match": "(\\=|\\|)\\s+([A-Z][a-zA-Z0-9_]*)\\b",
+          "match": "(\\=|\\|)\\s+([A-Z][a-zA-Z0-9-]*)\\b",
           "captures": {
             "1": {
               "name": "keyword.operator.assignment.still"
             },
             "2": {
-              "name": "constant.type-constructor.still"
+              "name": "constant.type-variant.still"
             }
           }
         },
@@ -405,18 +370,15 @@
           "name": "keyword.operator.assignment.still"
         },
         {
-          "match": "\\-\\>",
+          "match": "\\>",
           "name": "keyword.operator.arrow.still"
         },
         {
-          "include": "#module-prefix"
-        },
-        {
-          "match": "\\b[a-z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[A-Z][a-zA-Z0-9-]*\\b",
           "name": "variable.type.still"
         },
         {
-          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
           "name": "storage.type.still"
         },
         {
@@ -428,7 +390,7 @@
       ]
     },
     "type-alias-declaration": {
-      "begin": "^(type\\s+)(alias\\s+)([A-Z][a-zA-Z0-9_']*)\\s+",
+      "begin": "^(type\\s+)(alias\\s+)([a-z][a-zA-Z0-9-']*)\\s+",
       "beginCaptures": {
         "1": {
           "name": "keyword.type.still"
@@ -452,14 +414,11 @@
           "name": "keyword.operator.assignment.still"
         },
         {
-          "include": "#module-prefix"
-        },
-        {
-          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
           "name": "storage.type.still"
         },
         {
-          "match": "\\b[a-z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[A-Z][a-zA-Z0-9-]*\\b",
           "name": "variable.type.still"
         },
         {
@@ -486,16 +445,20 @@
       "name": "meta.function.type-record.still",
       "patterns": [
         {
+          "match": "\\\\",
+          "name": "punctuation.backslash.still"
+        },
+        {
           "match": "\\s+",
           "name": "punctuation.spaces.still"
         },
         {
-          "match": "->",
+          "match": ">",
           "name": "keyword.operator.arrow.still"
         },
         {
           "name": "meta.record.field.still",
-          "match": "([a-z][a-zA-Z0-9_]*)\\s+(\\:)",
+          "match": "([a-z][a-zA-Z0-9-]*)\\s+",
           "captures": {
             "1": {
               "name": "entity.name.record.field.still"
@@ -510,14 +473,15 @@
           "name": "punctuation.separator.comma.still"
         },
         {
-          "include": "#module-prefix"
+          "match": "\\.",
+          "name": "punctuation.dotdot.comma.still"
         },
         {
-          "match": "\\b[a-z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
           "name": "variable.type.still"
         },
         {
-          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
           "name": "storage.type.still"
         },
         {
@@ -528,31 +492,10 @@
         }
       ]
     },
-    "type-signature": {
-      "begin": "^(port\\s+)?([a-z_][a-zA-Z0-9_']*)\\s+(\\:)",
-      "beginCaptures": {
-        "1": {
-          "name": "keyword.other.port.still"
-        },
-        "2": {
-          "name": "entity.name.function.still"
-        },
-        "3": {
-          "name": "keyword.other.colon.still"
-        }
-      },
-      "end": "((^(?=[a-z]))|^$)",
-      "name": "meta.function.type-declaration.still",
+    "type": {
       "patterns": [
         {
-          "include": "#type-signature-chunk"
-        }
-      ]
-    },
-    "type-signature-chunk": {
-      "patterns": [
-        {
-          "match": "->",
+          "match": ">",
           "name": "keyword.operator.arrow.still"
         },
         {
@@ -560,19 +503,12 @@
           "name": "punctuation.spaces.still"
         },
         {
-          "include": "#module-prefix"
-        },
-        {
-          "match": "\\b[a-z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[A-Z][a-zA-Z0-9-]*\\b",
           "name": "variable.type.still"
         },
         {
-          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
+          "match": "\\b[a-z][a-zA-Z0-9-]*\\b",
           "name": "storage.type.still"
-        },
-        {
-          "match": "\\(\\)",
-          "name": "constant.unit.still"
         },
         {
           "include": "#comma"
