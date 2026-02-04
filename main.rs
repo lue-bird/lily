@@ -12919,6 +12919,14 @@ fn still_syntax_expression_to_rust<'a>(
                 let rust_arms: Vec<syn::Arm> = cases
                     .iter()
                     .map(|case| {
+                        let mut local_bindings: std::collections::HashMap<
+                            &str,
+                            Option<StillSyntaxNode<StillSyntaxType>>,
+                        > = (*local_bindings).clone();
+                        still_syntax_pattern_binding_types_into(
+                            &mut local_bindings,
+                            still_syntax_node_as_ref(&case.pattern),
+                        );
                         let compiled_case_result: CompiledStillExpression =
                             maybe_still_syntax_expression_to_rust(
                                 errors,
@@ -12930,7 +12938,7 @@ fn still_syntax_expression_to_rust<'a>(
                                 type_aliases,
                                 choice_types,
                                 project_variable_declarations,
-                                local_bindings.clone(),
+                                std::rc::Rc::new(local_bindings),
                                 case.result.as_ref().map(still_syntax_node_as_ref),
                             );
                         arms_use_allocator =
