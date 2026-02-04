@@ -9267,7 +9267,7 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                             paren_token: None,
                             modifier: syn::TraitBoundModifier::None,
                             lifetimes: None,
-                            path: syn_path_reference(["StillToOwned"]),
+                            path: syn_path_reference(["StillIntoOwned"]),
                         }))
                         .collect(),
                         eq_token: None,
@@ -9280,7 +9280,7 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
         },
         trait_: Some((
             None,
-            syn_path_reference(["StillToOwned"]),
+            syn_path_reference(["StillIntoOwned"]),
             syn::token::For(syn_span()),
         )),
         self_ty: Box::new(syn::Type::Path(syn::TypePath {
@@ -9332,7 +9332,7 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                     unsafety: None,
                     abi: None,
                     fn_token: syn::token::Fn(syn_span()),
-                    ident: syn_ident("to_owned"),
+                    ident: syn_ident("into_owned"),
                     generics: syn_generics_none(),
                     paren_token: syn::token::Paren(syn_span()),
                     inputs: std::iter::once(syn::FnArg::Receiver(syn::Receiver {
@@ -9374,7 +9374,7 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                                         attrs: vec![],
                                         func: Box::new(syn_expr_reference([
                                             &still_type_variable_to_rust(field_name),
-                                            "to_owned",
+                                            "into_owned",
                                         ])),
                                         paren_token: syn::token::Paren(syn_span()),
                                         args: std::iter::once(syn::Expr::Field(syn::ExprField {
@@ -10297,7 +10297,7 @@ fn choice_type_declaration_to_rust_into<'a>(
                                 as_token: Some(syn::token::As(syn_span())),
                                 gt_token: syn::token::Gt(syn_span()),
                             }),
-                            path: syn_path_reference(["StillToOwned", "Owned"]),
+                            path: syn_path_reference(["StillIntoOwned", "Owned"]),
                         });
                         if recursive_variant_value_variant_indexes.contains(&variant_index) {
                             syn::Type::Path(syn::TypePath {
@@ -10362,9 +10362,9 @@ fn choice_type_declaration_to_rust_into<'a>(
                                     paren_token: None,
                                     modifier: syn::TraitBoundModifier::None,
                                     lifetimes: None,
-                                    path: syn::Path::from(syn_ident("StillToOwned")),
+                                    path: syn::Path::from(syn_ident("StillIntoOwned")),
                                 }),
-                                // because still vec requires Clone for to_owned
+                                // because still vec requires Clone for into_owned
                                 syn::TypeParamBound::Trait(syn::TraitBound {
                                     paren_token: None,
                                     modifier: syn::TraitBoundModifier::None,
@@ -10406,9 +10406,9 @@ fn choice_type_declaration_to_rust_into<'a>(
                                 paren_token: None,
                                 modifier: syn::TraitBoundModifier::None,
                                 lifetimes: None,
-                                path: syn::Path::from(syn_ident("StillToOwned")),
+                                path: syn::Path::from(syn_ident("StillIntoOwned")),
                             }),
-                            // because still vec requires Clone for to_owned
+                            // because still vec requires Clone for into_owned
                             syn::TypeParamBound::Trait(syn::TraitBound {
                                 paren_token: None,
                                 modifier: syn::TraitBoundModifier::None,
@@ -10428,7 +10428,7 @@ fn choice_type_declaration_to_rust_into<'a>(
             },
             trait_: Some((
                 None,
-                syn_path_reference(["StillToOwned"]),
+                syn_path_reference(["StillIntoOwned"]),
                 syn::token::For(syn_span()),
             )),
             self_ty: Box::new(syn::Type::Path(syn::TypePath {
@@ -10480,7 +10480,7 @@ fn choice_type_declaration_to_rust_into<'a>(
                         unsafety: None,
                         abi: None,
                         fn_token: syn::token::Fn(syn_span()),
-                        ident: syn_ident("to_owned"),
+                        ident: syn_ident("into_owned"),
                         generics: syn_generics_none(),
                         paren_token: syn::token::Paren(syn_span()),
                         inputs: std::iter::once(syn::FnArg::Receiver(syn::Receiver {
@@ -10570,8 +10570,8 @@ fn choice_type_declaration_to_rust_into<'a>(
                                                         syn::ExprCall {
                                                             attrs: vec![],
                                                             func: Box::new(syn_expr_reference([
-                                                                "StillToOwned",
-                                                                "to_owned",
+                                                                "StillIntoOwned",
+                                                                "into_owned",
                                                             ])),
                                                             args: std::iter::once(
                                                                 syn_expr_reference([
@@ -10617,9 +10617,9 @@ fn choice_type_declaration_to_rust_into<'a>(
                                     paren_token: None,
                                     modifier: syn::TraitBoundModifier::None,
                                     lifetimes: None,
-                                    path: syn::Path::from(syn_ident("StillToOwned")),
+                                    path: syn::Path::from(syn_ident("StillIntoOwned")),
                                 }),
-                                // because still vec requires Clone for to_owned
+                                // because still vec requires Clone for into_owned
                                 syn::TypeParamBound::Trait(syn::TraitBound {
                                     paren_token: None,
                                     modifier: syn::TraitBoundModifier::None,
@@ -13541,7 +13541,7 @@ fn still_name_to_uppercase_rust(name: &str) -> String {
         "Ord",
         "Blank",
         "Alloc",
-        "StillToOwned",
+        "StillIntoOwned",
         "OwnedToStill",
     ]
     .contains(&sanitized.as_str())

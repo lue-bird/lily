@@ -51,7 +51,6 @@ run \:opt str:state-or-uninitialized >
 - no `Task`/`async`, detectable mutation, side effects, `|>`, infix operators, currying, modules, lifetime tracking
 
 ## TODO
-- rename `StillToOwned` to `StillIntoOwned` and `to_owned` to `into_owned`
 - optimization: in `StillIntoOwned`, add `into_owned_overwriting` to reuse memory
 - rename `case x of ... > ...` to `x | ... > ...` and remove let destructuring. previous:
   ```still
