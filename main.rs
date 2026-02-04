@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 const command_help: &str = r"try
-  - compile to a rust file: still build [input-file.still] [output-file.rs]
+  - compile to a rust file: still build [input-file.still [output-file.rs]]
   - start the language server: still lsp
   - print this command help message: still help";
 
@@ -56,11 +56,11 @@ fn build_main(
 ) {
     let input_file_path: &std::path::Path = match maybe_input_file_path {
         Some(input_file_path) => &input_file_path.with_extension("still"),
-        None => std::path::Path::new("run.still"),
+        None => std::path::Path::new("still.still"),
     };
     let output_file_path: &std::path::Path = match maybe_output_file_path {
         Some(output_file_path) => &output_file_path.with_extension(".rs"),
-        None => &input_file_path.with_extension("rs"),
+        None => &std::path::Path::join(&input_file_path.with_extension(""), "mod.rs"),
     };
     println!("...compiling {input_file_path:?} into {output_file_path:?}.");
     match std::fs::read_to_string(input_file_path) {
@@ -96,10 +96,19 @@ fn build_main(
                 include_str!("still_core.rs"),
                 prettyplease::unparse(&compiled_project.rust),
             );
+            if let Some(output_file_directory_path) = output_file_path.parent()
+                && let Err(error) = std::fs::create_dir_all(output_file_directory_path)
+            {
+                eprintln!(
+                    "tried to create the directory containing the output rust file {output_file_path:?} but failed: {}",
+                    error
+                );
+                std::process::exit(1)
+            }
             match std::fs::write(output_file_path, output_rust_file_string) {
                 Err(write_error) => {
                     eprintln!(
-                        "tried to write the output into the derived rust file {output_file_path:?} but failed: {}",
+                        "tried to write the output into the rust file {output_file_path:?} but failed: {}",
                         write_error
                     );
                     std::process::exit(1)
@@ -677,7 +686,7 @@ fn initialize_project_state_from_source(
             version: None,
         },
     );
-    // TODO what to do with the generated rust?
+    // TODO output the generated rust
     ProjectState {
         source: source,
         syntax: parsed_project,
@@ -3348,24 +3357,27 @@ fn still_syntax_type_fields_into_string<'a>(
     line_span: LineSpan,
     field0: &'a StillSyntaxTypeField,
     field1_up: &'a [StillSyntaxTypeField],
-) -> lsp_types::Position {
+) {
     so_far.push_str(&field0.name.value);
-    let mut previous_syntax_end: lsp_types::Position = field0.name.range.end;
-    if let Some(field0_value_node) = &field0.value {
-        space_or_linebreak_indented_into(
-            so_far,
-            still_syntax_range_line_span(lsp_types::Range {
-                start: field0.name.range.end,
-                end: field0_value_node.range.end,
-            }),
-            next_indent(indent + 2),
-        );
-        still_syntax_type_not_parenthesized_into(
-            so_far,
-            next_indent(indent + 2),
-            still_syntax_node_as_ref(field0_value_node),
-        );
-        previous_syntax_end = field0_value_node.range.end;
+    match &field0.value {
+        None => {
+            so_far.push(' ');
+        }
+        Some(field0_value_node) => {
+            space_or_linebreak_indented_into(
+                so_far,
+                still_syntax_range_line_span(lsp_types::Range {
+                    start: field0.name.range.start,
+                    end: field0_value_node.range.end,
+                }),
+                next_indent(indent + 2),
+            );
+            still_syntax_type_not_parenthesized_into(
+                so_far,
+                next_indent(indent + 2),
+                still_syntax_node_as_ref(field0_value_node),
+            );
+        }
     }
     for field in field1_up {
         if line_span == LineSpan::Multiple {
@@ -3373,26 +3385,27 @@ fn still_syntax_type_fields_into_string<'a>(
         }
         so_far.push_str(", ");
         so_far.push_str(&field.name.value);
-        previous_syntax_end = field.name.range.end;
-        if let Some(field_value_node) = &field.value {
-            space_or_linebreak_indented_into(
-                so_far,
-                still_syntax_range_line_span(lsp_types::Range {
-                    start: field.name.range.end,
-                    end: field_value_node.range.end,
-                }),
-                next_indent(indent + 2),
-            );
-
-            still_syntax_type_not_parenthesized_into(
-                so_far,
-                next_indent(indent + 2),
-                still_syntax_node_as_ref(field_value_node),
-            );
-            previous_syntax_end = field_value_node.range.end;
+        match &field.value {
+            Some(field_value_node) => {
+                space_or_linebreak_indented_into(
+                    so_far,
+                    still_syntax_range_line_span(lsp_types::Range {
+                        start: field.name.range.end,
+                        end: field_value_node.range.end,
+                    }),
+                    next_indent(indent + 2),
+                );
+                still_syntax_type_not_parenthesized_into(
+                    so_far,
+                    next_indent(indent + 2),
+                    still_syntax_node_as_ref(field_value_node),
+                );
+            }
+            None => {
+                so_far.push(' ');
+            }
         }
     }
-    previous_syntax_end
 }
 fn still_syntax_pattern_into(
     so_far: &mut String,
@@ -4290,9 +4303,9 @@ fn still_syntax_type_alias_declaration_into(
         so_far.push(' ');
         so_far.push_str(&parameter_node.value);
     }
+    so_far.push_str(" =");
+    linebreak_indented_into(so_far, 4);
     if let Some(type_node) = maybe_type {
-        so_far.push_str(" =");
-        linebreak_indented_into(so_far, 4);
         still_syntax_type_not_parenthesized_into(so_far, 4, type_node);
     }
 }
@@ -7246,45 +7259,26 @@ fn parse_still_syntax_type_record(state: &mut ParseState) -> Option<StillSyntaxT
     while parse_symbol(state, ",") {
         parse_still_whitespace(state);
     }
-    let maybe_name: Option<StillSyntaxNode<StillName>> = parse_still_lowercase_name_node(state);
-    parse_still_whitespace(state);
-    match maybe_name {
-        None => {
-            let _: bool = parse_symbol(state, "}");
-            Some(StillSyntaxType::Record(vec![]))
-        }
-        Some(field0_name_node) => {
-            let maybe_field0_value: Option<StillSyntaxNode<StillSyntaxType>> =
-                parse_still_syntax_type(state);
+    let mut fields: Vec<StillSyntaxTypeField> = Vec::new();
+    while let Some(field) = parse_still_syntax_type_field(state) {
+        fields.push(field);
+        parse_still_whitespace(state);
+        while parse_symbol(state, ",") {
             parse_still_whitespace(state);
-            while parse_symbol(state, ",") {
-                parse_still_whitespace(state);
-            }
-            let mut fields: Vec<StillSyntaxTypeField> = vec![StillSyntaxTypeField {
-                name: field0_name_node,
-                value: maybe_field0_value,
-            }];
-            while let Some(field) = parse_still_syntax_type_field(state) {
-                fields.push(field);
-                parse_still_whitespace(state);
-                while parse_symbol(state, ",") {
-                    parse_still_whitespace(state);
-                }
-            }
-            let _: bool = parse_symbol(state, "}");
-            Some(StillSyntaxType::Record(fields))
         }
     }
+    let _: bool = parse_symbol(state, "}");
+    Some(StillSyntaxType::Record(fields))
 }
 fn parse_still_syntax_type_field(state: &mut ParseState) -> Option<StillSyntaxTypeField> {
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
-    let maybe_name: StillSyntaxNode<StillName> = parse_still_lowercase_name_node(state)?;
+    let name_node: StillSyntaxNode<StillName> = parse_still_lowercase_name_node(state)?;
     parse_still_whitespace(state);
     let maybe_value: Option<StillSyntaxNode<StillSyntaxType>> = parse_still_syntax_type(state);
     Some(StillSyntaxTypeField {
-        name: maybe_name,
+        name: name_node,
         value: maybe_value,
     })
 }
@@ -7813,9 +7807,6 @@ fn parse_still_syntax_expression_record_or_record_update(
         return None;
     }
     parse_still_whitespace(state);
-    while parse_symbol(state, ",") {
-        parse_still_whitespace(state);
-    }
     if let Some(spread_key_symbol_range) = parse_symbol_as_range(state, "..") {
         parse_still_whitespace(state);
         let maybe_record: Option<StillSyntaxNode<StillSyntaxExpression>> =
@@ -7838,18 +7829,11 @@ fn parse_still_syntax_expression_record_or_record_update(
             spread_key_symbol_range,
             fields: fields,
         })
-    } else if let Some(field0_name_node) = parse_still_lowercase_name_node(state) {
-        parse_still_whitespace(state);
-        let maybe_field0_value: Option<StillSyntaxNode<StillSyntaxExpression>> =
-            parse_still_syntax_expression_space_separated(state);
-        parse_still_whitespace(state);
+    } else {
         while parse_symbol(state, ",") {
             parse_still_whitespace(state);
         }
-        let mut fields: Vec<StillSyntaxExpressionField> = vec![StillSyntaxExpressionField {
-            name: field0_name_node,
-            value: maybe_field0_value,
-        }];
+        let mut fields: Vec<StillSyntaxExpressionField> = Vec::new();
         while let Some(field) = parse_still_syntax_expression_field(state) {
             fields.push(field);
             parse_still_whitespace(state);
@@ -7859,9 +7843,6 @@ fn parse_still_syntax_expression_record_or_record_update(
         }
         let _: bool = parse_symbol(state, "}");
         Some(StillSyntaxExpression::Record(fields))
-    } else {
-        let _: bool = parse_symbol(state, "}");
-        Some(StillSyntaxExpression::Record(vec![]))
     }
 }
 fn parse_still_syntax_expression_field(
@@ -8488,7 +8469,21 @@ fn still_project_compile_to_rust(
             Err(unknown_node) => {
                 errors.push(StillErrorNode {
                     range: unknown_node.range,
-                    message: Box::from("unrecognized syntax. Is it indented correctly?"),
+                    message: Box::from(if unknown_node.value.starts_with('_') {
+                        "unrecognized syntax. Identifiers consist of ascii letters, digits and -"
+                    } else if unknown_node
+                        .value
+                        .starts_with(|c: char| c.is_ascii_lowercase())
+                    {
+                        "unrecognized syntax. It could be that an uppercase letter is expected here. Also, is it indented correctly?"
+                    } else if unknown_node
+                        .value
+                        .starts_with(|c: char| c.is_ascii_uppercase())
+                    {
+                        "unrecognized syntax. It could be that a lowercase letter is expected here. Also, is it indented correctly?"
+                    } else {
+                        "unrecognized syntax. Is it indented correctly?"
+                    }),
                 });
             }
             Ok(documented_declaration) => match &documented_declaration.declaration {
@@ -8503,7 +8498,7 @@ fn still_project_compile_to_rust(
                         variant1_up,
                     } => match maybe_name {
                         None => {
-                            errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names must start with a lowercase letter any only use ascii alphanumeric characters and -)") });
+                            errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
                         }
                         Some(name_node) => {
                             let choice_type_declaration_graph_node: strongly_connected_components::Node =
@@ -8532,7 +8527,7 @@ fn still_project_compile_to_rust(
                         type_: maybe_type,
                     } => match maybe_name {
                         None => {
-                            errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names must start with a lowercase letter any only use ascii alphanumeric characters and -)") });
+                            errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
                         }
                         Some(name_node) => {
                             let type_alias_declaration_graph_node: strongly_connected_components::Node =
@@ -9368,7 +9363,9 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                                 .iter()
                                 .map(|field_name| syn::FieldValue {
                                     attrs: vec![],
-                                    member: syn::Member::Named(syn_ident(field_name)),
+                                    member: syn::Member::Named(syn_ident(
+                                        &still_name_to_lowercase_rust(field_name),
+                                    )),
                                     colon_token: Some(syn::token::Colon(syn_span())),
                                     expr: syn::Expr::Call(syn::ExprCall {
                                         attrs: vec![],
@@ -9381,7 +9378,9 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                                             attrs: vec![],
                                             base: Box::new(syn_expr_reference(["self"])),
                                             dot_token: syn::token::Dot(syn_span()),
-                                            member: syn::Member::Named(syn_ident(field_name)),
+                                            member: syn::Member::Named(syn_ident(
+                                                &still_name_to_lowercase_rust(field_name),
+                                            )),
                                         }))
                                         .collect(),
                                     }),
@@ -9609,7 +9608,9 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                                 .iter()
                                 .map(|field_name| syn::FieldValue {
                                     attrs: vec![],
-                                    member: syn::Member::Named(syn_ident(field_name)),
+                                    member: syn::Member::Named(syn_ident(
+                                        &still_name_to_lowercase_rust(field_name),
+                                    )),
                                     colon_token: Some(syn::token::Colon(syn_span())),
                                     expr: syn::Expr::Call(syn::ExprCall {
                                         attrs: vec![],
@@ -9628,7 +9629,7 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
                                                     base: Box::new(syn_expr_reference(["self"])),
                                                     dot_token: syn::token::Dot(syn_span()),
                                                     member: syn::Member::Named(syn_ident(
-                                                        field_name,
+                                                        &still_name_to_lowercase_rust(field_name),
                                                     )),
                                                 })),
                                             }),
@@ -10049,7 +10050,7 @@ fn type_alias_declaration_to_rust<'a>(
     let Some(type_node) = maybe_type else {
         errors.push(StillErrorNode {
             range: range,
-            message: Box::from("type alias declaration is missing an equivalent type it aliases"),
+            message: Box::from("type alias declaration is missing a type the given name is equal to after type alias ..type-name.. = here"),
         });
         return CompiledTypeAlias {
             rust: syn::Item::Type(syn::ItemType {
@@ -10202,7 +10203,6 @@ fn choice_type_declaration_to_rust_into<'a>(
             }
         }
     }
-    // TODO if any value_is_constructs_recursive_type, generate -Owned version of the type
     let is_copy: bool = std::iter::once(maybe_variant0_value)
         .chain(
             variant1_up
@@ -10262,6 +10262,7 @@ fn choice_type_declaration_to_rust_into<'a>(
         variants: rust_variants,
     }));
     if is_recursive {
+        // TODO generate even for non-recursive
         let owned_rust_enum_name: String = still_name_to_uppercase_rust(name) + "øOwned";
         let mut owned_rust_variants: syn::punctuated::Punctuated<syn::Variant, syn::token::Comma> =
             syn::punctuated::Punctuated::new();
@@ -11229,7 +11230,7 @@ fn variable_declaration_to_rust<'a>(
             errors.push(StillErrorNode {
                 range: variable_declaration_info.range,
                 message: Box::from(
-                    "missing expression after the variable declaration name: variable-name here",
+                    "missing expression after the variable declaration name ..variable-name.. here",
                 ),
             });
             (
@@ -11248,7 +11249,8 @@ fn variable_declaration_to_rust<'a>(
             );
             (
                 still_syntax_type_to_rust(
-                    errors,
+                    // errors are reported when compiling expression
+                    &mut Vec::new(),
                     // TODO this is dumb.
                     // consider separating out to_rust from collecting records
                     &mut std::collections::HashSet::new(),
@@ -11404,7 +11406,8 @@ fn variable_declaration_to_rust<'a>(
                                 attrs: vec![],
                                 colon_token: syn::token::Colon(syn_span()),
                                 ty: Box::new(still_syntax_type_to_rust(
-                                    errors,
+                                    // errors are reported when compiling expression
+                                    &mut Vec::new(),
                                     // TODO this is dumb.
                                     // consider separating out to_rust from collecting records
                                     &mut std::collections::HashSet::new(),
@@ -11436,22 +11439,20 @@ fn variable_declaration_to_rust<'a>(
                             inputs: rust_parameters,
                             output: syn::ReturnType::Type(
                                 syn::token::RArrow(syn_span()),
-                                Box::new(maybe_still_syntax_type_to_rust(
-                                    errors,
-                                    || StillErrorNode {
-                                        range: variable_declaration_info.range,
-                                        message: Box::from(
-                                            "missing function result type \\..parameters.. -> here",
-                                        ),
-                                    },
-                                    // TODO this is dumb.
-                                    // consider separating out to_rust from collecting records
-                                    &mut std::collections::HashSet::new(),
-                                    type_aliases,
-                                    choice_types,
-                                    syn_default_lifetime_name,
-                                    maybe_output.as_ref().map(still_syntax_node_as_ref),
-                                )),
+                                Box::new(match maybe_output {
+                                    None => syn_type_infer(),
+                                    Some(output_node) => still_syntax_type_to_rust(
+                                        // errors are reported when compiling expression
+                                        &mut Vec::new(),
+                                        // TODO this is dumb.
+                                        // consider separating out to_rust from collecting records
+                                        &mut std::collections::HashSet::new(),
+                                        type_aliases,
+                                        choice_types,
+                                        syn_default_lifetime_name,
+                                        still_syntax_node_as_ref(&output_node),
+                                    ),
+                                }),
                             ),
                             variadic: None,
                         },
@@ -11511,7 +11512,8 @@ fn variable_declaration_to_rust<'a>(
                                     attrs: vec![],
                                     colon_token: syn::token::Colon(syn_span()),
                                     ty: Box::new(still_syntax_type_to_rust(
-                                        errors,
+                                        // errors are reported when compiling expression
+                                        &mut Vec::new(),
                                         // TODO this is dumb.
                                         // consider separating out to_rust from collecting records
                                         &mut std::collections::HashSet::new(),
@@ -11525,22 +11527,20 @@ fn variable_declaration_to_rust<'a>(
                             .collect(),
                             output: syn::ReturnType::Type(
                                 syn::token::RArrow(syn_span()),
-                                Box::new(maybe_still_syntax_type_to_rust(
-                                    errors,
-                                    || StillErrorNode {
-                                        range: variable_declaration_info.range,
-                                        message: Box::from(
-                                            "missing function result type \\..parameters.. -> here",
-                                        ),
-                                    },
-                                    // TODO this is dumb.
-                                    // consider separating out to_rust from collecting records
-                                    &mut std::collections::HashSet::new(),
-                                    type_aliases,
-                                    choice_types,
-                                    syn_default_lifetime_name,
-                                    maybe_output.as_ref().map(still_syntax_node_as_ref),
-                                )),
+                                Box::new(match maybe_output {
+                                    None => syn_type_infer(),
+                                    Some(output_node) => still_syntax_type_to_rust(
+                                        // errors are reported when compiling expression
+                                        &mut Vec::new(),
+                                        // TODO this is dumb.
+                                        // consider separating out to_rust from collecting records
+                                        &mut std::collections::HashSet::new(),
+                                        type_aliases,
+                                        choice_types,
+                                        syn_default_lifetime_name,
+                                        still_syntax_node_as_ref(&output_node),
+                                    ),
+                                }),
                             ),
                             variadic: None,
                         },
@@ -13023,7 +13023,9 @@ fn still_syntax_expression_to_rust<'a>(
                                 errors,
                                 || StillErrorNode {
                                     range: field.name.range,
-                                    message: Box::from("missing field value after this field name"),
+                                    message: Box::from(
+                                        "missing field value expression after this field name",
+                                    ),
                                 },
                                 records_used,
                                 type_aliases,
@@ -13308,9 +13310,7 @@ fn still_syntax_pattern_to_rust<'a>(
                     range: pattern_node.range,
                     message: Box::from("missing character between 'here'"),
                 });
-                // return some random, unlikely character literal that is highly unlikely to
-                // exist. TODO Look for better options here!
-                // (like splitting into refutable and irrefutable patterns and allowing refutable patterns to return Nothing and then being skipped in cases)
+                // return some random, unlikely character literal that is highly unlikely to exist.
                 syn::Pat::Lit(syn::ExprLit {
                     attrs: vec![],
                     lit: syn::Lit::Char(syn::LitChar::new(char::REPLACEMENT_CHARACTER, syn_span())),

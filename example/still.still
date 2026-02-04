@@ -37,3 +37,13 @@ build-tree \:int:n >
         :int:not-0 >
             :tree A:Branch [ build-tree (int-add not-0 -1) ]
 
+type alias state =
+    int
+
+initial-state :state:0
+
+interface \:state:state >
+    { new-state int-add state 1
+    , standard-out-write int-to-str state
+    }
+
