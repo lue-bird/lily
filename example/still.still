@@ -37,6 +37,10 @@ build-tree \:int:n >
         :int:not-0 >
             :tree A:Branch [ build-tree (int-add not-0 -1) ]
 
+type result Ok Err
+    = Ok Ok
+    | Err Err
+
 type alias state =
     int
 
