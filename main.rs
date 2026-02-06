@@ -9219,7 +9219,7 @@ Read if interested: [swift's grapheme cluster docs](https://docs.swift.org/swift
             ChoiceTypeInfo {
                 name_range: None,
                 documentation: Some(Box::from(
-                    r#"Immutable text (segment) like `"abc"` or `"\"hello 👀 \\\r\n world \u{2665}\""` (\u{2665} represents the hex code for ♥, \" represents ", \\ represents \, \n represents line break, \r represents carriage return).
+                    r#"Immutable text (segment) like `"abc"` or `"\"hello 👀 \\\r\n world \u{2665}\""` (`\u{2665}` represents the hex code for ♥, `\"` represents ", `\\` represents \\, `\n` represents line break, `\r` represents carriage return).
 Internally, a string is compactly represented as UTF-8 bytes and can be accessed as such.
 ```still
 strs-flatten [ "My name is ", "Jenna", " and I'm ", int-to-str 60, " years old." ]
@@ -12915,10 +12915,10 @@ fn still_syntax_expression_to_rust<'a>(
             }
         },
         StillSyntaxExpression::Typed {
-            type_: maybe_type,
+            type_: maybe_type_node,
             expression: maybe_in_typed,
         } => {
-            let maybe_expected_type: Option<StillType> = match maybe_type {
+            let maybe_expected_type: Option<StillType> = match maybe_type_node {
                 Some(type_node) => still_syntax_type_to_type(
                     errors,
                     type_aliases,
@@ -12972,7 +12972,10 @@ fn still_syntax_expression_to_rust<'a>(
                             arguments: origin_choice_type_arguments,
                         } = type_resolved.into_owned()
                         else {
-                            errors.push(StillErrorNode { range: expression_node.range, message: Box::from("type in :here: is not a choice type which is necessary for a variant pattern") });
+                            errors.push(StillErrorNode {
+                                range: maybe_type_node.as_ref().map(|n| n.range).unwrap_or(expression_node.range),
+                                message: Box::from("type in :here: is not a choice type which is necessary for a variant")
+                            });
                             return CompiledStillExpression {
                                 uses_allocator: false,
                                 rust: syn_expr_todo(),
@@ -14110,7 +14113,7 @@ fn still_syntax_pattern_to_rust<'a>(
                         } = resolved_type.into_owned()
                         else {
                             errors.push(StillErrorNode {
-                                range: pattern_node.range,
+                                range: maybe_type_node.as_ref().map(|n| n.range).unwrap_or(pattern_node.range),
                                 message: Box::from("type in :here: is not a choice type which is necessary for a variant pattern"),
                             });
                             return CompiledStillPattern {
