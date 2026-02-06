@@ -8672,7 +8672,8 @@ fn still_project_info_to_rust(
         std::collections::HashMap::new();
     let mut compiled_choice_type_infos: std::collections::HashMap<StillName, ChoiceTypeInfo> =
         core_choice_type_infos();
-    let mut records_used: std::collections::HashSet<Vec<&str>> = std::collections::HashSet::new();
+    let mut records_used: std::collections::HashSet<Vec<StillName>> =
+        std::collections::HashSet::new();
     for type_declaration_strongly_connected_component in type_graph.find_sccs().iter_sccs() {
         let type_declaration_infos: Vec<StillSyntaxTypeDeclarationInfo> =
             type_declaration_strongly_connected_component
@@ -8742,30 +8743,51 @@ fn still_project_info_to_rust(
                     parameters,
                     type_: maybe_type,
                 } => {
-                    let compiled_type_alias: CompiledTypeAlias = type_alias_declaration_to_rust(
-                        errors,
-                        &mut records_used,
-                        &compiled_type_alias_infos,
-                        &compiled_choice_type_infos,
-                        maybe_documentation.as_ref().map(|n| n.value.as_ref()),
-                        range,
-                        &name_node.value,
-                        parameters,
-                        maybe_type.as_ref().map(still_syntax_node_as_ref),
-                    );
-                    compiled_type_alias_infos.insert(
-                        name_node.value.clone(),
-                        TypeAliasInfo {
-                            name_range: Some(name_node.range),
-                            documentation: maybe_documentation.as_ref().map(|n| n.value.clone()),
-                            parameters: parameters.clone(),
-                            type_syntax: maybe_type.clone(),
-                            type_: compiled_type_alias.type_,
-                            is_copy: compiled_type_alias.is_copy,
-                            has_lifetime_parameter: compiled_type_alias.has_lifetime_parameter,
-                        },
-                    );
-                    rust_items.extend(compiled_type_alias.rust);
+                    let maybe_compiled_type_alias: Option<CompiledTypeAlias> =
+                        type_alias_declaration_to_rust(
+                            errors,
+                            &mut records_used,
+                            &compiled_type_alias_infos,
+                            &compiled_choice_type_infos,
+                            maybe_documentation.as_ref().map(|n| n.value.as_ref()),
+                            range,
+                            &name_node.value,
+                            parameters,
+                            maybe_type.as_ref().map(still_syntax_node_as_ref),
+                        );
+                    if let Some(compiled_type_item) = maybe_compiled_type_alias {
+                        rust_items.push(compiled_type_item.rust);
+                        compiled_type_alias_infos.insert(
+                            name_node.value.clone(),
+                            TypeAliasInfo {
+                                name_range: Some(name_node.range),
+                                documentation: maybe_documentation
+                                    .as_ref()
+                                    .map(|n| n.value.clone()),
+                                parameters: parameters.clone(),
+                                type_syntax: maybe_type.clone(),
+                                type_: Some(compiled_type_item.type_),
+                                is_copy: compiled_type_item.is_copy,
+                                has_lifetime_parameter: compiled_type_item.has_lifetime_parameter,
+                            },
+                        );
+                    } else {
+                        compiled_type_alias_infos.insert(
+                            name_node.value.clone(),
+                            TypeAliasInfo {
+                                name_range: Some(name_node.range),
+                                documentation: maybe_documentation
+                                    .as_ref()
+                                    .map(|n| n.value.clone()),
+                                parameters: parameters.clone(),
+                                type_syntax: maybe_type.clone(),
+                                type_: None,
+                                // dummy values that should not be read in practice
+                                is_copy: false,
+                                has_lifetime_parameter: true,
+                            },
+                        );
+                    }
                 }
                 StillSyntaxTypeDeclarationInfo::ChoiceType {
                     range,
@@ -9289,9 +9311,10 @@ vec-element 3 my-vec
     ])
 }
 
-fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item; 3] {
-    let rust_struct_name: String =
-        still_field_names_to_rust_record_struct_name(used_still_record_fields.iter().copied());
+fn still_syntax_record_to_rust(used_still_record_fields: &[StillName]) -> [syn::Item; 3] {
+    let rust_struct_name: String = still_field_names_to_rust_record_struct_name(
+        used_still_record_fields.iter().map(StillName::as_str),
+    );
     let rust_struct: syn::Item = syn::Item::Struct(syn::ItemStruct {
         attrs: vec![syn_attribute_derive(
             [
@@ -9753,8 +9776,8 @@ fn still_syntax_record_to_rust(used_still_record_fields: &[&str]) -> [syn::Item;
     });
     [rust_struct, impl_still_to_owned, impl_owned_to_still]
 }
-fn sorted_field_names<'a>(field_names: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
-    let mut field_names_vec: Vec<&str> = field_names.collect();
+fn sorted_field_names<'a>(field_names: impl Iterator<Item = &'a StillName>) -> Vec<StillName> {
+    let mut field_names_vec: Vec<StillName> = field_names.map(StillName::clone).collect();
     field_names_vec.sort_unstable();
     field_names_vec
 }
@@ -9775,7 +9798,7 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
             variant1_up,
         } => {
             if let Some(variant0_value_node) = variant0_value {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9786,7 +9809,7 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
                 .iter()
                 .filter_map(|variant| variant.value.as_ref())
             {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9802,7 +9825,7 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
             type_: maybe_type,
         } => {
             if let Some(type_node) = maybe_type {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9812,7 +9835,7 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
         }
     }
 }
-fn still_syntax_type_connect_variables_in_graph_from(
+fn still_syntax_type_connect_type_names_in_graph_from(
     type_graph: &mut strongly_connected_components::Graph,
     origin_type_declaration_graph_node: strongly_connected_components::Node,
     type_graph_node_by_name: &std::collections::HashMap<&str, strongly_connected_components::Node>,
@@ -9822,7 +9845,7 @@ fn still_syntax_type_connect_variables_in_graph_from(
         StillSyntaxType::Variable(_) => {}
         StillSyntaxType::Parenthesized(maybe_in_parens) => {
             if let Some(in_parens_type_node) = maybe_in_parens {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9835,7 +9858,7 @@ fn still_syntax_type_connect_variables_in_graph_from(
             type_: maybe_type_after_comment,
         } => {
             if let Some(after_comment_type_node) = maybe_type_after_comment {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9849,7 +9872,7 @@ fn still_syntax_type_connect_variables_in_graph_from(
             output: maybe_output,
         } => {
             for input_type_node in inputs {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9857,7 +9880,7 @@ fn still_syntax_type_connect_variables_in_graph_from(
                 );
             }
             if let Some(output_type_node) = maybe_output {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9879,7 +9902,7 @@ fn still_syntax_type_connect_variables_in_graph_from(
                 );
             }
             for argument_type_node in arguments {
-                still_syntax_type_connect_variables_in_graph_from(
+                still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
                     type_graph_node_by_name,
@@ -9890,7 +9913,7 @@ fn still_syntax_type_connect_variables_in_graph_from(
         StillSyntaxType::Record(fields) => {
             for field in fields {
                 if let Some(output_type_node) = &field.value {
-                    still_syntax_type_connect_variables_in_graph_from(
+                    still_syntax_type_connect_type_names_in_graph_from(
                         type_graph,
                         origin_type_declaration_graph_node,
                         type_graph_node_by_name,
@@ -10133,50 +10156,84 @@ fn still_syntax_expression_connect_variables_in_graph_from(
     }
 }
 struct CompiledTypeAlias {
-    rust: Option<syn::Item>,
+    rust: syn::Item,
     is_copy: bool,
     has_lifetime_parameter: bool,
-    type_: Option<StillType>,
+    type_: StillType,
 }
-fn type_alias_declaration_to_rust<'a>(
+fn type_alias_declaration_to_rust(
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     maybe_documentation: Option<&str>,
     range: lsp_types::Range,
     name: &str,
     parameters: &[StillSyntaxNode<StillName>],
-    maybe_type: Option<StillSyntaxNode<&'a StillSyntaxType>>,
-) -> CompiledTypeAlias {
+    maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
+) -> Option<CompiledTypeAlias> {
     let rust_name: String = still_name_to_uppercase_rust(name);
     let Some(type_node) = maybe_type else {
         errors.push(StillErrorNode {
             range: range,
             message: Box::from("type alias declaration is missing a type the given name is equal to after type alias ..type-name.. = here"),
         });
-        return CompiledTypeAlias {
-            rust: None,
-            has_lifetime_parameter: false,
-            is_copy: true,
-            type_: None,
-        };
+        return None;
     };
+    let Some(type_) = still_syntax_type_to_type(errors, type_aliases, choice_types, type_node)
+    else {
+        return None;
+    };
+    let type_rust: syn::Type = still_type_to_rust(
+        type_aliases,
+        choice_types,
+        syn_default_lifetime_name,
+        &type_,
+    );
     let has_lifetime_parameter: bool =
         still_syntax_type_uses_lifetime(type_aliases, choice_types, type_node);
+    let mut actually_used_type_variables: std::collections::HashSet<&str> =
+        std::collections::HashSet::new();
+    still_type_variables_and_records_into(&mut actually_used_type_variables, records_used, &type_);
     let mut rust_parameters: syn::punctuated::Punctuated<syn::GenericParam, syn::token::Comma> =
         syn::punctuated::Punctuated::new();
     if has_lifetime_parameter {
         rust_parameters.push(syn::GenericParam::Lifetime(syn_default_lifetime_param()));
     }
+    let mut bad_parameters: bool = false;
     for parameter_node in parameters {
+        if !actually_used_type_variables.remove(parameter_node.value.as_str()) {
+            bad_parameters = true;
+            errors.push(StillErrorNode {
+                range: parameter_node.range,
+                message: Box::from(
+                    "this type variable is not used in the aliased type. Remove it or use it",
+                ),
+            });
+        }
         rust_parameters.push(syn::GenericParam::Type(syn::TypeParam::from(syn_ident(
             &still_type_variable_to_rust(&parameter_node.value),
         ))));
     }
-    // TODO verify specified parameter names match with still_type_variables_into
-    CompiledTypeAlias {
-        rust: Some(syn::Item::Type(syn::ItemType {
+    if !actually_used_type_variables.is_empty() {
+        bad_parameters = true;
+        errors.push(StillErrorNode {
+            range: range,
+            message: format!(
+                "aliased type uses variables not listed before the =, namely {}. Add it",
+                actually_used_type_variables
+                    .into_iter()
+                    .collect::<Vec<&str>>()
+                    .join(", ")
+            )
+            .into_boxed_str(),
+        });
+    }
+    if bad_parameters {
+        return None;
+    }
+    Some(CompiledTypeAlias {
+        rust: syn::Item::Type(syn::ItemType {
             attrs: maybe_documentation
                 .map(syn_attribute_doc)
                 .into_iter()
@@ -10191,30 +10248,25 @@ fn type_alias_declaration_to_rust<'a>(
                 where_clause: None,
             },
             eq_token: syn::token::Eq(syn_span()),
-            ty: Box::new(still_syntax_type_to_rust(
-                errors,
-                records_used,
-                type_aliases,
-                choice_types,
-                syn_default_lifetime_name,
-                type_node,
-            )),
+            ty: Box::new(type_rust),
             semi_token: syn::token::Semi(syn_span()),
-        })),
+        }),
         has_lifetime_parameter: has_lifetime_parameter,
         is_copy: still_syntax_type_is_copy(true, type_aliases, choice_types, type_node),
-        type_: still_syntax_type_to_type(errors, type_aliases, choice_types, type_node),
-    }
+        type_: type_,
+    })
 }
+
 struct CompiledRustChoiceTypeInfo {
     is_copy: bool,
     has_lifetime_parameter: bool,
     recursive_variant_value_variant_indexes: Vec<usize>,
+    // TODO add variants: std::collections::HashMap<StillName, Option<StillType>> or as Vec
 }
 fn choice_type_declaration_to_rust_into<'a>(
     rust_items: &mut Vec<syn::Item>,
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     scc_type_declaration_names: &std::collections::HashSet<&str>,
@@ -10326,7 +10378,7 @@ fn choice_type_declaration_to_rust_into<'a>(
             )))
         }))
         .collect();
-    // TODO verify specified parameter names match with still_type_variables_into
+    // TODO verify specified parameter names match with still_type_variables_and_records_into
     let rust_enum_name: String = still_name_to_uppercase_rust(name);
     rust_items.push(syn::Item::Enum(syn::ItemEnum {
         attrs: maybe_documentation
@@ -11091,6 +11143,7 @@ fn still_type_is_copy(
         }),
     }
 }
+/// TODO make part of `still_type_to_rust`
 fn still_syntax_type_is_copy(
     variables_are_copy: bool,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -11164,6 +11217,7 @@ fn still_syntax_type_is_copy(
             }),
     }
 }
+/// TODO make part of `still_type_to_rust`
 fn still_syntax_type_uses_lifetime(
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
@@ -11192,23 +11246,7 @@ fn still_syntax_type_uses_lifetime(
                     still_syntax_node_unbox(after_comment_node),
                 )
             }),
-        StillSyntaxType::Function { .. } => {
-            true
-            // TODO for non-dyn it would be
-            // inputs.iter().all(|input_node| {
-            //     still_syntax_type_uses_lifetime(
-            //         type_aliases,
-            //         choice_types,
-            //         still_syntax_node_as_ref(input_node),
-            //     )
-            // }) && maybe_output.as_ref().is_some_and(|output_node| {
-            //     still_syntax_type_uses_lifetime(
-            //         type_aliases,
-            //         choice_types,
-            //         still_syntax_node_unbox(output_node),
-            //     )
-            // })
-        }
+        StillSyntaxType::Function { .. } => true,
         StillSyntaxType::Construct {
             name: name_node,
             arguments,
@@ -11221,17 +11259,10 @@ fn still_syntax_type_uses_lifetime(
                             // therefore compiled to a reference
                             true
                         }
-                        Some(choice_type_info) => choice_type_info.is_copy,
+                        Some(choice_type_info) => choice_type_info.has_lifetime_parameter,
                     }
                 }
-                Some(type_alias) => match &type_alias.type_syntax {
-                    None => false,
-                    Some(aliased_type_node) => still_syntax_type_uses_lifetime(
-                        type_aliases,
-                        choice_types,
-                        still_syntax_node_as_ref(aliased_type_node),
-                    ),
-                },
+                Some(type_alias) => type_alias.has_lifetime_parameter,
             }) && arguments.iter().all(|input_node| {
                 still_syntax_type_uses_lifetime(
                     type_aliases,
@@ -11329,7 +11360,7 @@ fn still_syntax_constructs_recursive_type_in(
 /// second result is `has_allocator_parameter` (TODO make a struct)
 fn variable_declaration_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
@@ -12125,14 +12156,14 @@ fn still_syntax_type_collect_variables_that_are_concrete_into(
         }
     }
 }
-fn maybe_still_syntax_type_to_rust<'a>(
+fn maybe_still_syntax_type_to_rust(
     errors: &mut Vec<StillErrorNode>,
     error_on_none: impl FnOnce() -> StillErrorNode,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     lifetime: &str,
-    maybe_type: Option<StillSyntaxNode<&'a StillSyntaxType>>,
+    maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
 ) -> syn::Type {
     match maybe_type {
         None => {
@@ -12306,14 +12337,42 @@ fn still_type_variables_into<'a>(
         }
     }
 }
+fn still_type_variables_and_records_into<'a>(
+    type_variables: &mut std::collections::HashSet<&'a str>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
+    type_: &'a StillType,
+) {
+    match type_ {
+        StillType::Variable(name) => {
+            type_variables.insert(name);
+        }
+        StillType::Function { inputs, output } => {
+            for input in inputs {
+                still_type_variables_and_records_into(type_variables, records_used, input);
+            }
+            still_type_variables_and_records_into(type_variables, records_used, output);
+        }
+        StillType::Construct { name: _, arguments } => {
+            for argument in arguments {
+                still_type_variables_and_records_into(type_variables, records_used, argument);
+            }
+        }
+        StillType::Record(fields) => {
+            records_used.insert(sorted_field_names(fields.iter().map(|field| &field.name)));
+            for field in fields {
+                still_type_variables_and_records_into(type_variables, records_used, &field.value);
+            }
+        }
+    }
+}
 /// TODO remove
-fn still_syntax_type_to_rust<'a>(
+fn still_syntax_type_to_rust(
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     lifetime: &str,
-    type_node: StillSyntaxNode<&'a StillSyntaxType>,
+    type_node: StillSyntaxNode<&StillSyntaxType>,
 ) -> syn::Type {
     match type_node.value {
         StillSyntaxType::Variable(variable) => {
@@ -12467,7 +12526,7 @@ fn still_syntax_type_to_rust<'a>(
             records_used.insert(
                 fields_sorted
                     .iter()
-                    .map(|field| field.name.value.as_str())
+                    .map(|field| field.name.value.clone())
                     .collect(),
             );
             syn::Type::Path(syn::TypePath {
@@ -12517,7 +12576,7 @@ struct CompiledStillExpression {
 fn maybe_still_syntax_expression_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     error_on_none: impl FnOnce() -> StillErrorNode,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     project_variable_declarations: &std::collections::HashMap<
@@ -12551,7 +12610,7 @@ fn maybe_still_syntax_expression_to_rust<'a>(
 }
 fn still_syntax_expression_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     project_variable_declarations: &std::collections::HashMap<
@@ -12697,7 +12756,7 @@ fn still_syntax_expression_to_rust<'a>(
                 }),
             });
             CompiledStillExpression {
-                uses_allocator: true,
+                uses_allocator: !should_skip_allocating_closure || compiled_result.uses_allocator,
                 type_: input_type_maybes
                     .into_iter()
                     .collect::<Option<Vec<_>>>()
@@ -13147,10 +13206,30 @@ fn still_syntax_expression_to_rust<'a>(
                     } else {
                         match variable_type {
                             StillType::Function {
-                                inputs: _variable_input_types,
+                                inputs: variable_input_types,
                                 output: variable_output_type,
                             } => {
-                                // TODO check argument count == origin reference type
+                                match variable_input_types.len().cmp(&arguments.len()) {
+                                    std::cmp::Ordering::Equal => {}
+                                    std::cmp::Ordering::Less => {
+                                        errors.push(StillErrorNode {
+                                            range: variable_node.range,
+                                            message: format!(
+                                                "too many arguments. Expected {} less. To call a function that is the result of a function, store it in an intermediate let and call that variable",
+                                                arguments.len() - variable_input_types.len()
+                                            ).into_boxed_str()
+                                        });
+                                    }
+                                    std::cmp::Ordering::Greater => {
+                                        errors.push(StillErrorNode {
+                                            range: variable_node.range,
+                                            message: format!(
+                                                "missing arguments. Expected {} more. Note that partial application is not a feature in still. Instead, wrap this call in a lambda that accepts and applies the remaining arguments",
+                                                variable_input_types.len() - arguments.len()
+                                            ).into_boxed_str()
+                                        });
+                                    }
+                                }
                                 (**variable_output_type).clone()
                             }
                             _ => {
@@ -13211,18 +13290,38 @@ fn still_syntax_expression_to_rust<'a>(
                     } else {
                         match project_variable_type {
                             StillType::Function {
-                                inputs: variable_input_types,
-                                output: variable_output_type,
+                                inputs: project_variable_input_types,
+                                output: project_variable_output_type,
                             } => {
-                                // TODO check argument count == origin reference type
                                 // optimization possibility: when output contains no type variables,
                                 // just return it
+                                match project_variable_input_types.len().cmp(&arguments.len()) {
+                                    std::cmp::Ordering::Equal => {}
+                                    std::cmp::Ordering::Less => {
+                                        errors.push(StillErrorNode {
+                                            range: variable_node.range,
+                                            message: format!(
+                                                "too many arguments. Expected {} less. To call a function that is the result of a function, store it in an intermediate let and call that variable",
+                                                arguments.len() - project_variable_input_types.len()
+                                            ).into_boxed_str()
+                                        });
+                                    }
+                                    std::cmp::Ordering::Greater => {
+                                        errors.push(StillErrorNode {
+                                            range: variable_node.range,
+                                            message: format!(
+                                                "missing arguments. Expected {} more. Note that partial application is not a feature in still. Instead, wrap this call in a lambda that accepts and applies the remaining arguments",
+                                                project_variable_input_types.len() - arguments.len()
+                                            ).into_boxed_str()
+                                        });
+                                    }
+                                }
                                 let mut type_parameter_replacements: std::collections::HashMap<
                                     Box<str>,
                                     StillType,
                                 > = std::collections::HashMap::new();
                                 for (parameter_type_node, maybe_argument_type) in
-                                    variable_input_types
+                                    project_variable_input_types
                                         .iter()
                                         .zip(argument_maybe_types.into_iter())
                                 {
@@ -13236,7 +13335,7 @@ fn still_syntax_expression_to_rust<'a>(
                                     }
                                 }
                                 let mut variable_output_type: StillType =
-                                    (**variable_output_type).clone();
+                                    (**project_variable_output_type).clone();
                                 still_type_replace_variables(
                                     // seems inefficient, a function would be better
                                     &type_parameter_replacements
@@ -13401,7 +13500,7 @@ fn still_syntax_expression_to_rust<'a>(
         }
         StillSyntaxExpression::Record(fields) => {
             records_used.insert(sorted_field_names(
-                fields.iter().map(|field| field.name.value.as_str()),
+                fields.iter().map(|field| &field.name.value),
             ));
             let mut fields_use_allocator: bool = false;
             let (rust_fields, field_maybe_types): (
@@ -13625,7 +13724,7 @@ struct CompiledStillLetDeclarationInfo<'a> {
 fn still_syntax_let_declaration_to_rust_into<'a>(
     rust_stmts: &mut Vec<syn::Stmt>,
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     project_variable_declarations: &std::collections::HashMap<
@@ -13738,7 +13837,7 @@ fn still_syntax_let_declaration_to_rust_into<'a>(
 fn maybe_still_syntax_pattern_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     error_on_none: impl FnOnce() -> StillErrorNode,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     introduced_bindings: &mut std::collections::HashMap<&'a str, Option<StillType>>,
     bindings_to_clone: &mut Vec<BindingToClone<'a>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -13968,7 +14067,7 @@ struct CompiledStillPattern {
 }
 fn still_syntax_pattern_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
-    records_used: &mut std::collections::HashSet<Vec<&'a str>>,
+    records_used: &mut std::collections::HashSet<Vec<StillName>>,
     introduced_bindings: &mut std::collections::HashMap<&'a str, Option<StillType>>,
     bindings_to_clone: &mut Vec<BindingToClone<'a>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -14214,7 +14313,7 @@ fn still_syntax_pattern_to_rust<'a>(
         StillSyntaxPattern::Record(fields) => {
             // TODO check for duplictes
             records_used.insert(sorted_field_names(
-                fields.iter().map(|field| field.name.value.as_str()),
+                fields.iter().map(|field| &field.name.value),
             ));
             let (field_values_rust, field_types): (
                 Vec<Option<(&str, syn::Pat)>>,

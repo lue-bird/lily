@@ -1,5 +1,5 @@
 very small, explicitly boring programming language that compiles to rust, inspired by [elm](https://elm-lang.org/).
-> ⚠️ Experimental, everything subject to change, use with a bowl of caution and salt.
+> ⚠️ Experimental, subject to change, use with caution and salt.
 
 ### hello world
 
@@ -7,7 +7,7 @@ very small, explicitly boring programming language that compiles to rust, inspir
 run \:opt {}:_ >
     :io {}:Standard-out-write "hello, world\n"
 ```
-the equivalent elm code would be
+the syntactically equivalent elm code would be
 ```elm
 run : Maybe {} -> Io {}
 run = \_ ->
@@ -30,6 +30,12 @@ run \:opt str:state-or-uninitialized >
         , :io str:Standard-in-read-line (\:str:line > line)
         ]
 ```
+
+To use, [install rust](https://rust-lang.org/tools/install/) and
+```bash
+cargo +nightly install --git https://github.com/lue-bird/still
+```
+Then point your editor to `still lsp`, see also [specific setups](#editor-setups).
 
 ## maybe interesting
 
@@ -118,12 +124,6 @@ run \:opt str:state-or-uninitialized >
   This generally removes some verbosity, is consistent with choice type/ type alias construction,
   allows non-called generic functions, would allow the removal of all "::Typed" patterns and expressions (except recursion? but maybe there is a better solution for that).
 - (seems completely useless) infer constness of generated variable/fn items
-
-To use, [install rust](https://rust-lang.org/tools/install/) and
-```bash
-cargo +nightly install --git https://github.com/lue-bird/still
-```
-Then point your editor to `still lsp`, see also [specific setups](#editor-setups).
 
 ## editor setups
 feel free to contribute, as I only use vscodium
