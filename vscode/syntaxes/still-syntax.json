@@ -48,7 +48,7 @@
     },
     {
       "name": "meta.record.field.update.still",
-      "match": "(\\{)\\s+([a-z][a-zA-Z0-9-]*)\\s+(\\|)\\s+([a-z][a-zA-Z0-9-]*)",
+      "match": "(\\{)\\s+\\.\\.([a-z][a-zA-Z0-9-]*)\\s+(\\,)\\s+([a-z][a-zA-Z0-9-]*)",
       "captures": {
         "1": {
           "name": "punctuation.bracket.still"
@@ -196,9 +196,9 @@
               "name": "punctuation.definition.comment.still"
             }
           },
-          "begin": "--",
+          "begin": "#",
           "end": "$",
-          "name": "comment.line.double-dash.still"
+          "name": "comment.line.still"
         },
         {
           "include": "#block_comment"

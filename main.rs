@@ -3754,7 +3754,7 @@ fn still_syntax_expression_not_parenthesized_into(
             if let Some(declaration_node) = maybe_declaration {
                 still_syntax_let_declaration_into(
                     so_far,
-                    next_indent(indent),
+                    indent,
                     still_syntax_node_as_ref(declaration_node),
                 );
             }
@@ -7519,7 +7519,7 @@ fn parse_still_syntax_expression_space_separated(
         .or_else(|| parse_still_syntax_expression_match(state))
         .or_else(|| parse_still_syntax_expression_let_in(state))
         .or_else(|| parse_still_syntax_expression_lambda(state))
-        .or_else(|| parse_still_syntax_expression_call(state))
+        .or_else(|| parse_still_syntax_expression_variable_or_call(state))
         .or_else(|| parse_still_syntax_expression_with_comment_node(state))
         .or_else(|| parse_still_syntax_expression_not_space_separated(state))
 }
@@ -7563,7 +7563,7 @@ fn parse_still_syntax_expression_typed(
         },
     })
 }
-fn parse_still_syntax_expression_call(
+fn parse_still_syntax_expression_variable_or_call(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
     let variable_node: StillSyntaxNode<StillName> =
@@ -7873,7 +7873,7 @@ fn parse_still_syntax_expression_case(
                     true,
                 ))
             } else {
-                parse_state_push_indent(state, state.position.character as u16);
+                parse_state_push_indent(state, bar_key_symbol_range.start.character as u16);
                 let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
                     parse_still_syntax_expression_space_separated(state);
                 parse_state_pop_indent(state);
@@ -7905,7 +7905,7 @@ fn parse_still_syntax_expression_let_in(
             },
         }
     } else {
-        parse_state_push_indent(state, state.position.character as u16);
+        parse_state_push_indent(state, let_keyword_range.start.character as u16);
         let mut syntax_before_in_key_symbol_end_position: lsp_types::Position =
             let_keyword_range.end;
         let maybe_declaration: Option<StillSyntaxNode<StillSyntaxLetDeclaration>> =
