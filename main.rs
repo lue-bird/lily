@@ -735,10 +735,7 @@ fn respond_to_hover(
                 StillSyntaxDeclaration::ChoiceType {
                     name: origin_project_declaration_name,
                     parameters: origin_project_declaration_parameters,
-                    equals_key_symbol_range: _,
-                    variant0_name: origin_project_declaration_variant0_name_node,
-                    variant0_value: origin_project_declaration_variant0_maybe_value,
-                    variant1_up: origin_project_declaration_variant1_up,
+                    variants: origin_project_declaration_variants,
                 } => {
                     format!(
                         "{}{}",
@@ -757,18 +754,12 @@ fn respond_to_hover(
                                 .map(|n| n.value.as_str()),
                             documentation,
                             origin_project_declaration_parameters,
-                            origin_project_declaration_variant0_name_node
-                                .as_ref()
-                                .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                            origin_project_declaration_variant0_maybe_value
-                                .as_ref()
-                                .map(still_syntax_node_as_ref),
-                            origin_project_declaration_variant1_up,
+                            origin_project_declaration_variants,
                         )
                     )
                 }
                 StillSyntaxDeclaration::TypeAlias {
-                    alias_keyword_range: _,
+                    type_keyword_range: _,
                     name: maybe_declaration_name,
                     parameters: origin_project_declaration_parameters,
                     equals_key_symbol_range: _,
@@ -852,26 +843,20 @@ fn respond_to_hover(
                             .map(still_syntax_node_as_ref),
                     )
                 } else {
+                    // TODO instead look at type
                     hovered_project_state.choice_types.iter().find_map(
                         |(
                             origin_project_choice_type_declaration_name,
                             origin_project_choice_type_declaration,
                         )| {
                             let any_declared_name_matches_hovered: bool =
-                                (origin_project_choice_type_declaration
-                                    .variant0_name
-                                    .as_ref()
-                                    .is_some_and(|name_node| {
-                                        name_node.value.as_str() == hovered_name
-                                    }))
-                                    || (origin_project_choice_type_declaration
-                                        .variant1_up
-                                        .iter()
-                                        .any(|variant| {
-                                            variant.name.as_ref().is_some_and(|name_node| {
-                                                name_node.value.as_str() == hovered_name
-                                            })
-                                        }));
+                                origin_project_choice_type_declaration.variants.iter().any(
+                                    |variant| {
+                                        variant.name.as_ref().is_some_and(|name_node| {
+                                            name_node.value.as_str() == hovered_name
+                                        })
+                                    },
+                                );
                             if !any_declared_name_matches_hovered {
                                 None
                             } else {
@@ -883,18 +868,7 @@ fn respond_to_hover(
                                             .documentation
                                             .as_deref(),
                                         &origin_project_choice_type_declaration.parameters,
-                                        origin_project_choice_type_declaration
-                                            .variant0_name
-                                            .as_ref()
-                                            .map(|n| still_syntax_node_as_ref_map(
-                                                n,
-                                                StillName::as_str
-                                            )),
-                                        origin_project_choice_type_declaration
-                                            .variant0_value
-                                            .as_ref()
-                                            .map(still_syntax_node_as_ref),
-                                        &origin_project_choice_type_declaration.variant1_up,
+                                        &origin_project_choice_type_declaration.variants,
                                     )
                                 ))
                             }
@@ -917,15 +891,7 @@ fn respond_to_hover(
                     Some(hovered_name),
                     origin_choice_type_info.documentation.as_deref(),
                     &origin_choice_type_info.parameters,
-                    origin_choice_type_info
-                        .variant0_name
-                        .as_ref()
-                        .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                    origin_choice_type_info
-                        .variant0_value
-                        .as_ref()
-                        .map(still_syntax_node_as_ref),
-                    &origin_choice_type_info.variant1_up,
+                    &origin_choice_type_info.variants,
                 )
             } else if let Some(origin_type_alias_info) =
                 hovered_project_state.type_aliases.get(hovered_name)
@@ -1036,10 +1002,7 @@ fn respond_to_goto_definition(
                 StillSyntaxDeclaration::ChoiceType {
                     name: _,
                     parameters: origin_type_parameters,
-                    equals_key_symbol_range: _,
-                    variant0_name: _,
-                    variant0_value: _,
-                    variant1_up: _,
+                    variants: _,
                 } => {
                     let goto_type_variable_name_origin_parameter_node = origin_type_parameters
                         .iter()
@@ -1057,7 +1020,7 @@ fn respond_to_goto_definition(
                     ))
                 }
                 StillSyntaxDeclaration::TypeAlias {
-                    alias_keyword_range: _,
+                    type_keyword_range: _,
                     name: _,
                     parameters: origin_type_parameters,
                     equals_key_symbol_range: _,
@@ -1110,26 +1073,18 @@ fn respond_to_goto_definition(
                 } else {
                     goto_symbol_project_state.choice_types.values().find_map(
                         |origin_project_choice_type| {
-                            if let Some(origin_project_declaration_variant0_name_node) =
-                                &origin_project_choice_type.variant0_name
-                                && origin_project_declaration_variant0_name_node.value.as_str()
-                                    == goto_name
-                            {
-                                Some(origin_project_declaration_variant0_name_node.range)
-                            } else {
-                                origin_project_choice_type
-                                    .variant1_up
-                                    .iter()
-                                    .find_map(|variant| {
-                                        variant.name.as_ref().and_then(|variant_name_node| {
-                                            if variant_name_node.value.as_str() == goto_name {
-                                                Some(variant_name_node.range)
-                                            } else {
-                                                None
-                                            }
-                                        })
+                            origin_project_choice_type
+                                .variants
+                                .iter()
+                                .find_map(|variant| {
+                                    variant.name.as_ref().and_then(|variant_name_node| {
+                                        if variant_name_node.value.as_str() == goto_name {
+                                            Some(variant_name_node.range)
+                                        } else {
+                                            None
+                                        }
                                     })
-                            }
+                                })
                         },
                     )?
                 };
@@ -1822,18 +1777,14 @@ fn present_choice_type_declaration_info_markdown(
     maybe_name: Option<&str>, // TODO take &str
     maybe_documentation: Option<&str>,
     parameters: &[StillSyntaxNode<StillName>],
-    variant0_name: Option<StillSyntaxNode<&str>>,
-    variant0_maybe_value: Option<StillSyntaxNode<&StillSyntaxType>>,
-    variant1_up: &[StillSyntaxChoiceTypeDeclarationTailingVariant],
+    variants: &[StillSyntaxChoiceTypeVariant],
 ) -> String {
     let mut declaration_string: String = String::new();
     still_syntax_choice_type_declaration_into(
         &mut declaration_string,
         maybe_name,
         parameters,
-        variant0_name,
-        variant0_maybe_value,
-        variant1_up,
+        variants,
     );
     let description: String = format!("```still\n{}\n```\n", declaration_string);
     match maybe_documentation {
@@ -1950,30 +1901,13 @@ fn variable_declaration_or_variant_completions_into(
                     Some(origin_project_choice_type_name),
                     origin_project_choice_type_info.documentation.as_deref(),
                     &origin_project_choice_type_info.parameters,
-                    origin_project_choice_type_info
-                        .variant0_name
-                        .as_ref()
-                        .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                    origin_project_choice_type_info
-                        .variant0_value
-                        .as_ref()
-                        .map(still_syntax_node_as_ref),
-                    &origin_project_choice_type_info.variant1_up,
+                    &origin_project_choice_type_info.variants,
                 ),
             );
             origin_project_choice_type_info
-                .variant0_name
-                .as_ref()
-                .map(|node| node.value.to_string())
-                .into_iter()
-                .chain(
-                    origin_project_choice_type_info
-                        .variant1_up
-                        .iter()
-                        .filter_map(|variant| {
-                            variant.name.as_ref().map(|node| node.value.to_string())
-                        }),
-                )
+                .variants
+                .iter()
+                .filter_map(|variant| variant.name.as_ref().map(|node| node.value.to_string()))
                 .map(move |variant_name: String| lsp_types::CompletionItem {
                     label: variant_name,
                     kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
@@ -2005,15 +1939,7 @@ fn type_declaration_completions_into(
                             Some(origin_project_choice_type_name),
                             origin_project_choice_type_info.documentation.as_deref(),
                             &origin_project_choice_type_info.parameters,
-                            origin_project_choice_type_info
-                                .variant0_name
-                                .as_ref()
-                                .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                            origin_project_choice_type_info
-                                .variant0_value
-                                .as_ref()
-                                .map(still_syntax_node_as_ref),
-                            &origin_project_choice_type_info.variant1_up,
+                            &origin_project_choice_type_info.variants,
                         ),
                     },
                 )),
@@ -2091,10 +2017,7 @@ fn respond_to_document_symbols(
                 StillSyntaxDeclaration::ChoiceType {
                     name: maybe_name,
                     parameters: _,
-                    equals_key_symbol_range: _,
-                    variant0_name,
-                    variant0_value: variant0_maybe_value,
-                    variant1_up,
+                    variants,
                 } => {
                     let name_node = maybe_name.as_ref()?;
                     Some(lsp_types::DocumentSymbol {
@@ -2107,22 +2030,9 @@ fn respond_to_document_symbols(
                         range: declaration_node.range,
                         selection_range: name_node.range,
                         children: Some(
-                            variant0_name
-                                .as_ref()
-                                .map(|variant0_name_node| {
-                                    (
-                                        variant0_name_node,
-                                        lsp_types::Range {
-                                            start: variant0_name_node.range.start,
-                                            end: variant0_maybe_value
-                                                .as_ref()
-                                                .map(|node| node.range.end)
-                                                .unwrap_or(variant0_name_node.range.end),
-                                        },
-                                    )
-                                })
-                                .into_iter()
-                                .chain(variant1_up.iter().filter_map(|variant| {
+                            variants
+                                .iter()
+                                .filter_map(|variant| {
                                     let variant_name_node = variant.name.as_ref()?;
                                     Some((
                                         variant_name_node,
@@ -2135,7 +2045,7 @@ fn respond_to_document_symbols(
                                                 .unwrap_or(variant_name_node.range.end),
                                         },
                                     ))
-                                }))
+                                })
                                 .map(|(variant_name_node, variant_full_range)| {
                                     lsp_types::DocumentSymbol {
                                         name: variant_name_node.value.to_string(),
@@ -2155,7 +2065,7 @@ fn respond_to_document_symbols(
                 }
                 StillSyntaxDeclaration::TypeAlias {
                     name: maybe_name,
-                    alias_keyword_range: _,
+                    type_keyword_range: _,
                     parameters: _,
                     equals_key_symbol_range: _,
                     type_: _,
@@ -2611,13 +2521,11 @@ enum StillSyntaxDeclaration {
     ChoiceType {
         name: Option<StillSyntaxNode<StillName>>,
         parameters: Vec<StillSyntaxNode<StillName>>,
-        equals_key_symbol_range: Option<lsp_types::Range>,
-        variant0_name: Option<StillSyntaxNode<StillName>>,
-        variant0_value: Option<StillSyntaxNode<StillSyntaxType>>,
-        variant1_up: Vec<StillSyntaxChoiceTypeDeclarationTailingVariant>,
+
+        variants: Vec<StillSyntaxChoiceTypeVariant>,
     },
     TypeAlias {
-        alias_keyword_range: lsp_types::Range,
+        type_keyword_range: lsp_types::Range,
         name: Option<StillSyntaxNode<StillName>>,
         parameters: Vec<StillSyntaxNode<StillName>>,
         equals_key_symbol_range: Option<lsp_types::Range>,
@@ -2630,7 +2538,7 @@ enum StillSyntaxDeclaration {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct StillSyntaxChoiceTypeDeclarationTailingVariant {
+struct StillSyntaxChoiceTypeVariant {
     or_key_symbol_range: lsp_types::Range,
     name: Option<StillSyntaxNode<StillName>>,
     value: Option<StillSyntaxNode<StillSyntaxType>>,
@@ -4294,24 +4202,17 @@ fn still_syntax_declaration_into(
         StillSyntaxDeclaration::ChoiceType {
             name: maybe_name,
             parameters,
-            equals_key_symbol_range: _,
-            variant0_name: maybe_variant0_name,
-            variant0_value: variant0_maybe_value,
-            variant1_up,
+            variants,
         } => {
             still_syntax_choice_type_declaration_into(
                 so_far,
                 maybe_name.as_ref().map(|n| n.value.as_str()),
                 parameters,
-                maybe_variant0_name
-                    .as_ref()
-                    .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                variant0_maybe_value.as_ref().map(still_syntax_node_as_ref),
-                variant1_up,
+                variants,
             );
         }
         StillSyntaxDeclaration::TypeAlias {
-            alias_keyword_range: _,
+            type_keyword_range: _,
             name: maybe_name,
             parameters,
             equals_key_symbol_range: _,
@@ -4344,7 +4245,7 @@ fn still_syntax_type_alias_declaration_into(
     parameters: &[StillSyntaxNode<StillName>],
     maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
 ) {
-    so_far.push_str("type alias ");
+    so_far.push_str("type ");
     if let Some(name_node) = maybe_name {
         so_far.push_str(name_node);
     }
@@ -4358,15 +4259,13 @@ fn still_syntax_type_alias_declaration_into(
         still_syntax_type_not_parenthesized_into(so_far, 4, type_node);
     }
 }
-fn still_syntax_choice_type_declaration_into<'a>(
+fn still_syntax_choice_type_declaration_into(
     so_far: &mut String,
     maybe_name: Option<&str>,
     parameters: &[StillSyntaxNode<StillName>],
-    maybe_variant0_name: Option<StillSyntaxNode<&str>>,
-    variant0_maybe_value: Option<StillSyntaxNode<&'a StillSyntaxType>>,
-    variant1_up: &'a [StillSyntaxChoiceTypeDeclarationTailingVariant],
+    variants: &[StillSyntaxChoiceTypeVariant],
 ) {
-    so_far.push_str("type ");
+    so_far.push_str("choice ");
     if let Some(name) = maybe_name {
         so_far.push_str(name);
     }
@@ -4374,24 +4273,22 @@ fn still_syntax_choice_type_declaration_into<'a>(
         so_far.push(' ');
         so_far.push_str(&parameter_node.value);
     }
-    linebreak_indented_into(so_far, 4);
-    so_far.push_str("= ");
-    still_syntax_choice_type_declaration_variant_into(
-        so_far,
-        maybe_variant0_name,
-        variant0_maybe_value,
-    );
-    for variant in variant1_up {
+    if variants.is_empty() {
         linebreak_indented_into(so_far, 4);
         so_far.push_str("| ");
-        still_syntax_choice_type_declaration_variant_into(
-            so_far,
-            variant
-                .name
-                .as_ref()
-                .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-            variant.value.as_ref().map(still_syntax_node_as_ref),
-        );
+    } else {
+        for variant in variants {
+            linebreak_indented_into(so_far, 4);
+            so_far.push_str("| ");
+            still_syntax_choice_type_declaration_variant_into(
+                so_far,
+                variant
+                    .name
+                    .as_ref()
+                    .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
+                variant.value.as_ref().map(still_syntax_node_as_ref),
+            );
+        }
     }
 }
 fn still_syntax_choice_type_declaration_variant_into(
@@ -4516,13 +4413,16 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
             StillSyntaxDeclaration::ChoiceType {
                 name: maybe_name,
                 parameters,
-                equals_key_symbol_range: _,
-                variant0_name: maybe_variant0_name,
-                variant0_value: variant0_maybe_value,
-                variant1_up,
+                variants,
             } => {
                 if let Some(name_node) = maybe_name
-                    && lsp_range_includes_position(name_node.range, position)
+                    && lsp_range_includes_position(
+                        lsp_types::Range {
+                            start: still_syntax_declaration_node.range.start,
+                            end: name_node.range.end,
+                        },
+                        position,
+                    )
                 {
                     Some(StillSyntaxNode {
                         value: StillSyntaxSymbol::ProjectMemberDeclarationName {
@@ -4531,17 +4431,6 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                             documentation: maybe_documentation,
                         },
                         range: name_node.range,
-                    })
-                } else if let Some(variant0_name_node) = maybe_variant0_name
-                    && lsp_range_includes_position(variant0_name_node.range, position)
-                {
-                    Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
-                            name: &variant0_name_node.value,
-                            declaration: still_syntax_declaration_node,
-                            documentation: maybe_documentation,
-                        },
-                        range: variant0_name_node.range,
                     })
                 } else {
                     parameters
@@ -4560,16 +4449,7 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                             }
                         })
                         .or_else(|| {
-                            variant0_maybe_value.iter().find_map(|variant_value| {
-                                still_syntax_type_find_symbol_at_position(
-                                    still_syntax_declaration_node.value,
-                                    still_syntax_node_as_ref(variant_value),
-                                    position,
-                                )
-                            })
-                        })
-                        .or_else(|| {
-                            variant1_up.iter().find_map(|variant| {
+                            variants.iter().find_map(|variant| {
                                 if let Some(variant_name_node) = &variant.name
                                     && lsp_range_includes_position(
                                         variant_name_node.range,
@@ -4598,14 +4478,15 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                 }
             }
             StillSyntaxDeclaration::TypeAlias {
-                alias_keyword_range: _,
+                type_keyword_range,
                 name: maybe_name,
                 parameters,
                 equals_key_symbol_range: _,
                 type_: maybe_type,
             } => {
                 if let Some(name_node) = maybe_name
-                    && lsp_range_includes_position(name_node.range, position)
+                    && (lsp_range_includes_position(name_node.range, position)
+                        || lsp_range_includes_position(*type_keyword_range, position))
                 {
                     Some(StillSyntaxNode {
                         value: StillSyntaxSymbol::ProjectMemberDeclarationName {
@@ -4880,7 +4761,7 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
                         name: &variable_node.value,
                         local_bindings: local_bindings,
                     },
-                    range: still_syntax_expression_node.range,
+                    range: variable_node.range,
                 });
             }
             arguments
@@ -5305,10 +5186,7 @@ fn still_syntax_declaration_uses_of_symbol_into(
         StillSyntaxDeclaration::ChoiceType {
             name: maybe_name,
             parameters,
-            equals_key_symbol_range: _,
-            variant0_name: maybe_variant0_name,
-            variant0_value: variant0_maybe_value,
-            variant1_up,
+            variants,
         } => {
             if let Some(name_node) = maybe_name
                 && symbol_to_collect_uses_of
@@ -5327,24 +5205,7 @@ fn still_syntax_declaration_uses_of_symbol_into(
                     break 'parameter_traversal;
                 }
             }
-            if let Some(variant0_name_node) = maybe_variant0_name
-                && symbol_to_collect_uses_of
-                    == (StillSymbolToReference::VariableOrVariant {
-                        name: &variant0_name_node.value,
-                        including_declaration_name: true,
-                    })
-            {
-                uses_so_far.push(variant0_name_node.range);
-                return;
-            }
-            if let Some(variant0_value) = variant0_maybe_value {
-                still_syntax_type_uses_of_symbol_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(variant0_value),
-                    symbol_to_collect_uses_of,
-                );
-            }
-            for variant in variant1_up {
+            for variant in variants {
                 if let Some(variant_name_node) = &variant.name
                     && (StillSymbolToReference::VariableOrVariant {
                         name: &variant_name_node.value,
@@ -5365,7 +5226,7 @@ fn still_syntax_declaration_uses_of_symbol_into(
             }
         }
         StillSyntaxDeclaration::TypeAlias {
-            alias_keyword_range: _,
+            type_keyword_range: _,
             name: maybe_name,
             parameters,
             equals_key_symbol_range: _,
@@ -6245,15 +6106,12 @@ fn still_syntax_highlight_declaration_into(
         StillSyntaxDeclaration::ChoiceType {
             name: maybe_name,
             parameters,
-            equals_key_symbol_range: maybe_equals_key_symbol_range,
-            variant0_name: maybe_variant0_name,
-            variant0_value: variant0_maybe_value,
-            variant1_up,
+            variants,
         } => {
             highlighted_so_far.push(StillSyntaxNode {
                 range: lsp_types::Range {
                     start: still_syntax_declaration_node.range.start,
-                    end: lsp_position_add_characters(still_syntax_declaration_node.range.start, 4),
+                    end: lsp_position_add_characters(still_syntax_declaration_node.range.start, 6),
                 },
                 value: StillSyntaxHighlightKind::KeySymbol,
             });
@@ -6269,25 +6127,7 @@ fn still_syntax_highlight_declaration_into(
                     value: StillSyntaxHighlightKind::TypeVariable,
                 });
             }
-            if let &Some(equals_key_symbol_range) = maybe_equals_key_symbol_range {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: equals_key_symbol_range,
-                    value: StillSyntaxHighlightKind::KeySymbol,
-                });
-            }
-            if let Some(variant0_name_node) = maybe_variant0_name {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: variant0_name_node.range,
-                    value: StillSyntaxHighlightKind::Variant,
-                });
-            }
-            if let Some(variant0_value_node) = variant0_maybe_value {
-                still_syntax_highlight_type_into(
-                    highlighted_so_far,
-                    still_syntax_node_as_ref(variant0_value_node),
-                );
-            }
-            for variant in variant1_up {
+            for variant in variants {
                 highlighted_so_far.push(StillSyntaxNode {
                     range: variant.or_key_symbol_range,
                     value: StillSyntaxHighlightKind::KeySymbol,
@@ -6307,21 +6147,14 @@ fn still_syntax_highlight_declaration_into(
             }
         }
         StillSyntaxDeclaration::TypeAlias {
-            alias_keyword_range,
+            type_keyword_range,
             name: maybe_name,
             parameters,
             equals_key_symbol_range: maybe_equals_key_symbol_range,
             type_: maybe_type,
         } => {
             highlighted_so_far.push(StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: still_syntax_declaration_node.range.start,
-                    end: lsp_position_add_characters(still_syntax_declaration_node.range.start, 4),
-                },
-                value: StillSyntaxHighlightKind::KeySymbol,
-            });
-            highlighted_so_far.push(StillSyntaxNode {
-                range: *alias_keyword_range,
+                range: *type_keyword_range,
                 value: StillSyntaxHighlightKind::KeySymbol,
             });
             if let Some(name_node) = maybe_name {
@@ -8199,106 +8032,115 @@ fn parse_still_syntax_expression_parenthesized(
 fn parse_still_syntax_declaration_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
-    parse_still_syntax_declaration_choice_type_or_type_alias_node(state).or_else(|| {
-        if state.indent != 0 {
-            return None;
-        }
-        parse_still_syntax_declaration_variable_node(state)
-    })
+    parse_still_syntax_declaration_choice_type_node(state)
+        .or_else(|| parse_still_syntax_declaration_type_alias_node(state))
+        .or_else(|| {
+            if state.indent != 0 {
+                return None;
+            }
+            parse_still_syntax_declaration_variable_node(state)
+        })
 }
-fn parse_still_syntax_declaration_choice_type_or_type_alias_node(
+fn parse_still_syntax_declaration_type_alias_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
     let type_keyword_range: lsp_types::Range = parse_still_keyword_as_range(state, "type")?;
     parse_still_whitespace(state);
-    let maybe_alias_keyword_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "alias");
-    parse_still_whitespace(state);
     let maybe_name_node: Option<StillSyntaxNode<StillName>> =
         parse_still_lowercase_name_node(state);
     parse_still_whitespace(state);
-    let mut syntax_before_equals_key_symbol_end_location: lsp_types::Position = maybe_name_node
-        .as_ref()
-        .map(|name_node| name_node.range.end)
-        .or_else(|| maybe_alias_keyword_range.map(|range| range.end))
-        .unwrap_or(type_keyword_range.end);
     let mut parameters: Vec<StillSyntaxNode<StillName>> = Vec::new();
     while let Some(parameter_node) = parse_still_uppercase_name_node(state) {
-        syntax_before_equals_key_symbol_end_location = parameter_node.range.end;
         parameters.push(parameter_node);
         parse_still_whitespace(state);
     }
     let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
     parse_still_whitespace(state);
-    Some(match maybe_alias_keyword_range {
-        Some(alias_keyword_range) => {
-            let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
-                if state.position.character <= u32::from(state.indent) {
-                    None
-                } else {
-                    parse_still_syntax_type(state)
-                };
-            let full_end_location: lsp_types::Position = maybe_type
+    let maybe_type: Option<StillSyntaxNode<StillSyntaxType>> =
+        if state.position.character <= u32::from(state.indent) {
+            None
+        } else {
+            parse_still_syntax_type(state)
+        };
+    let full_end_location: lsp_types::Position = maybe_type
+        .as_ref()
+        .map(|type_node| type_node.range.end)
+        .or_else(|| maybe_equals_key_symbol_range.map(|range| range.end))
+        .or_else(|| parameters.last().map(|n| n.range.end))
+        .or_else(|| {
+            maybe_name_node
                 .as_ref()
-                .map(|type_node| type_node.range.end)
-                .or_else(|| maybe_equals_key_symbol_range.map(|range| range.end))
-                .unwrap_or(syntax_before_equals_key_symbol_end_location);
-            StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: type_keyword_range.start,
-                    end: full_end_location,
-                },
-                value: StillSyntaxDeclaration::TypeAlias {
-                    alias_keyword_range: alias_keyword_range,
-                    name: maybe_name_node,
-                    parameters: parameters,
-                    equals_key_symbol_range: maybe_equals_key_symbol_range,
-                    type_: maybe_type,
-                },
-            }
-        }
-        None => {
-            let maybe_variant0_name: Option<StillSyntaxNode<StillName>> =
-                parse_still_uppercase_name_node(state);
-            parse_still_whitespace(state);
-            let variant0_maybe_value: Option<StillSyntaxNode<StillSyntaxType>> =
-                parse_still_syntax_type(state);
-            let mut full_end_position: lsp_types::Position = maybe_variant0_name
-                .as_ref()
-                .map(|node| node.range.end)
-                .or_else(|| maybe_equals_key_symbol_range.map(|range| range.end))
-                .unwrap_or(syntax_before_equals_key_symbol_end_location);
-            if let Some(value_node) = &variant0_maybe_value {
-                full_end_position = value_node.range.end;
-                parse_still_whitespace(state);
-            }
-            let mut variant1_up: Vec<StillSyntaxChoiceTypeDeclarationTailingVariant> = Vec::new();
-            while let Some(variant_node) =
-                parse_still_syntax_choice_type_declaration_trailing_variant_node(state)
-            {
-                variant1_up.push(variant_node.value);
-                full_end_position = variant_node.range.end;
-                parse_still_whitespace(state);
-            }
-            StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: type_keyword_range.start,
-                    end: full_end_position,
-                },
-                value: StillSyntaxDeclaration::ChoiceType {
-                    name: maybe_name_node,
-                    parameters: parameters,
-                    equals_key_symbol_range: maybe_equals_key_symbol_range,
-                    variant0_name: maybe_variant0_name,
-                    variant0_value: variant0_maybe_value,
-                    variant1_up: variant1_up,
-                },
-            }
-        }
+                .map(|name_node| name_node.range.end)
+        })
+        .unwrap_or(type_keyword_range.end);
+    Some(StillSyntaxNode {
+        range: lsp_types::Range {
+            start: type_keyword_range.start,
+            end: full_end_location,
+        },
+        value: StillSyntaxDeclaration::TypeAlias {
+            type_keyword_range: type_keyword_range,
+            name: maybe_name_node,
+            parameters: parameters,
+            equals_key_symbol_range: maybe_equals_key_symbol_range,
+            type_: maybe_type,
+        },
     })
 }
-fn parse_still_syntax_choice_type_declaration_trailing_variant_node(
+fn parse_still_syntax_declaration_choice_type_node(
     state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxChoiceTypeDeclarationTailingVariant>> {
+) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
+    let choice_keyword_range: lsp_types::Range = parse_still_keyword_as_range(state, "choice")?;
+    parse_still_whitespace(state);
+    let maybe_name_node: Option<StillSyntaxNode<StillName>> =
+        parse_still_lowercase_name_node(state);
+    parse_still_whitespace(state);
+    let mut parameters: Vec<StillSyntaxNode<StillName>> = Vec::new();
+    while let Some(parameter_node) = parse_still_uppercase_name_node(state) {
+        parameters.push(parameter_node);
+        parse_still_whitespace(state);
+    }
+    let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
+    parse_still_whitespace(state);
+
+    let mut variants: Vec<StillSyntaxChoiceTypeVariant> = Vec::new();
+    while let Some(variant) = parse_still_syntax_choice_type_declaration_variant(state) {
+        variants.push(variant);
+        parse_still_whitespace(state);
+    }
+    Some(StillSyntaxNode {
+        range: lsp_types::Range {
+            start: choice_keyword_range.start,
+            end: variants
+                .last()
+                .map(|variant| {
+                    variant
+                        .value
+                        .as_ref()
+                        .map(|n| n.range.end)
+                        .or_else(|| variant.name.as_ref().map(|node| node.range.end))
+                        .unwrap_or(variant.or_key_symbol_range.end)
+                })
+                .or_else(|| maybe_equals_key_symbol_range.map(|r| r.end))
+                .or_else(|| parameters.last().map(|n| n.range.end))
+                .or_else(|| {
+                    maybe_name_node
+                        .as_ref()
+                        .map(|name_node| name_node.range.end)
+                })
+                .unwrap_or(choice_keyword_range.end),
+        },
+        value: StillSyntaxDeclaration::ChoiceType {
+            name: maybe_name_node,
+            parameters: parameters,
+
+            variants,
+        },
+    })
+}
+fn parse_still_syntax_choice_type_declaration_variant(
+    state: &mut ParseState,
+) -> Option<StillSyntaxChoiceTypeVariant> {
     let or_key_symbol_range: lsp_types::Range = parse_symbol_as_range(state, "|")?;
     parse_still_whitespace(state);
     while parse_symbol(state, "|") {
@@ -8307,24 +8149,11 @@ fn parse_still_syntax_choice_type_declaration_trailing_variant_node(
     let maybe_name: Option<StillSyntaxNode<StillName>> = parse_still_uppercase_name_node(state);
     parse_still_whitespace(state);
     let maybe_value: Option<StillSyntaxNode<StillSyntaxType>> = parse_still_syntax_type(state);
-    let mut full_end_position: lsp_types::Position = maybe_name
-        .as_ref()
-        .map(|node| node.range.end)
-        .unwrap_or_else(|| or_key_symbol_range.end);
-    if let Some(value_node) = &maybe_value {
-        full_end_position = value_node.range.end;
-        parse_still_whitespace(state);
-    }
-    Some(StillSyntaxNode {
-        range: lsp_types::Range {
-            start: or_key_symbol_range.start,
-            end: full_end_position,
-        },
-        value: StillSyntaxChoiceTypeDeclarationTailingVariant {
-            or_key_symbol_range: or_key_symbol_range,
-            name: maybe_name,
-            value: maybe_value,
-        },
+    parse_still_whitespace(state);
+    Some(StillSyntaxChoiceTypeVariant {
+        or_key_symbol_range: or_key_symbol_range,
+        name: maybe_name,
+        value: maybe_value,
     })
 }
 fn parse_still_syntax_declaration_variable_node(
@@ -8475,9 +8304,7 @@ enum StillSyntaxTypeDeclarationInfo<'a> {
         documentation: &'a Option<StillSyntaxNode<Box<str>>>,
         name: &'a StillSyntaxNode<StillName>,
         parameters: &'a Vec<StillSyntaxNode<StillName>>,
-        variant0_name: &'a Option<StillSyntaxNode<StillName>>,
-        variant0_value: &'a Option<StillSyntaxNode<StillSyntaxType>>,
-        variant1_up: &'a Vec<StillSyntaxChoiceTypeDeclarationTailingVariant>,
+        variants: &'a Vec<StillSyntaxChoiceTypeVariant>,
     },
     TypeAlias {
         range: lsp_types::Range,
@@ -8520,7 +8347,7 @@ fn still_project_compile_to_rust(
                     range: unknown_node.range,
                     message: Box::from(if unknown_node.value.starts_with('_') {
                         "unrecognized syntax. Identifiers consist of ascii letters, digits and -"
-                    } else if unknown_node
+                    } else   if unknown_node
                         .value
                         .starts_with(|c: char| c.is_ascii_lowercase())
                     {
@@ -8541,10 +8368,7 @@ fn still_project_compile_to_rust(
                     StillSyntaxDeclaration::ChoiceType {
                         name: maybe_name,
                         parameters,
-                        equals_key_symbol_range: _,
-                        variant0_name: maybe_variant0_name,
-                        variant0_value: maybe_variant0_value,
-                        variant1_up,
+                        variants,
                     } => match maybe_name {
                         None => {
                             errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
@@ -8561,15 +8385,13 @@ fn still_project_compile_to_rust(
                                     documentation: &documented_declaration.documentation,
                                     name: name_node,
                                     parameters: parameters,
-                                    variant0_name: maybe_variant0_name,
-                                    variant0_value: maybe_variant0_value,
-                                    variant1_up: variant1_up,
+                                    variants,
                                 },
                             );
                         }
                     },
                     StillSyntaxDeclaration::TypeAlias {
-                        alias_keyword_range: _,
+                        type_keyword_range: _,
                         name: maybe_name,
                         parameters,
                         equals_key_symbol_range: _,
@@ -8716,9 +8538,7 @@ fn still_project_info_to_rust(
                             parameters: (*parameters).clone(),
                             name_range: None,
                             documentation: None,
-                            variant0_name: None,
-                            variant0_value: None,
-                            variant1_up: vec![],
+                            variants: vec![],
                             is_copy: false,
                             has_lifetime_parameter: true,
                             recursive_variant_value_variant_indexes: vec![],
@@ -8790,13 +8610,11 @@ fn still_project_info_to_rust(
                     }
                 }
                 StillSyntaxTypeDeclarationInfo::ChoiceType {
-                    range,
+                    range: _,
                     documentation: maybe_documentation,
                     name: name_node,
                     parameters,
-                    variant0_name: maybe_variant0_name,
-                    variant0_value: maybe_variant0_value,
-                    variant1_up,
+                    variants,
                 } => {
                     let compiled_choice_type_info: CompiledRustChoiceTypeInfo =
                         choice_type_declaration_to_rust_into(
@@ -8807,22 +8625,15 @@ fn still_project_info_to_rust(
                             &compiled_choice_type_infos,
                             &scc_type_declaration_names,
                             maybe_documentation.as_ref().map(|n| n.value.as_ref()),
-                            range,
                             &name_node.value,
                             parameters,
-                            maybe_variant0_name
-                                .as_ref()
-                                .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                            maybe_variant0_value.as_ref().map(still_syntax_node_as_ref),
-                            variant1_up,
+                            variants,
                         );
                     let info: ChoiceTypeInfo = ChoiceTypeInfo {
                         name_range: Some(name_node.range),
                         documentation: maybe_documentation.as_ref().map(|n| n.value.clone()),
                         parameters: parameters.clone(),
-                        variant0_name: maybe_variant0_name.clone(),
-                        variant0_value: maybe_variant0_value.clone(),
-                        variant1_up: variant1_up.clone(),
+                        variants: variants.clone(),
                         is_copy: compiled_choice_type_info.is_copy,
                         has_lifetime_parameter: compiled_choice_type_info.has_lifetime_parameter,
                         recursive_variant_value_variant_indexes: compiled_choice_type_info
@@ -9178,9 +8989,7 @@ vec-repeat 5 2
 "
                 )),
                 parameters: vec![],
-                variant0_name: None,
-                variant0_value: None,
-                variant1_up: vec![],
+                variants: vec![],
                 is_copy: true,
                 has_lifetime_parameter: false,
                 recursive_variant_value_variant_indexes: vec![],
@@ -9204,9 +9013,7 @@ dec-div five 2.0
 "#
                 )),
                 parameters: vec![],
-                variant0_name: None,
-                variant0_value: None,
-                variant1_up: vec![],
+                variants: vec![],
                 is_copy: true,
                 has_lifetime_parameter: false,
                 recursive_variant_value_variant_indexes: vec![],
@@ -9228,9 +9035,7 @@ Read if interested: [swift's grapheme cluster docs](https://docs.swift.org/swift
 "#
                 )),
                 parameters: vec![],
-                variant0_name: None,
-                variant0_value: None,
-                variant1_up: vec![],
+                variants: vec![],
                 is_copy: true,
                 has_lifetime_parameter: false,
                 recursive_variant_value_variant_indexes: vec![],
@@ -9251,9 +9056,7 @@ Do not use plain `str` to build a big string.
 "#
                 )),
                 parameters: vec![],
-                variant0_name: None,
-                variant0_value: None,
-                variant1_up: vec![],
+                variants: vec![],
                 is_copy: true,
                 has_lifetime_parameter: true,
                 recursive_variant_value_variant_indexes: vec![],
@@ -9267,9 +9070,11 @@ Do not use plain `str` to build a big string.
                     r"Either you have some value or you have nothing."
                 )),
                 parameters: vec![still_syntax_node_empty(StillName::from("A"))],
-                variant0_name: Some(still_syntax_node_empty(StillName::from("Absent"))),
-                variant0_value: None,
-                variant1_up: vec![StillSyntaxChoiceTypeDeclarationTailingVariant {
+                variants: vec![StillSyntaxChoiceTypeVariant {
+                    or_key_symbol_range: lsp_types::Range::default(),
+                    name: Some(still_syntax_node_empty(StillName::from("Absent"))),
+                    value: None,
+                },StillSyntaxChoiceTypeVariant {
                     or_key_symbol_range: lsp_types::Range::default(),
                     name: Some(still_syntax_node_empty(StillName::from("Present"))),
                     value: Some(still_syntax_node_empty(StillSyntaxType::Variable(
@@ -9300,9 +9105,7 @@ vec-element 3 my-vec
 "
                 )),
                 parameters: vec![still_syntax_node_empty(StillName::from("A"))],
-                variant0_name: None,
-                variant0_value: None,
-                variant1_up: vec![],
+                variants: vec![],
                 is_copy: false,
                 has_lifetime_parameter: false,
                 recursive_variant_value_variant_indexes: vec![],
@@ -9793,22 +9596,9 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
             documentation: _,
             name: _,
             parameters: _,
-            variant0_name: _,
-            variant0_value,
-            variant1_up,
+            variants,
         } => {
-            if let Some(variant0_value_node) = variant0_value {
-                still_syntax_type_connect_type_names_in_graph_from(
-                    type_graph,
-                    origin_type_declaration_graph_node,
-                    type_graph_node_by_name,
-                    still_syntax_node_as_ref(variant0_value_node),
-                );
-            }
-            for variant_value_node in variant1_up
-                .iter()
-                .filter_map(|variant| variant.value.as_ref())
-            {
+            for variant_value_node in variants.iter().filter_map(|variant| variant.value.as_ref()) {
                 still_syntax_type_connect_type_names_in_graph_from(
                     type_graph,
                     origin_type_declaration_graph_node,
@@ -10271,44 +10061,28 @@ fn choice_type_declaration_to_rust_into<'a>(
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     scc_type_declaration_names: &std::collections::HashSet<&str>,
     maybe_documentation: Option<&str>,
-    range: lsp_types::Range,
     name: &str,
     parameters: &'a [StillSyntaxNode<StillName>],
-    maybe_variant0_name: Option<StillSyntaxNode<&'a str>>,
-    maybe_variant0_value: Option<StillSyntaxNode<&'a StillSyntaxType>>,
-    variant1_up: &'a [StillSyntaxChoiceTypeDeclarationTailingVariant],
+    variants: &'a [StillSyntaxChoiceTypeVariant],
 ) -> CompiledRustChoiceTypeInfo {
     let mut rust_variants: syn::punctuated::Punctuated<syn::Variant, syn::token::Comma> =
         syn::punctuated::Punctuated::new();
     let mut recursive_variant_value_variant_indexes: Vec<usize> = Vec::new();
-    for (variant_index, (maybe_variant_name, variant_error_range, maybe_variant_value)) in
-        std::iter::once((maybe_variant0_name, range, maybe_variant0_value))
-            .chain(variant1_up.iter().map(|variant| {
-                (
-                    variant
-                        .name
-                        .as_ref()
-                        .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                    variant.or_key_symbol_range,
-                    variant.value.as_ref().map(still_syntax_node_as_ref),
-                )
-            }))
-            .enumerate()
-    {
-        match maybe_variant_name {
+    for (variant_index, variant) in variants.iter().enumerate() {
+        match &variant.name {
             None => {
                 // no point in generating a variant since it's never referenced
                 errors.push(StillErrorNode {
-                    range: variant_error_range,
+                    range: variant.or_key_symbol_range,
                     message: Box::from("missing variant name"),
                 });
             }
             Some(variant_name) => {
-                let variant_value_constructs_recursive_type: bool = maybe_variant_value
-                    .is_some_and(|variant_value_node| {
+                let variant_value_constructs_recursive_type: bool =
+                    variant.value.as_ref().is_some_and(|variant_value_node| {
                         still_syntax_constructs_recursive_type_in(
                             scc_type_declaration_names,
-                            variant_value_node,
+                            still_syntax_node_as_ref(variant_value_node),
                         )
                     });
                 rust_variants.push(still_syntax_variant_to_rust(
@@ -10332,8 +10106,8 @@ fn choice_type_declaration_to_rust_into<'a>(
                             rust_variant_value
                         }
                     },
-                    variant_name,
-                    maybe_variant_value,
+                    still_syntax_node_as_ref_map(variant_name, StillName::as_ref),
+                    variant.value.as_ref().map(still_syntax_node_as_ref),
                 ));
                 if variant_value_constructs_recursive_type {
                     recursive_variant_value_variant_indexes.push(variant_index);
@@ -10341,12 +10115,9 @@ fn choice_type_declaration_to_rust_into<'a>(
             }
         }
     }
-    let is_copy: bool = std::iter::once(maybe_variant0_value)
-        .chain(
-            variant1_up
-                .iter()
-                .map(|variant| variant.value.as_ref().map(still_syntax_node_as_ref)),
-        )
+    let is_copy: bool = variants
+        .iter()
+        .map(|variant| variant.value.as_ref().map(still_syntax_node_as_ref))
         .enumerate()
         .filter_map(|(variant_index, variant_value)| variant_value.map(|v| (variant_index, v)))
         .all(|(variant_index, variant_value_node)| {
@@ -10355,13 +10126,9 @@ fn choice_type_declaration_to_rust_into<'a>(
         });
     let is_recursive: bool = !recursive_variant_value_variant_indexes.is_empty();
     let has_lifetime_parameter: bool = is_recursive
-        || std::iter::once(maybe_variant0_value)
-            .chain(
-                variant1_up
-                    .iter()
-                    .map(|variant| variant.value.as_ref().map(still_syntax_node_as_ref)),
-            )
-            .flatten()
+        || variants
+            .iter()
+            .filter_map(|variant| variant.value.as_ref().map(still_syntax_node_as_ref))
             .any(|variant_value_node| {
                 still_syntax_type_uses_lifetime(type_aliases, choice_types, variant_value_node)
             });
@@ -10403,20 +10170,8 @@ fn choice_type_declaration_to_rust_into<'a>(
     let owned_rust_enum_name: String = still_name_to_uppercase_rust(name) + "øOwned";
     let mut owned_rust_variants: syn::punctuated::Punctuated<syn::Variant, syn::token::Comma> =
         syn::punctuated::Punctuated::new();
-    for (variant_index, (maybe_variant_name, maybe_variant_value)) in
-        std::iter::once((maybe_variant0_name, maybe_variant0_value))
-            .chain(variant1_up.iter().map(|variant| {
-                (
-                    variant
-                        .name
-                        .as_ref()
-                        .map(|n| still_syntax_node_as_ref_map(n, StillName::as_str)),
-                    variant.value.as_ref().map(still_syntax_node_as_ref),
-                )
-            }))
-            .enumerate()
-    {
-        if let Some(variant_name) = maybe_variant_name {
+    for (variant_index, variant) in variants.iter().enumerate() {
+        if let Some(variant_name) = &variant.name {
             owned_rust_variants.push(still_syntax_variant_to_rust(
                 |variant_value_node| {
                     let rust_variant_value: syn::Type = still_syntax_type_to_rust(
@@ -10468,8 +10223,8 @@ fn choice_type_declaration_to_rust_into<'a>(
                         owned_rust_variant_value
                     }
                 },
-                variant_name,
-                maybe_variant_value,
+                still_syntax_node_as_ref_map(variant_name, StillName::as_str),
+                variant.value.as_ref().map(still_syntax_node_as_ref),
             ));
         }
     }
@@ -10655,17 +10410,16 @@ fn choice_type_declaration_to_rust_into<'a>(
                             match_token: syn::token::Match(syn_span()),
                             brace_token: syn::token::Brace(syn_span()),
                             expr: Box::new(syn_expr_reference(["self"])),
-                            arms: maybe_variant0_name
-                                .map(|name_node| (name_node, maybe_variant0_value))
-                                .into_iter()
-                                .chain(variant1_up.iter().filter_map(|variant| {
+                            arms: variants
+                                .iter()
+                                .filter_map(|variant| {
                                     variant.name.as_ref().map(|n| {
                                         (
                                             still_syntax_node_as_ref_map(n, StillName::as_str),
                                             variant.value.as_ref().map(still_syntax_node_as_ref),
                                         )
                                     })
-                                }))
+                                })
                                 .map(|(variant_name, maybe_variant_value)| {
                                     let rust_variant_name: String =
                                         still_name_to_uppercase_rust(variant_name.value);
@@ -10992,17 +10746,16 @@ fn choice_type_declaration_to_rust_into<'a>(
                             match_token: syn::token::Match(syn_span()),
                             brace_token: syn::token::Brace(syn_span()),
                             expr: Box::new(syn_expr_reference(["self"])),
-                            arms: maybe_variant0_name
-                                .map(|name_node| (name_node, maybe_variant0_value))
-                                .into_iter()
-                                .chain(variant1_up.iter().filter_map(|variant| {
+                            arms: variants
+                                .iter()
+                                .filter_map(|variant| {
                                     variant.name.as_ref().map(|n| {
                                         (
                                             still_syntax_node_as_ref_map(n, StillName::as_str),
                                             variant.value.as_ref().map(still_syntax_node_as_ref),
                                         )
                                     })
-                                }))
+                                })
                                 .map(|(variant_name, maybe_variant_value)| {
                                     let rust_variant_name: String =
                                         still_name_to_uppercase_rust(variant_name.value);
@@ -11765,9 +11518,7 @@ struct ChoiceTypeInfo {
     name_range: Option<lsp_types::Range>,
     documentation: Option<Box<str>>,
     parameters: Vec<StillSyntaxNode<StillName>>,
-    variant0_name: Option<StillSyntaxNode<StillName>>,
-    variant0_value: Option<StillSyntaxNode<StillSyntaxType>>,
-    variant1_up: Vec<StillSyntaxChoiceTypeDeclarationTailingVariant>,
+    variants: Vec<StillSyntaxChoiceTypeVariant>,
     // TODO add actual StillType s
     is_copy: bool,
     has_lifetime_parameter: bool,
@@ -13047,24 +12798,19 @@ fn still_syntax_expression_to_rust<'a>(
                             else {
                                 break 'variant_value_is_reference false;
                             };
-                            let Some(variant_index_in_origin_choice_type) =
-                                std::iter::once(origin_choice_type.variant0_name.as_ref())
-                                    .chain(
-                                        origin_choice_type
-                                            .variant1_up
-                                            .iter()
-                                            .map(|variant| variant.name.as_ref()),
+                            let Some(variant_index_in_origin_choice_type) = origin_choice_type
+                                .variants
+                                .iter()
+                                .enumerate()
+                                .find(|(_, origin_choice_type_variant)| {
+                                    origin_choice_type_variant.name.as_ref().is_some_and(
+                                        |origin_choice_type_variant_name_node| {
+                                            origin_choice_type_variant_name_node.value
+                                                == name_node.value
+                                        },
                                     )
-                                    .enumerate()
-                                    .find(|(_, origin_choice_type_variant_maybe_name)| {
-                                        origin_choice_type_variant_maybe_name.is_some_and(
-                                            |origin_choice_type_variant_name_node| {
-                                                origin_choice_type_variant_name_node.value
-                                                    == name_node.value
-                                            },
-                                        )
-                                    })
-                                    .map(|(i, _)| i)
+                                })
+                                .map(|(i, _)| i)
                             else {
                                 break 'variant_value_is_reference false;
                             };
@@ -14227,24 +13973,19 @@ fn still_syntax_pattern_to_rust<'a>(
                                 else {
                                     break 'variant_value_is_reference false;
                                 };
-                                let Some(variant_index_in_origin_choice_type) =
-                                    std::iter::once(origin_choice_type.variant0_name.as_ref())
-                                        .chain(
-                                            origin_choice_type
-                                                .variant1_up
-                                                .iter()
-                                                .map(|variant| variant.name.as_ref()),
+                                let Some(variant_index_in_origin_choice_type) = origin_choice_type
+                                    .variants
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, origin_choice_type_variant)| {
+                                        origin_choice_type_variant.name.as_ref().is_some_and(
+                                            |origin_choice_type_variant_name_node| {
+                                                origin_choice_type_variant_name_node.value
+                                                    == name_node.value
+                                            },
                                         )
-                                        .enumerate()
-                                        .find(|(_, origin_choice_type_variant_maybe_name)| {
-                                            origin_choice_type_variant_maybe_name.is_some_and(
-                                                |origin_choice_type_variant_name_node| {
-                                                    origin_choice_type_variant_name_node.value
-                                                        == name_node.value
-                                                },
-                                            )
-                                        })
-                                        .map(|(i, _)| i)
+                                    })
+                                    .map(|(i, _)| i)
                                 else {
                                     break 'variant_value_is_reference false;
                                 };

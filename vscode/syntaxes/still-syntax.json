@@ -16,7 +16,7 @@
       "include": "#colon-type-colon"
     },
     {
-      "include": "#type-declaration"
+      "include": "#choice-declaration"
     },
     {
       "include": "#type-alias-declaration"
@@ -140,11 +140,11 @@
       "name": "keyword.other.still"
     },
     {
-      "match": "\\b(type|as|port|exposing|alias|infixl|infixr|infix)\\s+",
+      "match": "\\b(type|choice)\\s+",
       "name": "keyword.other.still"
     },
     {
-      "match": "\\b(if|then|else|case|of|let|in)\\s+",
+      "match": "\\b(case|of|let|>|\\\\)\\s+",
       "name": "keyword.control.still"
     },
     {
@@ -327,18 +327,18 @@
         }
       ]
     },
-    "type-declaration": {
-      "begin": "^(type\\s+)([a-z][a-zA-Z0-9-']*)\\s+",
+    "choice-declaration": {
+      "begin": "^(choice\\s+)([a-z][a-zA-Z0-9-]*)\\s+",
       "beginCaptures": {
         "1": {
-          "name": "keyword.type.still"
+          "name": "keyword.other.still"
         },
         "2": {
           "name": "storage.type.still"
         }
       },
       "end": "^(?=\\S)",
-      "name": "meta.function.type-declaration.still",
+      "name": "meta.function.choice-declaration.still",
       "patterns": [
         {
           "name": "meta.record.field.still",
@@ -366,10 +366,6 @@
           }
         },
         {
-          "match": "\\=",
-          "name": "keyword.operator.assignment.still"
-        },
-        {
           "match": ">",
           "name": "keyword.operator.arrow.still"
         },
@@ -390,20 +386,17 @@
       ]
     },
     "type-alias-declaration": {
-      "begin": "^(type\\s+)(alias\\s+)([a-z][a-zA-Z0-9-']*)\\s+",
+      "begin": "^(type\\s+)([a-z][a-zA-Z0-9-']*)\\s+",
       "beginCaptures": {
         "1": {
-          "name": "keyword.type.still"
+          "name": "keyword.other.still"
         },
         "2": {
-          "name": "keyword.type-alias.still"
-        },
-        "3": {
           "name": "storage.type.still"
         }
       },
       "end": "^(?=\\S)",
-      "name": "meta.function.type-declaration.still",
+      "name": "meta.function.choice-declaration.still",
       "patterns": [
         {
           "match": "\\n\\s+",

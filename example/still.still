@@ -1,7 +1,7 @@
 
 
-type tree A
-    = Leaf A
+choice tree A
+    | Leaf A
     | Branch vec (tree A)
 
 tree-size \:tree A:tree >
@@ -11,8 +11,8 @@ tree-size \:tree A:tree >
         :tree A:Leaf :A:_ >
             1
 
-type int-cons-list
-    = Empty
+choice int-cons-list
+    | Empty
     | Cons { head int, tail int-cons-list }
 
 (# My docs
@@ -37,11 +37,11 @@ build-tree \:int:n >
         :int:not-0 >
             :tree A:Branch [ build-tree (int-add not-0 -1) ]
 
-type result Ok Err
-    = Ok Ok
+choice result Ok Err
+    | Ok Ok
     | Err Err
 
-type alias state =
+type state =
     int
 
 initial-state :state:0

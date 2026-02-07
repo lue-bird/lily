@@ -1,5 +1,5 @@
 very small, explicitly boring programming language that compiles to rust, inspired by [elm](https://elm-lang.org/).
-> ⚠️ Experimental, subject to change, use with caution and salt.
+> ⚠️ Experimental, subject to change, use with caution.
 
 ### hello world
 
@@ -57,7 +57,6 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 - no `Task`/`async`, visible mutation, side effects, infix operators, currying, modules, lifetime tracking
 
 ## TODO
-- avoid unnecessary lifetimes in type aliases
 - type checking (vec elements equal, case results equal, function arguments equal to parameters, typed, variant value) (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables; in the error say "unknown type variable")
 - rename `case x of ... > ...` to `x | ... > ...` and remove let destructuring. previous:
   ```still
@@ -91,8 +90,7 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
   second-function second-argument first-result
   ```
   this solves the nesting problem of early exits, "if else" and pipelines
-- complete small standard library in rust (TODO `order`, `int/dec-add`, `int/dec-multiply`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, `map`, `set`, `type opt A = Absent | Present A` ...)
-- rename `type` to `type-choice` and `type alias` to `type`
+- complete small standard library in rust (TODO `order`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, `map`, `set`, ...)
 - replace `&'a dyn Fn(_) -> _` in function parameters by `impl Fn(_) -> _ + Clone + 'a`
   and likewise remove `alloc.alloc(|_| _)` when used as direct function parameter: `|_| _`
 - introduce `nat` type (`usize`) and require regular ints to be prefixed with `+`/`-`
