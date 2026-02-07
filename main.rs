@@ -2453,9 +2453,8 @@ enum StillSyntaxExpression {
         variable: StillSyntaxNode<StillName>,
         arguments: Vec<StillSyntaxNode<StillSyntaxExpression>>,
     },
-    CaseOf {
+    Match {
         matched: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
-        of_keyword_range: Option<lsp_types::Range>,
         cases: Vec<StillSyntaxExpressionCase>,
     },
     Char(Option<char>),
@@ -2506,8 +2505,9 @@ enum StillSyntaxExpressionUntyped {
 }
 #[derive(Clone, Debug, PartialEq)]
 struct StillSyntaxExpressionCase {
+    or_bar_key_symbol_range: lsp_types::Range,
     arrow_key_symbol_range: Option<lsp_types::Range>,
-    pattern: StillSyntaxNode<StillSyntaxPattern>,
+    pattern: Option<StillSyntaxNode<StillSyntaxPattern>>,
     result: Option<StillSyntaxNode<StillSyntaxExpression>>,
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -2799,11 +2799,7 @@ fn still_syntax_expression_type_with<'a>(
                 }
             }
         },
-        StillSyntaxExpression::CaseOf {
-            matched: _,
-            of_keyword_range: _,
-            cases,
-        } => match cases.iter().find_map(|case| {
+        StillSyntaxExpression::Match { matched: _, cases } => match cases.iter().find_map(|case| {
             case.result
                 .as_ref()
                 .map(|result_node| (&case.pattern, result_node))
@@ -2812,15 +2808,17 @@ fn still_syntax_expression_type_with<'a>(
                 range: expression_node.range,
                 value: StillSyntaxType::Parenthesized(None),
             },
-            Some((case_pattern, case_result)) => {
+            Some((maybe_case_pattern, case_result)) => {
                 let mut local_bindings: std::collections::HashMap<
                     &str,
                     Option<StillSyntaxNode<StillSyntaxType>>,
                 > = std::rc::Rc::unwrap_or_clone(local_bindings);
-                still_syntax_pattern_binding_types_into(
-                    &mut local_bindings,
-                    still_syntax_node_as_ref(case_pattern),
-                );
+                if let Some(case_pattern_node) = maybe_case_pattern {
+                    still_syntax_pattern_binding_types_into(
+                        &mut local_bindings,
+                        still_syntax_node_as_ref(case_pattern_node),
+                    );
+                }
                 still_syntax_expression_type_with(
                     type_aliases,
                     variable_declarations,
@@ -3647,15 +3645,15 @@ fn still_syntax_expression_not_parenthesized_into(
                 }
             }
         }
-        StillSyntaxExpression::CaseOf {
+        StillSyntaxExpression::Match {
             matched: maybe_matched,
-            of_keyword_range: _,
+
             cases,
         } => {
             so_far.push_str("case");
             match maybe_matched {
                 None => {
-                    so_far.push_str("  ");
+                    so_far.push(' ');
                 }
                 Some(matched_node) => {
                     let before_cases_line_span: LineSpan =
@@ -3673,13 +3671,12 @@ fn still_syntax_expression_not_parenthesized_into(
                     space_or_linebreak_indented_into(so_far, before_cases_line_span, indent);
                 }
             }
-            so_far.push_str("of");
-            linebreak_indented_into(so_far, next_indent(indent));
-            if let Some((case0, case1_up)) = cases.split_first() {
-                still_syntax_case_into(so_far, next_indent(indent), case0);
-                for case in case1_up {
-                    linebreak_indented_into(so_far, next_indent(indent));
-                    still_syntax_case_into(so_far, next_indent(indent), case);
+            if cases.is_empty() {
+                linebreak_indented_into(so_far, indent);
+            } else {
+                for case in cases {
+                    linebreak_indented_into(so_far, indent);
+                    still_syntax_case_into(so_far, indent, case);
                 }
             }
         }
@@ -3939,38 +3936,56 @@ fn still_syntax_expression_not_parenthesized_into(
     }
 }
 /// returns the last syntax end position
-fn still_syntax_case_into(
-    so_far: &mut String,
-    indent: usize,
-    case: &StillSyntaxExpressionCase,
-) -> lsp_types::Position {
-    let before_case_arrow_key_symbol: lsp_types::Position = case
-        .arrow_key_symbol_range
-        .map(|range| range.end)
-        .unwrap_or(case.pattern.range.end);
-    still_syntax_pattern_into(so_far, indent, still_syntax_node_as_ref(&case.pattern));
-    so_far.push_str(" >");
-    space_or_linebreak_indented_into(
-        so_far,
-        still_syntax_range_line_span(lsp_types::Range {
-            start: case.pattern.range.start,
-            end: case
-                .result
-                .as_ref()
-                .map(|n| n.range.end)
-                .unwrap_or(case.pattern.range.end),
-        }),
-        next_indent(indent),
-    );
-    if let Some(result_node) = &case.result {
-        still_syntax_expression_not_parenthesized_into(
+fn still_syntax_case_into(so_far: &mut String, indent: usize, case: &StillSyntaxExpressionCase) {
+    so_far.push_str("| ");
+    if let Some(case_pattern_node) = &case.pattern {
+        still_syntax_pattern_into(
             so_far,
-            next_indent(indent),
-            still_syntax_node_as_ref(result_node),
+            indent + 2,
+            still_syntax_node_as_ref(case_pattern_node),
         );
-        result_node.range.end
-    } else {
-        before_case_arrow_key_symbol
+        space_or_linebreak_indented_into(
+            so_far,
+            still_syntax_range_line_span(case_pattern_node.range),
+            indent,
+        );
+    }
+    so_far.push('>');
+    match &case.result {
+        None => {
+            space_or_linebreak_indented_into(
+                so_far,
+                match &case.pattern {
+                    None => LineSpan::Single,
+                    Some(case_pattern_node) => {
+                        still_syntax_range_line_span(case_pattern_node.range)
+                    }
+                },
+                next_indent(indent),
+            );
+        }
+        Some(result_node) => {
+            let result_indent: usize = if result_node.range.start.character
+                <= case.or_bar_key_symbol_range.start.character
+            {
+                indent
+            } else {
+                next_indent(indent)
+            };
+            space_or_linebreak_indented_into(
+                so_far,
+                still_syntax_range_line_span(lsp_types::Range {
+                    start: case.or_bar_key_symbol_range.start,
+                    end: result_node.range.end,
+                }),
+                result_indent,
+            );
+            still_syntax_expression_not_parenthesized_into(
+                so_far,
+                result_indent,
+                still_syntax_node_as_ref(result_node),
+            );
+        }
     }
 }
 /// returns the last syntax end position
@@ -4143,7 +4158,7 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
             variable: _,
             arguments,
         } => !arguments.is_empty(),
-        StillSyntaxExpression::CaseOf { .. } => true,
+        StillSyntaxExpression::Match { .. } => true,
         StillSyntaxExpression::Typed { .. } => true,
         StillSyntaxExpression::WithComment { .. } => true,
         StillSyntaxExpression::Char(_) => false,
@@ -4782,9 +4797,9 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
                     )
                 })
         }
-        StillSyntaxExpression::CaseOf {
+        StillSyntaxExpression::Match {
             matched: maybe_matched,
-            of_keyword_range: _,
+
             cases,
         } => {
             if let Some(matched_node) = maybe_matched {
@@ -4800,26 +4815,30 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
             cases
                 .iter()
                 .try_fold(local_bindings, |mut local_bindings, case| {
-                    if let Some(found_symbol) = still_syntax_pattern_find_symbol_at_position(
-                        scope_declaration,
-                        still_syntax_node_as_ref(&case.pattern),
-                        position,
-                    ) {
+                    if let Some(case_pattern_node) = &case.pattern
+                        && let Some(found_symbol) = still_syntax_pattern_find_symbol_at_position(
+                            scope_declaration,
+                            still_syntax_node_as_ref(case_pattern_node),
+                            position,
+                        )
+                    {
                         return std::ops::ControlFlow::Break(found_symbol);
                     }
                     if let Some(case_result_node) = &case.result
                     && // we need to check that the position is actually in that case before committing to mutating local bindings
                     lsp_range_includes_position(case_result_node.range, position)
                     {
-                        let mut introduced_bindings: Vec<StillLocalBinding> = Vec::new();
-                        still_syntax_pattern_bindings_into(
-                            &mut introduced_bindings,
-                            still_syntax_node_as_ref(&case.pattern),
-                        );
-                        local_bindings.push((
-                            still_syntax_node_as_ref(case_result_node),
-                            introduced_bindings,
-                        ));
+                        if let Some(case_pattern_node) = &case.pattern {
+                            let mut introduced_bindings: Vec<StillLocalBinding> = Vec::new();
+                            still_syntax_pattern_bindings_into(
+                                &mut introduced_bindings,
+                                still_syntax_node_as_ref(case_pattern_node),
+                            );
+                            local_bindings.push((
+                                still_syntax_node_as_ref(case_result_node),
+                                introduced_bindings,
+                            ));
+                        }
                         still_syntax_expression_find_symbol_at_position(
                             local_bindings,
                             type_aliases,
@@ -5409,9 +5428,9 @@ fn still_syntax_expression_uses_of_symbol_into(
                 );
             }
         }
-        StillSyntaxExpression::CaseOf {
+        StillSyntaxExpression::Match {
             matched: maybe_matched,
-            of_keyword_range: _,
+
             cases,
         } => {
             if let Some(matched_node) = maybe_matched {
@@ -5423,18 +5442,22 @@ fn still_syntax_expression_uses_of_symbol_into(
                 );
             }
             for case in cases {
-                still_syntax_pattern_uses_of_symbol_into(
-                    uses_so_far,
-                    still_syntax_node_as_ref(&case.pattern),
-                    symbol_to_collect_uses_of,
-                );
+                if let Some(case_pattern_node) = &case.pattern {
+                    still_syntax_pattern_uses_of_symbol_into(
+                        uses_so_far,
+                        still_syntax_node_as_ref(case_pattern_node),
+                        symbol_to_collect_uses_of,
+                    );
+                }
                 if let Some(case_result_node) = &case.result {
                     let mut local_bindings_including_from_case_pattern: Vec<&str> =
                         local_bindings.to_vec();
-                    still_syntax_pattern_binding_names_into(
-                        &mut local_bindings_including_from_case_pattern,
-                        still_syntax_node_as_ref(&case.pattern),
-                    );
+                    if let Some(case_pattern_node) = &case.pattern {
+                        still_syntax_pattern_binding_names_into(
+                            &mut local_bindings_including_from_case_pattern,
+                            still_syntax_node_as_ref(case_pattern_node),
+                        );
+                    }
                     still_syntax_expression_uses_of_symbol_into(
                         uses_so_far,
                         &local_bindings_including_from_case_pattern,
@@ -6398,9 +6421,8 @@ fn still_syntax_highlight_expression_into(
                 );
             }
         }
-        StillSyntaxExpression::CaseOf {
+        StillSyntaxExpression::Match {
             matched: maybe_matched,
-            of_keyword_range: maybe_of_keyword_range,
             cases,
         } => {
             highlighted_so_far.push(StillSyntaxNode {
@@ -6416,17 +6438,17 @@ fn still_syntax_highlight_expression_into(
                     still_syntax_node_unbox(matched_node),
                 );
             }
-            if let &Some(of_keyword_range) = maybe_of_keyword_range {
+            for case in cases {
                 highlighted_so_far.push(StillSyntaxNode {
-                    range: of_keyword_range,
+                    range: case.or_bar_key_symbol_range,
                     value: StillSyntaxHighlightKind::KeySymbol,
                 });
-            }
-            for case in cases {
-                still_syntax_highlight_pattern_into(
-                    highlighted_so_far,
-                    still_syntax_node_as_ref(&case.pattern),
-                );
+                if let Some(case_pattern_node) = &case.pattern {
+                    still_syntax_highlight_pattern_into(
+                        highlighted_so_far,
+                        still_syntax_node_as_ref(case_pattern_node),
+                    );
+                }
                 if let Some(arrow_key_symbol_range) = case.arrow_key_symbol_range {
                     highlighted_so_far.push(StillSyntaxNode {
                         range: arrow_key_symbol_range,
@@ -7493,11 +7515,8 @@ fn parse_still_text_content_char(state: &mut ParseState) -> Option<char> {
 fn parse_still_syntax_expression_space_separated(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
-    if state.position.character <= u32::from(state.indent) {
-        return None;
-    }
     parse_still_syntax_expression_typed(state)
-        .or_else(|| parse_still_syntax_expression_case_of(state))
+        .or_else(|| parse_still_syntax_expression_match(state))
         .or_else(|| parse_still_syntax_expression_let_in(state))
         .or_else(|| parse_still_syntax_expression_lambda(state))
         .or_else(|| parse_still_syntax_expression_call(state))
@@ -7507,9 +7526,6 @@ fn parse_still_syntax_expression_space_separated(
 fn parse_still_syntax_expression_untyped_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpressionUntyped>> {
-    if state.position.character <= u32::from(state.indent) {
-        return None;
-    }
     parse_still_syntax_expression_variant_node(state).or_else(|| {
         parse_still_syntax_expression_space_separated(state).map(|n| StillSyntaxNode {
             range: n.range,
@@ -7656,22 +7672,11 @@ fn parse_still_syntax_expression_not_space_separated(
     }
     Some(result_node)
 }
-fn str_starts_with_keyword(source: &str, keyword: &'static str) -> bool {
-    source.starts_with(keyword)
-        && source
-            .chars()
-            .skip(keyword.len())
-            .next()
-            .is_some_and(|c| c != '-' && !c.is_ascii_alphanumeric())
-}
 fn parse_still_syntax_expression_variable_standalone(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillName>> {
     // can be optimized by e.g. adding a non-state-mutating parse_still_lowercase_as_string
     // that checks for keywords on successful chomp and returns None only then (and if no keyword, mutate the state)
-    if str_starts_with_keyword(&state.source[state.offset_utf8..], "of") {
-        return None;
-    }
     parse_still_lowercase_name_node(state).or_else(|| parse_still_uppercase_name_node(state))
 }
 fn parse_still_syntax_expression_variable(state: &mut ParseState) -> Option<StillSyntaxExpression> {
@@ -7783,7 +7788,7 @@ fn parse_still_syntax_expression_lambda(
         },
     })
 }
-fn parse_still_syntax_expression_case_of(
+fn parse_still_syntax_expression_match(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
     let case_keyword_range: lsp_types::Range = parse_still_keyword_as_range(state, "case")?;
@@ -7791,90 +7796,99 @@ fn parse_still_syntax_expression_case_of(
     let maybe_matched: Option<StillSyntaxNode<StillSyntaxExpression>> =
         parse_still_syntax_expression_space_separated(state);
     parse_still_whitespace(state);
-    Some(match parse_symbol_as_range(state, "of") {
-        None => StillSyntaxNode {
-            range: lsp_types::Range {
-                start: case_keyword_range.start,
-                end: match &maybe_matched {
-                    None => case_keyword_range.end,
-                    Some(matched_node) => matched_node.range.end,
-                },
-            },
-            value: StillSyntaxExpression::CaseOf {
-                matched: maybe_matched.map(still_syntax_node_box),
-                of_keyword_range: None,
-                cases: vec![],
-            },
-        },
-        Some(of_keyword_range) => {
-            parse_still_whitespace(state);
-            if state.position.character <= u32::from(state.indent) {
-                StillSyntaxNode {
-                    range: lsp_types::Range {
-                        start: case_keyword_range.start,
-                        end: of_keyword_range.end,
-                    },
-                    value: StillSyntaxExpression::CaseOf {
-                        matched: maybe_matched.map(still_syntax_node_box),
-                        of_keyword_range: Some(of_keyword_range),
-                        cases: vec![],
-                    },
-                }
-            } else {
-                parse_state_push_indent(state, state.position.character as u16);
-                let mut full_end_position: lsp_types::Position = of_keyword_range.end;
-                let mut cases: Vec<StillSyntaxExpressionCase> = Vec::new();
-                while let Some(case) = parse_still_syntax_expression_case(state) {
-                    full_end_position = case
+    let mut cases: Vec<StillSyntaxExpressionCase> = Vec::new();
+    'parsing_cases: while let Some((case, is_last_case)) = parse_still_syntax_expression_case(state)
+    {
+        cases.push(case);
+        if is_last_case {
+            break 'parsing_cases;
+        }
+        parse_still_whitespace(state);
+    }
+    Some(StillSyntaxNode {
+        range: lsp_types::Range {
+            start: case_keyword_range.start,
+            end: cases
+                .last()
+                .map(|last_case| {
+                    last_case
                         .result
                         .as_ref()
                         .map(|result| result.range.end)
-                        .or_else(|| case.arrow_key_symbol_range.as_ref().map(|range| range.end))
-                        .unwrap_or(case.pattern.range.end);
-                    cases.push(case);
-                    parse_still_whitespace(state);
-                }
-                parse_state_pop_indent(state);
-                StillSyntaxNode {
-                    range: lsp_types::Range {
-                        start: case_keyword_range.start,
-                        end: full_end_position,
-                    },
-                    value: StillSyntaxExpression::CaseOf {
-                        matched: maybe_matched.map(still_syntax_node_box),
-                        of_keyword_range: Some(of_keyword_range),
-                        cases,
-                    },
-                }
-            }
-        }
+                        .or_else(|| {
+                            last_case
+                                .arrow_key_symbol_range
+                                .as_ref()
+                                .map(|range| range.end)
+                        })
+                        .or_else(|| last_case.pattern.as_ref().map(|n| n.range.end))
+                        .unwrap_or(last_case.or_bar_key_symbol_range.end)
+                })
+                .or_else(|| maybe_matched.as_ref().map(|n| n.range.end))
+                .unwrap_or(case_keyword_range.end),
+        },
+        value: StillSyntaxExpression::Match {
+            matched: maybe_matched.map(still_syntax_node_box),
+            cases,
+        },
     })
 }
-fn parse_still_syntax_expression_case(state: &mut ParseState) -> Option<StillSyntaxExpressionCase> {
-    let case_pattern_node: StillSyntaxNode<StillSyntaxPattern> = parse_still_syntax_pattern(state)?;
+/// second tuple part signifies wether the parsed case must be the last case (TODO make struct)
+fn parse_still_syntax_expression_case(
+    state: &mut ParseState,
+) -> Option<(StillSyntaxExpressionCase, bool)> {
+    if state.position.character < u32::from(state.indent) {
+        return None;
+    }
+    let bar_key_symbol_range: lsp_types::Range = parse_symbol_as_range(state, "|")?;
     parse_still_whitespace(state);
-    Some(
-        match parse_symbol_as_range(state, ">")
-            .or_else(|| parse_symbol_as_range(state, "->"))
-            .or_else(|| parse_symbol_as_range(state, "=>"))
-        {
-            None => StillSyntaxExpressionCase {
-                pattern: case_pattern_node,
+    let maybe_case_pattern: Option<StillSyntaxNode<StillSyntaxPattern>> =
+        parse_still_syntax_pattern(state);
+    parse_still_whitespace(state);
+    match parse_symbol_as_range(state, ">")
+        .or_else(|| parse_symbol_as_range(state, "->"))
+        .or_else(|| parse_symbol_as_range(state, "=>"))
+    {
+        None => Some((
+            StillSyntaxExpressionCase {
+                or_bar_key_symbol_range: bar_key_symbol_range,
+                pattern: maybe_case_pattern,
                 arrow_key_symbol_range: None,
                 result: None,
             },
-            Some(arrow_key_symbol_range) => {
-                parse_still_whitespace(state);
+            false,
+        )),
+        Some(arrow_key_symbol_range) => {
+            parse_still_whitespace(state);
+            if state.position.character <= u32::from(state.indent) {
                 let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
                     parse_still_syntax_expression_space_separated(state);
-                StillSyntaxExpressionCase {
-                    pattern: case_pattern_node,
-                    arrow_key_symbol_range: Some(arrow_key_symbol_range),
-                    result: maybe_result,
-                }
+                Some((
+                    StillSyntaxExpressionCase {
+                        or_bar_key_symbol_range: bar_key_symbol_range,
+                        pattern: maybe_case_pattern,
+                        arrow_key_symbol_range: Some(arrow_key_symbol_range),
+                        result: maybe_result,
+                    },
+                    true,
+                ))
+            } else {
+                parse_state_push_indent(state, state.position.character as u16);
+                let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
+                    parse_still_syntax_expression_space_separated(state);
+                parse_state_pop_indent(state);
+                Some((
+                    StillSyntaxExpressionCase {
+                        or_bar_key_symbol_range: bar_key_symbol_range,
+                        pattern: maybe_case_pattern,
+                        arrow_key_symbol_range: Some(arrow_key_symbol_range),
+                        result: maybe_result,
+                    },
+                    false,
+                ))
             }
-        },
-    )
+        }
+    }
 }
 
 fn parse_still_syntax_expression_let_in(
@@ -9747,9 +9761,9 @@ fn still_syntax_expression_connect_variables_in_graph_from(
                 );
             }
         }
-        StillSyntaxExpression::CaseOf {
+        StillSyntaxExpression::Match {
             matched: maybe_matched,
-            of_keyword_range: _,
+
             cases,
         } => {
             if let Some(matched_node) = maybe_matched {
@@ -13126,15 +13140,15 @@ fn still_syntax_expression_to_rust<'a>(
                 }
             }
         }
-        StillSyntaxExpression::CaseOf {
+        StillSyntaxExpression::Match {
             matched: maybe_matched,
-            of_keyword_range: _,
+
             cases,
         } => {
             let Some(matched_node) = maybe_matched else {
                 errors.push(StillErrorNode {
                     range: expression_node.range,
-                    message: Box::from("missing matched expression in case here of ..cases.."),
+                    message: Box::from("missing matched expression in case here | ..cases.."),
                 });
                 return CompiledStillExpression {
                     uses_allocator: false,
@@ -13156,6 +13170,13 @@ fn still_syntax_expression_to_rust<'a>(
             let (mut rust_arms, case_result_types): (Vec<syn::Arm>, Vec<Option<StillType>>) = cases
                 .iter()
                 .filter_map(|case| {
+                    let Some(case_pattern_node) = &case.pattern else {
+                        errors.push(StillErrorNode {
+                            range: case.or_bar_key_symbol_range,
+                            message: Box::from("missing case pattern in | here > ..result.."),
+                        });
+                        return None;
+                    };
                     let mut local_bindings: std::collections::HashMap<&str, Option<StillType>> =
                         (*local_bindings).clone();
                     let mut bindings_to_clone: Vec<BindingToClone> = Vec::new();
@@ -13167,7 +13188,7 @@ fn still_syntax_expression_to_rust<'a>(
                         type_aliases,
                         choice_types,
                         false,
-                        still_syntax_node_as_ref(&case.pattern),
+                        still_syntax_node_as_ref(case_pattern_node),
                     );
                     let Some(rust_pattern) = compiled_pattern.rust else {
                         // skip case with incomplete pattern
@@ -13177,8 +13198,12 @@ fn still_syntax_expression_to_rust<'a>(
                         maybe_still_syntax_expression_to_rust(
                             errors,
                             || StillErrorNode {
-                                range: case.pattern.range,
-                                message: Box::from("missing case result after pattern -> here"),
+                                range: case
+                                    .arrow_key_symbol_range
+                                    .unwrap_or(case_pattern_node.range),
+                                message: Box::from(
+                                    "missing case result after | ..pattern.. > here",
+                                ),
                             },
                             records_used,
                             type_aliases,

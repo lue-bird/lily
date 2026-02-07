@@ -57,6 +57,7 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 - no `Task`/`async`, visible mutation, side effects, infix operators, currying, modules, lifetime tracking
 
 ## TODO
+- fix bug of `\n` being printed as `\\n`
 - type checking (vec elements equal, case results equal, function arguments equal to parameters, typed, variant value) (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables; in the error say "unknown type variable")
 - rename `case x of ... > ...` to `x | ... > ...` and remove let destructuring. previous:
   ```still

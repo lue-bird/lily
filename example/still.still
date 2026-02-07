@@ -5,11 +5,11 @@ choice tree A
     | Branch vec (tree A)
 
 tree-size \:tree A:tree >
-    case tree of
-        :tree A:Branch :vec (tree A):subs >
-            vec-length subs
-        :tree A:Leaf :A:_ >
-            1
+    case tree 
+    | :tree A:Branch :vec (tree A):subs >
+        vec-length subs
+    | :tree A:Leaf :A:_ >
+        1
 
 choice int-cons-list
     | Empty
@@ -22,20 +22,20 @@ greet \{ name :str:name } >
             [ 1, 2, 3 ]
     let another
             vec-attach list list
-    case name of
-        "me" >
-            "Hello, you!"
-        :str:_ >
-            strs-flatten [ "Hello, ", name, "!" ]
+    case name 
+    | "me" >
+        "Hello, you!"
+    | :str:_ >
+        strs-flatten [ "Hello, ", name, "!" ]
 
 unfinished
     [ int-to-str 3 ]
 
 build-tree \:int:n >
-    case n of
-        0 > :tree {}:Leaf {}
-        :int:not-0 >
-            :tree A:Branch [ build-tree (int-add not-0 -1) ]
+    case n 
+    | 0 > :tree {}:Leaf {}
+    | :int:not-0 >
+        :tree A:Branch [ build-tree (int-add not-0 -1) ]
 
 choice result Ok Err
     | Ok Ok
@@ -56,9 +56,9 @@ ansi-clear-screen
 
 run \:opt str:state-or-uninitialized >
     let state
-            case state-or-uninitialized of
-                :opt str:Absent > ""
-                :opt str:Present :str:initialized > initialized
+            case state-or-uninitialized 
+            | :opt str:Absent > ""
+            | :opt str:Present :str:initialized > initialized
     :io str:Io-batch
         [ :io str:Standard-out-write
             strs-flatten
