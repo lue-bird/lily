@@ -833,14 +833,11 @@ fn respond_to_hover(
                     .variable_declarations
                     .get(hovered_name)
                 {
-                    present_variable_declaration_info_markdown(
+                    present_variable_declaration_info_with_complete_type_markdown(
                         origin_compiled_variable_declaration_info
                             .documentation
                             .as_deref(),
-                        origin_compiled_variable_declaration_info
-                            .type_syntax
-                            .as_ref()
-                            .map(still_syntax_node_as_ref),
+                        origin_compiled_variable_declaration_info.type_.as_ref(),
                     )
                 } else {
                     // TODO instead look at type
@@ -1722,7 +1719,7 @@ fn semantic_token_type_to_id(semantic_token: &lsp_types::SemanticTokenType) -> u
         })
         .unwrap_or(0_u32)
 }
-
+/// TODO eventually convert to `present_variable_declaration_type_info_markdown`
 fn present_variable_declaration_info_markdown(
     maybe_documentation: Option<&str>,
     maybe_variable_type: Option<StillSyntaxNode<&StillSyntaxType>>,
@@ -1750,6 +1747,19 @@ fn present_variable_declaration_info_markdown(
             description + "---\n" + documentation_comment_to_markdown(documentation).as_str()
         }
     }
+}
+fn present_variable_declaration_info_with_complete_type_markdown(
+    maybe_documentation: Option<&str>,
+    maybe_variable_type: Option<&StillType>,
+) -> String {
+    // TODO implement actual StillType printing
+    present_variable_declaration_info_markdown(
+        maybe_documentation,
+        maybe_variable_type
+            .map(still_type_to_syntax_node)
+            .as_ref()
+            .map(still_syntax_node_as_ref),
+    )
 }
 fn present_type_alias_declaration_info_markdown(
     maybe_name: Option<&str>,
@@ -1873,24 +1883,19 @@ fn variable_declaration_or_variant_completions_into(
     completion_items: &mut Vec<lsp_types::CompletionItem>,
 ) {
     completion_items.extend(variable_declarations.iter().map(
-        |(variable_declaration_name, variable_declaration_info)| {
-            lsp_types::CompletionItem {
-                label: variable_declaration_name.to_string(),
-                kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-                documentation: Some(lsp_types::Documentation::MarkupContent(
-                    lsp_types::MarkupContent {
-                        kind: lsp_types::MarkupKind::Markdown,
-                        value: present_variable_declaration_info_markdown(
-                            variable_declaration_info.documentation.as_deref(),
-                            variable_declaration_info
-                                .type_syntax
-                                .as_ref()
-                                .map(still_syntax_node_as_ref),
-                        ),
-                    },
-                )),
-                ..lsp_types::CompletionItem::default()
-            }
+        |(variable_declaration_name, variable_declaration_info)| lsp_types::CompletionItem {
+            label: variable_declaration_name.to_string(),
+            kind: Some(lsp_types::CompletionItemKind::FUNCTION),
+            documentation: Some(lsp_types::Documentation::MarkupContent(
+                lsp_types::MarkupContent {
+                    kind: lsp_types::MarkupKind::Markdown,
+                    value: present_variable_declaration_info_with_complete_type_markdown(
+                        variable_declaration_info.documentation.as_deref(),
+                        variable_declaration_info.type_.as_ref(),
+                    ),
+                },
+            )),
+            ..lsp_types::CompletionItem::default()
         },
     ));
     completion_items.extend(choice_types.iter().flat_map(
@@ -2657,7 +2662,8 @@ fn still_syntax_expression_type(
         expression_node,
     )
 }
-
+/// TODO is there a point to these returning partial types?
+/// I assume not since this is only used before compiling which needs a full type
 fn still_syntax_expression_type_with<'a>(
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     variable_declarations: &std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
@@ -2734,21 +2740,20 @@ fn still_syntax_expression_type_with<'a>(
                         value: StillSyntaxType::Parenthesized(None),
                     };
                 };
-                let Some(project_variable_type_node) = &maybe_project_variable_info.type_syntax
-                else {
+                let Some(project_variable_type) = &maybe_project_variable_info.type_ else {
                     return StillSyntaxNode {
                         range: expression_node.range,
                         value: StillSyntaxType::Parenthesized(None),
                     };
                 };
                 if arguments.is_empty() {
-                    project_variable_type_node.clone()
+                    still_type_to_syntax_node(project_variable_type)
                 } else {
                     let Some((inputs, maybe_variable_type_output)) = still_syntax_type_to_function(
                         type_aliases,
-                        still_syntax_node_as_ref(project_variable_type_node),
+                        still_syntax_node_as_ref(&still_type_to_syntax_node(project_variable_type)),
                     ) else {
-                        return project_variable_type_node.clone();
+                        return still_type_to_syntax_node(project_variable_type);
                     };
                     let Some(variable_type_output) = maybe_variable_type_output else {
                         return StillSyntaxNode {
@@ -8484,7 +8489,7 @@ fn still_project_info_to_rust(
                             documentation: variable_declaration
                                 .documentation
                                 .map(|n| n.value.clone()),
-                            type_syntax: None,
+
                             type_: None,
                             has_allocator_parameter: true,
                         },
@@ -8511,7 +8516,7 @@ fn still_project_info_to_rust(
                                 &compiled_choice_type_infos,
                                 still_syntax_node_as_ref(&result_type_node),
                             ),
-                            type_syntax: Some(result_type_node),
+
                             has_allocator_parameter: true,
                         },
                     );
@@ -8519,7 +8524,7 @@ fn still_project_info_to_rust(
             }
         }
         for variable_declaration in variable_declarations_in_strongly_connected_component {
-            let (rust_item_to_add, rust_declaration_has_allocator_parameter) =
+            let maybe_compiled_variable_declaration: Option<CompiledVariableDeclaration> =
                 variable_declaration_to_rust(
                     errors,
                     &mut records_used,
@@ -8528,12 +8533,19 @@ fn still_project_info_to_rust(
                     &compiled_variable_declaration_infos,
                     variable_declaration,
                 );
-            rust_items.extend(rust_item_to_add);
-            if !rust_declaration_has_allocator_parameter
-                && let Some(info) =
-                    compiled_variable_declaration_infos.get_mut(&variable_declaration.name.value)
-            {
-                info.has_allocator_parameter = false;
+            if let Some(compiled_variable_declaration) = maybe_compiled_variable_declaration {
+                rust_items.push(compiled_variable_declaration.rust);
+                compiled_variable_declaration_infos.insert(
+                    variable_declaration.name.value.clone(),
+                    CompiledVariableDeclarationInfo {
+                        documentation: variable_declaration.documentation.map(|n| n.value.clone()),
+                        name_range: Some(variable_declaration.name.range),
+
+                        has_allocator_parameter: compiled_variable_declaration
+                            .has_allocator_parameter,
+                        type_: Some(compiled_variable_declaration.type_),
+                    },
+                );
             }
         }
     }
@@ -8556,7 +8568,6 @@ fn still_project_info_to_rust(
 struct CompiledVariableDeclarationInfo {
     name_range: Option<lsp_types::Range>,
     documentation: Option<Box<str>>,
-    type_syntax: Option<StillSyntaxNode<StillSyntaxType>>,
     type_: Option<StillType>,
     has_allocator_parameter: bool,
 }
@@ -8757,7 +8768,7 @@ fn core_variable_declaration_infos()
                 CompiledVariableDeclarationInfo {
                     name_range: None,
                     documentation: Some(Box::from(documentation)),
-                    type_syntax: Some(still_type_to_syntax_node(&type_)),
+                    
                     type_: Some(type_),
                     has_allocator_parameter: has_allocator_parameter,
                 },
@@ -10917,6 +10928,11 @@ fn still_type_constructs_recursive_type_in(
     }
 }
 /// second result is `has_allocator_parameter` (TODO make a struct)
+struct CompiledVariableDeclaration {
+    rust: syn::Item,
+    has_allocator_parameter: bool,
+    type_: StillType,
+}
 fn variable_declaration_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<StillName>>,
@@ -10924,7 +10940,7 @@ fn variable_declaration_to_rust<'a>(
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
     variable_declaration_info: StillSyntaxVariableDeclarationInfo<'a>,
-) -> (Option<syn::Item>, bool) {
+) -> Option<CompiledVariableDeclaration> {
     let Some(result_node) = variable_declaration_info.result else {
         errors.push(StillErrorNode {
             range: variable_declaration_info.range,
@@ -10932,7 +10948,7 @@ fn variable_declaration_to_rust<'a>(
                 "missing expression after the variable declaration name ..variable-name.. here",
             ),
         });
-        return (None, false);
+        return None;
     };
     let compiled_result: CompiledStillExpression = still_syntax_expression_to_rust(
         errors,
@@ -10949,7 +10965,7 @@ fn variable_declaration_to_rust<'a>(
             .map(std::borrow::Cow::into_owned)
     }) else {
         // rust top level declarations need explicit types, so partial types won't do.
-        return (None, false);
+        return None;
     };
     let mut still_type_parameters: std::collections::HashSet<&str> =
         std::collections::HashSet::new();
@@ -10994,25 +11010,29 @@ fn variable_declaration_to_rust<'a>(
                         None
                     })
                     .into_iter()
-                    .chain(result_lambda.inputs.into_iter().zip(input_types).map(
-                        |(parameter_pat, parameter_type)| {
-                            syn::FnArg::Typed(syn::PatType {
-                                pat: Box::new(parameter_pat),
-                                attrs: vec![],
-                                colon_token: syn::token::Colon(syn_span()),
-                                ty: Box::new(still_type_to_rust(
-                                    type_aliases,
-                                    choice_types,
-                                    syn_default_lifetime_name,
-                                    FnRepresentation::Impl,
-                                    &parameter_type,
-                                )),
-                            })
-                        },
-                    ))
+                    .chain(
+                        result_lambda
+                            .inputs
+                            .into_iter()
+                            .zip(input_types.iter())
+                            .map(|(parameter_pat, parameter_type)| {
+                                syn::FnArg::Typed(syn::PatType {
+                                    pat: Box::new(parameter_pat),
+                                    attrs: vec![],
+                                    colon_token: syn::token::Colon(syn_span()),
+                                    ty: Box::new(still_type_to_rust(
+                                        type_aliases,
+                                        choice_types,
+                                        syn_default_lifetime_name,
+                                        FnRepresentation::Impl,
+                                        parameter_type,
+                                    )),
+                                })
+                            }),
+                    )
                     .collect();
-                (
-                    Some(syn::Item::Fn(syn::ItemFn {
+                Some(CompiledVariableDeclaration {
+                    rust: (syn::Item::Fn(syn::ItemFn {
                         attrs: rust_attrs,
                         vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
                         sig: syn::Signature {
@@ -11039,11 +11059,15 @@ fn variable_declaration_to_rust<'a>(
                         },
                         block: Box::new(syn_spread_expr_block(*result_lambda.body)),
                     })),
-                    compiled_result.uses_allocator,
-                )
+                    has_allocator_parameter: compiled_result.uses_allocator,
+                    type_: StillType::Function {
+                        inputs: input_types,
+                        output,
+                    },
+                })
             }
-            result_rust => (
-                Some(syn::Item::Fn(syn::ItemFn {
+            result_rust => Some(CompiledVariableDeclaration {
+                rust: syn::Item::Fn(syn::ItemFn {
                     attrs: rust_attrs,
                     vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
                     sig: syn::Signature {
@@ -11118,12 +11142,16 @@ fn variable_declaration_to_rust<'a>(
                             None,
                         )],
                     }),
-                })),
-                compiled_result.uses_allocator,
-            ),
+                }),
+                has_allocator_parameter: compiled_result.uses_allocator,
+                type_: StillType::Function {
+                    inputs: input_types,
+                    output,
+                },
+            }),
         },
-        type_not_function => (
-            Some(syn::Item::Fn(syn::ItemFn {
+        type_not_function => Some(CompiledVariableDeclaration {
+            rust: syn::Item::Fn(syn::ItemFn {
                 attrs: rust_attrs,
                 vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
                 sig: syn::Signature {
@@ -11155,9 +11183,10 @@ fn variable_declaration_to_rust<'a>(
                     variadic: None,
                 },
                 block: Box::new(syn_spread_expr_block(compiled_result.rust)),
-            })),
-            compiled_result.uses_allocator,
-        ),
+            }),
+            has_allocator_parameter: compiled_result.uses_allocator,
+            type_: type_not_function,
+        }),
     }
 }
 fn syn_spread_expr_block(syn_expr: syn::Expr) -> syn::Block {
@@ -11322,6 +11351,7 @@ struct TypeAliasInfo {
     name_range: Option<lsp_types::Range>,
     documentation: Option<Box<str>>,
     parameters: Vec<StillSyntaxNode<StillName>>,
+    // TODO is trying to recover something from partial type syntax overkill?
     type_syntax: Option<StillSyntaxNode<StillSyntaxType>>,
     type_: Option<StillType>,
     is_copy: bool,
