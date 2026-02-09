@@ -799,7 +799,6 @@ fn respond_to_hover(
         StillSyntaxSymbol::LetDeclarationName {
             name: _,
             type_: maybe_type_type,
-            name_range: _,
             scope_expression: _,
         } => Some(lsp_types::Hover {
             contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
@@ -1144,7 +1143,6 @@ fn respond_to_prepare_rename(
         | StillSyntaxSymbol::LetDeclarationName {
             name,
             type_: _,
-            name_range: _,
             scope_expression: _,
         }
         | StillSyntaxSymbol::TypeVariable {
@@ -1279,7 +1277,6 @@ fn respond_to_rename(
         }
         StillSyntaxSymbol::LetDeclarationName {
             name: to_rename_name,
-            name_range: _,
             type_: _,
             scope_expression,
         } => {
@@ -1505,7 +1502,6 @@ fn respond_to_references(
         }
         StillSyntaxSymbol::LetDeclarationName {
             name: to_find_name,
-            name_range: _,
             type_: _,
             scope_expression,
         } => {
@@ -4289,7 +4285,6 @@ enum StillSyntaxSymbol<'a> {
     },
     LetDeclarationName {
         name: &'a str,
-        name_range: lsp_types::Range,
         type_: Option<StillSyntaxNode<StillSyntaxType>>,
         scope_expression: StillSyntaxNode<&'a StillSyntaxExpression>,
     },
@@ -5042,7 +5037,6 @@ fn still_syntax_let_declaration_find_symbol_at_position<'a>(
         return std::ops::ControlFlow::Break(StillSyntaxNode {
             value: StillSyntaxSymbol::LetDeclarationName {
                 name: &still_syntax_let_declaration_node.value.name.value,
-                name_range: still_syntax_let_declaration_node.value.name.range,
                 type_: still_syntax_let_declaration_node
                     .value
                     .result
@@ -8073,14 +8067,12 @@ struct StillSyntaxVariableDeclarationInfo<'a> {
 enum StillSyntaxTypeDeclarationInfo<'a> {
     // consider introducing separate structs instead of separately referencing each field
     ChoiceType {
-        range: lsp_types::Range,
         documentation: &'a Option<StillSyntaxNode<Box<str>>>,
         name: &'a StillSyntaxNode<StillName>,
         parameters: &'a Vec<StillSyntaxNode<StillName>>,
         variants: &'a Vec<StillSyntaxChoiceTypeVariant>,
     },
     TypeAlias {
-        range: lsp_types::Range,
         documentation: &'a Option<StillSyntaxNode<Box<str>>>,
         name: &'a StillSyntaxNode<StillName>,
         parameters: &'a Vec<StillSyntaxNode<StillName>>,
@@ -8154,7 +8146,6 @@ fn still_project_compile_to_rust(
                             type_declaration_by_graph_node.insert(
                                 choice_type_declaration_graph_node,
                                 StillSyntaxTypeDeclarationInfo::ChoiceType {
-                                    range: declaration_node.range,
                                     documentation: &documented_declaration.documentation,
                                     name: name_node,
                                     parameters: parameters,
@@ -8181,7 +8172,6 @@ fn still_project_compile_to_rust(
                             type_declaration_by_graph_node.insert(
                                 type_alias_declaration_graph_node,
                                 StillSyntaxTypeDeclarationInfo::TypeAlias {
-                                    range: declaration_node.range,
                                     documentation: &documented_declaration.documentation,
                                     name: name_node,
                                     parameters: parameters,
@@ -8332,7 +8322,6 @@ fn still_project_info_to_rust(
         for type_declaration_info in type_declaration_infos {
             match type_declaration_info {
                 StillSyntaxTypeDeclarationInfo::TypeAlias {
-                    range,
                     documentation: maybe_documentation,
                     name: name_node,
                     parameters,
@@ -8345,7 +8334,6 @@ fn still_project_info_to_rust(
                             &compiled_type_alias_infos,
                             &compiled_choice_type_infos,
                             maybe_documentation.as_ref().map(|n| n.value.as_ref()),
-                            range,
                             still_syntax_node_as_ref(name_node),
                             parameters,
                             maybe_type.as_ref().map(still_syntax_node_as_ref),
@@ -8389,7 +8377,6 @@ fn still_project_info_to_rust(
                     }
                 }
                 StillSyntaxTypeDeclarationInfo::ChoiceType {
-                    range: _,
                     documentation: maybe_documentation,
                     name: name_node,
                     parameters,
@@ -9443,7 +9430,6 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
 ) {
     match type_declaration_info {
         StillSyntaxTypeDeclarationInfo::ChoiceType {
-            range: _,
             documentation: _,
             name: _,
             parameters: _,
@@ -9459,7 +9445,6 @@ fn still_syntax_type_declaration_connect_type_names_in_graph_from(
             }
         }
         StillSyntaxTypeDeclarationInfo::TypeAlias {
-            range: _,
             documentation: _,
             name: _,
             parameters: _,
@@ -9785,7 +9770,6 @@ fn type_alias_declaration_to_rust(
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     maybe_documentation: Option<&str>,
-    range: lsp_types::Range,
     name_node: StillSyntaxNode<&StillName>,
     parameters: &[StillSyntaxNode<StillName>],
     maybe_type: Option<StillSyntaxNode<&StillSyntaxType>>,
@@ -9793,7 +9777,7 @@ fn type_alias_declaration_to_rust(
     let rust_name: String = still_name_to_uppercase_rust(name_node.value);
     let Some(type_node) = maybe_type else {
         errors.push(StillErrorNode {
-            range: range,
+            range: name_node.range,
             message: Box::from("type alias declaration is missing a type the given name is equal to after type alias ..type-name.. = here"),
         });
         return None;
