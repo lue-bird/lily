@@ -13897,8 +13897,9 @@ fn still_syntax_pattern_to_rust<'a>(
                 }
                 Some(untyped_pattern_node) => match &untyped_pattern_node.value {
                     StillSyntaxPatternUntyped::Variable(name) => {
-                        // TODO if already exists, push error
-                        introduced_bindings.insert(
+                        let maybe_existing_pattern_variable_with_same_name_info: Option<
+                            StillLocalBindingCompileInfo,
+                        > = introduced_bindings.insert(
                             name,
                             StillLocalBindingCompileInfo {
                                 is_copy: maybe_type.as_ref().is_some_and(|type_| {
@@ -13909,6 +13910,12 @@ fn still_syntax_pattern_to_rust<'a>(
                                 closures_it_is_used_in: vec![],
                             },
                         );
+                        if maybe_existing_pattern_variable_with_same_name_info.is_some() {
+                            errors.push(StillErrorNode {
+                                range: untyped_pattern_node.range,
+                                message: Box::from("a variable with this name is already used in another part of the patterns. Rename one of them")
+                            });
+                        }
                         if is_reference {
                             bindings_to_clone.push(BindingToClone {
                                 name: name,

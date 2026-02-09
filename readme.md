@@ -41,7 +41,7 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 
 - each expression and pattern is always concretely typed, if necessary with an explicit annotation. So things like `(++) appendable -> appendable -> appendable`, `0 : number`, `[] : List any` are all not allowed, and e.g. `str-append \:str:l, :str:r > :str:`, `0.0`, `:vec int:[]` are used instead.
 
-  → Faster type checking, clear errors, easy compilation to almost any language
+  → faster type checking, clear errors, a few less bugs, easy compilation to almost any language
 
 - no blocking compile errors. You can always build, even if your record is still missing a field value, your matching is still inexhaustive, some parens are empty, etc.
   You will still see all the errors, though.
