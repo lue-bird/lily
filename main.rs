@@ -8128,79 +8128,114 @@ fn still_project_compile_to_rust(
                     }),
                 });
             }
-            Ok(documented_declaration) => match &documented_declaration.declaration {
-                None => {}
-                Some(declaration_node) => match &declaration_node.value {
-                    StillSyntaxDeclaration::ChoiceType {
-                        name: maybe_name,
-                        parameters,
-                        variants,
-                    } => match maybe_name {
-                        None => {
-                            errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
-                        }
-                        Some(name_node) => {
-                            let choice_type_declaration_graph_node: strongly_connected_components::Node =
+            Ok(documented_declaration) => {
+                if let Some(declaration_node) = &documented_declaration.declaration {
+                    match &declaration_node.value {
+                        StillSyntaxDeclaration::ChoiceType {
+                            name: maybe_name,
+                            parameters,
+                            variants,
+                        } => match maybe_name {
+                            None => {
+                                errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
+                            }
+                            Some(name_node) => {
+                                let choice_type_declaration_graph_node: strongly_connected_components::Node =
                                 type_graph.new_node();
-                            type_graph_node_by_name
-                                .insert(&name_node.value, choice_type_declaration_graph_node);
-                            type_declaration_by_graph_node.insert(
-                                choice_type_declaration_graph_node,
-                                StillSyntaxTypeDeclarationInfo::ChoiceType {
-                                    documentation: &documented_declaration.documentation,
-                                    name: name_node,
-                                    parameters: parameters,
-                                    variants,
-                                },
-                            );
-                        }
-                    },
-                    StillSyntaxDeclaration::TypeAlias {
-                        type_keyword_range: _,
-                        name: maybe_name,
-                        parameters,
-                        equals_key_symbol_range: _,
-                        type_: maybe_type,
-                    } => match maybe_name {
-                        None => {
-                            errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
-                        }
-                        Some(name_node) => {
-                            let type_alias_declaration_graph_node: strongly_connected_components::Node =
+                                type_graph_node_by_name
+                                    .insert(&name_node.value, choice_type_declaration_graph_node);
+                                let existing_type_with_same_name: Option<
+                                    StillSyntaxTypeDeclarationInfo,
+                                > = type_declaration_by_graph_node.insert(
+                                    choice_type_declaration_graph_node,
+                                    StillSyntaxTypeDeclarationInfo::ChoiceType {
+                                        documentation: &documented_declaration.documentation,
+                                        name: name_node,
+                                        parameters: parameters,
+                                        variants,
+                                    },
+                                );
+                                if existing_type_with_same_name.is_some() {
+                                    errors.push(StillErrorNode {
+                                        range: name_node.range,
+                                        message: Box::from("a type with this name is already declared. Rename one of them")
+                                    });
+                                } else if core_choice_type_infos.contains_key(&name_node.value) {
+                                    errors.push(StillErrorNode {
+                                        range: name_node.range,
+                                        message: Box::from("a type with this name is already part of core (core types are for example vec, int, str). Rename this type")
+                                    });
+                                }
+                            }
+                        },
+                        StillSyntaxDeclaration::TypeAlias {
+                            type_keyword_range: _,
+                            name: maybe_name,
+                            parameters,
+                            equals_key_symbol_range: _,
+                            type_: maybe_type,
+                        } => match maybe_name {
+                            None => {
+                                errors.push(StillErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
+                            }
+                            Some(name_node) => {
+                                let type_alias_declaration_graph_node: strongly_connected_components::Node =
                                 type_graph.new_node();
-                            type_graph_node_by_name
-                                .insert(&name_node.value, type_alias_declaration_graph_node);
-                            type_declaration_by_graph_node.insert(
-                                type_alias_declaration_graph_node,
-                                StillSyntaxTypeDeclarationInfo::TypeAlias {
-                                    documentation: &documented_declaration.documentation,
-                                    name: name_node,
-                                    parameters: parameters,
-                                    type_: maybe_type,
-                                },
-                            );
-                        }
-                    },
-                    StillSyntaxDeclaration::Variable {
-                        name: name_node,
-                        result: maybe_result,
-                    } => {
-                        let variable_declaration_graph_node: strongly_connected_components::Node =
+                                type_graph_node_by_name
+                                    .insert(&name_node.value, type_alias_declaration_graph_node);
+                                let existing_type_with_same_name: Option<
+                                    StillSyntaxTypeDeclarationInfo,
+                                > = type_declaration_by_graph_node.insert(
+                                    type_alias_declaration_graph_node,
+                                    StillSyntaxTypeDeclarationInfo::TypeAlias {
+                                        documentation: &documented_declaration.documentation,
+                                        name: name_node,
+                                        parameters: parameters,
+                                        type_: maybe_type,
+                                    },
+                                );
+                                if existing_type_with_same_name.is_some() {
+                                    errors.push(StillErrorNode {
+                                        range: name_node.range,
+                                        message: Box::from("a type with this name is already declared. Rename one of them")
+                                    });
+                                }
+                            }
+                        },
+                        StillSyntaxDeclaration::Variable {
+                            name: name_node,
+                            result: maybe_result,
+                        } => {
+                            let variable_declaration_graph_node: strongly_connected_components::Node =
                             variable_graph.new_node();
-                        variable_graph_node_by_name
-                            .insert(&name_node.value, variable_declaration_graph_node);
-                        variable_declaration_by_graph_node.insert(
-                            variable_declaration_graph_node,
-                            StillSyntaxVariableDeclarationInfo {
-                                range: declaration_node.range,
-                                documentation: documented_declaration.documentation.as_ref(),
-                                name: name_node,
-                                result: maybe_result.as_ref().map(still_syntax_node_as_ref),
-                            },
-                        );
+                            variable_graph_node_by_name
+                                .insert(&name_node.value, variable_declaration_graph_node);
+                            let existing_variable_with_same_name: Option<
+                                StillSyntaxVariableDeclarationInfo,
+                            > = variable_declaration_by_graph_node.insert(
+                                variable_declaration_graph_node,
+                                StillSyntaxVariableDeclarationInfo {
+                                    range: declaration_node.range,
+                                    documentation: documented_declaration.documentation.as_ref(),
+                                    name: name_node,
+                                    result: maybe_result.as_ref().map(still_syntax_node_as_ref),
+                                },
+                            );
+                            if existing_variable_with_same_name.is_some() {
+                                errors.push(StillErrorNode {
+                                    range: name_node.range,
+                                    message: Box::from("a variable with this name is already declared. Rename one of them")
+                                });
+                            } else if core_choice_type_infos.contains_key(&name_node.value) {
+                                errors.push(StillErrorNode {
+                                    range: name_node.range,
+                                    message: Box::from("a variable with this name is already part of core (core variables are for example int-to-str or dec-add). Rename this variable")
+                                });
+                            }
+                        }
                     }
-                },
-            },
+                }
+            }
         }
     }
     for (&type_declaration_graph_node, &type_declaration_info) in
@@ -8257,7 +8292,7 @@ fn still_project_info_to_rust(
     let mut compiled_type_alias_infos: std::collections::HashMap<StillName, TypeAliasInfo> =
         std::collections::HashMap::new();
     let mut compiled_choice_type_infos: std::collections::HashMap<StillName, ChoiceTypeInfo> =
-        core_choice_type_infos();
+        core_choice_type_infos.clone();
     let mut records_used: std::collections::HashSet<Vec<StillName>> =
         std::collections::HashSet::new();
     for type_declaration_strongly_connected_component in type_graph.find_sccs().iter_sccs() {
@@ -8429,7 +8464,7 @@ fn still_project_info_to_rust(
     let mut compiled_variable_declaration_infos: std::collections::HashMap<
         StillName,
         CompiledVariableDeclarationInfo,
-    > = core_variable_declaration_infos();
+    > = core_variable_declaration_infos.clone();
     compiled_variable_declaration_infos.reserve(variable_graph.len());
     for variable_declaration_strongly_connected_component in variable_graph.find_sccs().iter_sccs()
     {
@@ -8535,24 +8570,26 @@ struct CompiledVariableDeclarationInfo {
     type_: Option<StillType>,
     has_allocator_parameter: bool,
 }
-fn core_variable_declaration_infos()
--> std::collections::HashMap<StillName, CompiledVariableDeclarationInfo> {
-    fn variable(name: &'static str) -> StillType {
-        StillType::Variable(StillName::from(name))
-    }
-    fn function(inputs: impl IntoIterator<Item = StillType>, output: StillType) -> StillType {
-        StillType::Function {
-            inputs: inputs.into_iter().collect::<Vec<_>>(),
-            output: Box::new(output),
+static core_variable_declaration_infos: std::sync::LazyLock<
+    std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
+> = {
+    std::sync::LazyLock::new(|| {
+        fn variable(name: &'static str) -> StillType {
+            StillType::Variable(StillName::from(name))
         }
-    }
-    fn opt(value: StillType) -> StillType {
-        StillType::Construct {
-            name: StillName::const_new("opt"),
-            arguments: vec![value],
+        fn function(inputs: impl IntoIterator<Item = StillType>, output: StillType) -> StillType {
+            StillType::Function {
+                inputs: inputs.into_iter().collect::<Vec<_>>(),
+                output: Box::new(output),
+            }
         }
-    }
-    std::collections::HashMap::from(
+        fn opt(value: StillType) -> StillType {
+            StillType::Construct {
+                name: StillName::const_new("opt"),
+                arguments: vec![value],
+            }
+        }
+        std::collections::HashMap::from(
         [
             (
                 StillName::from("int-negate"),
@@ -8767,7 +8804,8 @@ fn core_variable_declaration_infos()
             )
         }),
     )
-}
+    })
+};
 fn still_type_to_syntax_node(type_: &StillType) -> StillSyntaxNode<StillSyntaxType> {
     still_syntax_node_empty(match type_ {
         StillType::Variable(name) => StillSyntaxType::Variable(name.clone()),
@@ -8791,8 +8829,11 @@ fn still_type_to_syntax_node(type_: &StillType) -> StillSyntaxNode<StillSyntaxTy
         ),
     })
 }
-fn core_choice_type_infos() -> std::collections::HashMap<StillName, ChoiceTypeInfo> {
-    std::collections::HashMap::from([
+static core_choice_type_infos: std::sync::LazyLock<
+    std::collections::HashMap<StillName, ChoiceTypeInfo>,
+> = {
+    std::sync::LazyLock::new(|| {
+        std::collections::HashMap::from([
         (
             StillName::from(still_type_int_name),
             ChoiceTypeInfo {
@@ -8950,8 +8991,9 @@ vec-element 3 my-vec
                 type_variants: vec![],
             },
         ),
-    ])
-}
+        ])
+    })
+};
 
 fn still_syntax_record_to_rust(used_still_record_fields: &[StillName]) -> [syn::Item; 3] {
     let rust_struct_name: String = still_field_names_to_rust_record_struct_name(

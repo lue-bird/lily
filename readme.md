@@ -65,8 +65,7 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 - simple io (`standard-in-read-line`, `standard-out-write`)
 - `case of` exhaustiveness checking
 - unused checking
-- name collision checking
-- name shadowing checking
+- name collision checking for local variables with local variables & project variables
 - implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums
 - allow comments before variant (field name, case?)
 
