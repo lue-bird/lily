@@ -1,4 +1,4 @@
-very small, explicitly boring programming language that compiles to rust, inspired by [elm](https://elm-lang.org/).
+very small, explicitly boring, purely functional programming language that compiles to rust, inspired by [elm](https://elm-lang.org/).
 > ⚠️ Experimental, subject to change, use with caution.
 
 ### hello world
@@ -69,13 +69,13 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 - name shadowing checking
 - implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums
 - allow comments before variant (field name, case?)
-- avoid unnecessary clones (potentially track by field and separate for each branch)
 
 ## considering
 - adding anonymous choice types. They are not allowed to be recursive. Use `type alias` for these. choice types can then be removed. Should be fairly easy to implement but potentially not that nice for FFI, similar to record structs currently
 - find better string literal syntax, like zig's `//` or js' `\`\``
 - (leaning no, at least for now) add or pattern `( first | second | third )` (potentially allow `:overall:( A | B | C )` (where the inner variant patterns don't need a type) specifically for variant)
 - make formatter range-independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
+- (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
 - output rust in realtime. Really cool since the compiled code is always up to date, need to check if file io is fast enough
 - (leaning towards no) extend typing model to only specify type variables, so `myFunction<int, str>`, `[]<int>`, `Present<int> 1`, similar to dhall and zig (but worse, because not first class. If it was you could pass types in records etc).
 

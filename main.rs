@@ -2377,7 +2377,7 @@ struct StillSyntaxTypeField {
     value: Option<StillSyntaxNode<StillSyntaxType>>,
 }
 /// Fully validated type
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 enum StillType {
     Variable(StillName),
     Function {
@@ -2391,7 +2391,7 @@ enum StillType {
     // TODO strongly consider std::collections::HashMap<StillName, StillType>
     Record(Vec<StillTypeField>),
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct StillTypeField {
     name: StillName,
     value: StillType,
@@ -12020,7 +12020,7 @@ fn maybe_still_syntax_expression_to_rust<'a>(
         StillName,
         CompiledVariableDeclarationInfo,
     >,
-    local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, Option<StillType>>>,
+    local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, StillLocalBindingCompileInfo>>,
     closure_representation: FnRepresentation,
     maybe_expression: Option<StillSyntaxNode<&'a StillSyntaxExpression>>,
 ) -> CompiledStillExpression {
@@ -12045,6 +12045,14 @@ fn maybe_still_syntax_expression_to_rust<'a>(
         ),
     }
 }
+// be aware: `last_uses` contains both variable ranges and closure ranges
+#[derive(Clone, Debug)]
+struct StillLocalBindingCompileInfo {
+    type_: Option<StillType>,
+    is_copy: bool,
+    last_uses: Vec<lsp_types::Range>,
+    closures_it_is_used_in: Vec<lsp_types::Range>,
+}
 fn still_syntax_expression_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<StillName>>,
@@ -12054,7 +12062,7 @@ fn still_syntax_expression_to_rust<'a>(
         StillName,
         CompiledVariableDeclarationInfo,
     >,
-    local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, Option<StillType>>>,
+    local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, StillLocalBindingCompileInfo>>,
     closure_representation: FnRepresentation,
     expression_node: StillSyntaxNode<&'a StillSyntaxExpression>,
 ) -> CompiledStillExpression {
@@ -12126,37 +12134,77 @@ fn still_syntax_expression_to_rust<'a>(
             arrow_key_symbol_range: maybe_arrow_key_symbol_range,
             result: maybe_lambda_result,
         } => {
-            // TODO change local_bindings >-> local_bindings including last uses and is_copy
-            // that would allow unused tracking as well and avoid VecAtLeast1
-            let mut local_bindings_last_uses: std::collections::HashMap<
+            let mut parameter_introduced_bindings = std::collections::HashMap::new();
+            let mut bindings_to_clone: Vec<BindingToClone> = Vec::new();
+            let (rust_patterns, input_type_maybes): (
+                syn::punctuated::Punctuated<syn::Pat, syn::token::Comma>,
+                Vec<Option<StillType>>,
+            ) = parameters
+                .iter()
+                .map(|parameter_node| {
+                    let compiled_parameter: CompiledStillPattern = still_syntax_pattern_to_rust(
+                        errors,
+                        records_used,
+                        &mut parameter_introduced_bindings,
+                        &mut bindings_to_clone,
+                        type_aliases,
+                        choice_types,
+                        false,
+                        still_syntax_node_as_ref(parameter_node),
+                    );
+                    (
+                        compiled_parameter.rust.unwrap_or_else(syn_pat_wild),
+                        compiled_parameter.type_,
+                    )
+                })
+                .collect();
+            let mut parameter_introduced_binding_infos: std::collections::HashMap<
                 &str,
-                VecAtLeast1<lsp_types::Range>,
-            > = std::collections::HashMap::new();
+                StillLocalBindingCompileInfo,
+            > = parameter_introduced_bindings
+                .into_iter()
+                .map(|(introduced_binding_name, introduced_binding_maybe_type)| {
+                    (
+                        introduced_binding_name,
+                        StillLocalBindingCompileInfo {
+                            is_copy: introduced_binding_maybe_type.as_ref().is_some_and(
+                                |introduced_binding_type| {
+                                    still_type_is_copy(
+                                        false,
+                                        type_aliases,
+                                        choice_types,
+                                        introduced_binding_type,
+                                    )
+                                },
+                            ),
+                            type_: introduced_binding_maybe_type,
+                            last_uses: vec![],
+                            closures_it_is_used_in: vec![],
+                        },
+                    )
+                })
+                .collect();
             if let Some(lambda_result_node) = maybe_lambda_result {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    &mut local_bindings_last_uses,
-                    &local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    &mut parameter_introduced_binding_infos,
+                    None,
                     still_syntax_node_unbox(lambda_result_node),
                 );
             }
-            let mut rust_clones_before_closure: Vec<syn::Stmt> = local_bindings_last_uses
+            let mut rust_clones_before_closure: Vec<syn::Stmt> = local_bindings
                 .iter()
-                .filter(|&(local_binding_name, _)| {
-                    local_bindings
-                        .get(local_binding_name)
-                        .and_then(Option::as_ref)
-                        .is_none_or(|introduced_local_binding_type| {
-                            !still_type_is_copy(
-                                false,
-                                type_aliases,
-                                choice_types,
-                                introduced_local_binding_type,
-                            )
-                        })
+                .filter(|&(_, local_binding_info)| {
+                    !local_binding_info.is_copy
+                        && !local_binding_info
+                            .last_uses
+                            .contains(&expression_node.range)
+                        && local_binding_info
+                            .closures_it_is_used_in
+                            .contains(&expression_node.range)
                 })
-                .map(|(&introduced_local_binding_name, _)| {
+                .map(|(&local_binding_name, _)| {
                     let introduced_local_binding_rust_name: String =
-                        still_name_to_lowercase_rust(introduced_local_binding_name);
+                        still_name_to_lowercase_rust(local_binding_name);
                     syn::Stmt::Local(syn::Local {
                         attrs: vec![],
                         let_token: syn::token::Let(syn_span()),
@@ -12178,31 +12226,10 @@ fn still_syntax_expression_to_rust<'a>(
                     })
                 })
                 .collect();
-            let mut local_bindings: std::collections::HashMap<&str, Option<StillType>> =
+            let mut local_bindings: std::collections::HashMap<&str, StillLocalBindingCompileInfo> =
                 std::rc::Rc::unwrap_or_clone(local_bindings);
-            let mut bindings_to_clone: Vec<BindingToClone> = Vec::new();
-            let (rust_patterns, input_type_maybes): (
-                syn::punctuated::Punctuated<syn::Pat, syn::token::Comma>,
-                Vec<Option<StillType>>,
-            ) = parameters
-                .iter()
-                .map(|parameter_node| {
-                    let compiled_parameter: CompiledStillPattern = still_syntax_pattern_to_rust(
-                        errors,
-                        records_used,
-                        &mut local_bindings,
-                        &mut bindings_to_clone,
-                        type_aliases,
-                        choice_types,
-                        false,
-                        still_syntax_node_as_ref(parameter_node),
-                    );
-                    (
-                        compiled_parameter.rust.unwrap_or_else(syn_pat_wild),
-                        compiled_parameter.type_,
-                    )
-                })
-                .collect();
+            local_bindings.extend(parameter_introduced_binding_infos);
+
             let mut closure_result_rust_stmts: Vec<syn::Stmt> = Vec::new();
             bindings_to_clone_to_rust_into(&mut closure_result_rust_stmts, bindings_to_clone);
             let compiled_result: CompiledStillExpression = maybe_still_syntax_expression_to_rust(
@@ -12314,66 +12341,17 @@ fn still_syntax_expression_to_rust<'a>(
                 closure_representation,
                 maybe_result.as_ref().map(still_syntax_node_unbox),
             ),
-            Some(declaration_node) => {
-                let mut rust_stmts: Vec<syn::Stmt> = Vec::new();
-                let let_declaration_compiled: CompiledStillLetDeclarationInfo =
-                    still_syntax_let_declaration_to_rust_into(
-                        &mut rust_stmts,
-                        errors,
-                        records_used,
-                        type_aliases,
-                        choice_types,
-                        project_variable_declarations,
-                        local_bindings,
-                        still_syntax_node_as_ref(declaration_node),
-                    );
-                let maybe_result_compiled: CompiledStillExpression =
-                    maybe_still_syntax_expression_to_rust(
-                        errors,
-                        || StillErrorNode {
-                            range: expression_node.range,
-                            message: Box::from(
-                                "missing result expression after let declaration let ... here",
-                            ),
-                        },
-                        records_used,
-                        type_aliases,
-                        choice_types,
-                        project_variable_declarations,
-                        std::rc::Rc::new(let_declaration_compiled.local_bindings_including_let),
-                        closure_representation,
-                        maybe_result.as_ref().map(still_syntax_node_unbox),
-                    );
-                CompiledStillExpression {
-                    uses_allocator: let_declaration_compiled.uses_allocator
-                        || maybe_result_compiled.uses_allocator,
-                    type_: maybe_result_compiled.type_,
-                    rust: match maybe_result_compiled.rust {
-                        syn::Expr::Block(rust_let_result_block) => {
-                            rust_stmts.extend(rust_let_result_block.block.stmts);
-                            syn::Expr::Block(syn::ExprBlock {
-                                label: rust_let_result_block.label,
-                                attrs: rust_let_result_block.attrs,
-                                block: syn::Block {
-                                    brace_token: syn::token::Brace(syn_span()),
-                                    stmts: rust_stmts,
-                                },
-                            })
-                        }
-                        _ => {
-                            rust_stmts.push(syn::Stmt::Expr(maybe_result_compiled.rust, None));
-                            syn::Expr::Block(syn::ExprBlock {
-                                label: None,
-                                attrs: vec![],
-                                block: syn::Block {
-                                    brace_token: syn::token::Brace(syn_span()),
-                                    stmts: rust_stmts,
-                                },
-                            })
-                        }
-                    },
-                }
-            }
+            Some(declaration_node) => still_syntax_let_declaration_to_rust_into(
+                errors,
+                records_used,
+                type_aliases,
+                choice_types,
+                project_variable_declarations,
+                local_bindings,
+                closure_representation,
+                still_syntax_node_as_ref(declaration_node),
+                maybe_result.as_ref().map(still_syntax_node_unbox),
+            ),
         },
         StillSyntaxExpression::Vec(elements) => {
             if elements.is_empty() {
@@ -12714,8 +12692,8 @@ fn still_syntax_expression_to_rust<'a>(
                     .unzip();
             let rust_reference: syn::Expr = syn_expr_reference([&rust_variable_name]);
             match local_bindings.get(variable_node.value.as_str()) {
-                Some(maybe_variable_type) => {
-                    let Some(variable_type) = maybe_variable_type else {
+                Some(variable_info) => {
+                    let Some(variable_type) = &variable_info.type_ else {
                         return CompiledStillExpression {
                             rust: syn_expr_todo(),
                             uses_allocator: false,
@@ -12763,9 +12741,9 @@ fn still_syntax_expression_to_rust<'a>(
                             }
                         }
                     };
-                    let variable_is_copy: bool =
-                        still_type_is_copy(false, type_aliases, choice_types, &type_);
-                    let rust_reference_cloned_if_necessary: syn::Expr = if variable_is_copy {
+                    let rust_reference_cloned_if_necessary: syn::Expr = if variable_info.is_copy
+                        || variable_info.last_uses.contains(&variable_node.range)
+                    {
                         rust_reference
                     } else {
                         syn_expr_call_clone_method(rust_reference)
@@ -12931,13 +12909,15 @@ fn still_syntax_expression_to_rust<'a>(
                         });
                         return None;
                     };
-                    let mut local_bindings: std::collections::HashMap<&str, Option<StillType>> =
-                        (*local_bindings).clone();
+                    let mut introduced_pattern_bindings: std::collections::HashMap<
+                        &str,
+                        Option<StillType>,
+                    > = std::collections::HashMap::new();
                     let mut bindings_to_clone: Vec<BindingToClone> = Vec::new();
                     let compiled_pattern: CompiledStillPattern = still_syntax_pattern_to_rust(
                         errors,
                         records_used,
-                        &mut local_bindings,
+                        &mut introduced_pattern_bindings,
                         &mut bindings_to_clone,
                         type_aliases,
                         choice_types,
@@ -12948,6 +12928,44 @@ fn still_syntax_expression_to_rust<'a>(
                         // skip case with incomplete pattern
                         return None;
                     };
+                    let mut pattern_introduced_binding_infos: std::collections::HashMap<
+                        &str,
+                        StillLocalBindingCompileInfo,
+                    > = introduced_pattern_bindings
+                        .into_iter()
+                        .map(|(introduced_binding_name, introduced_binding_maybe_type)| {
+                            (
+                                introduced_binding_name,
+                                StillLocalBindingCompileInfo {
+                                    is_copy: introduced_binding_maybe_type.as_ref().is_some_and(
+                                        |introduced_binding_type| {
+                                            still_type_is_copy(
+                                                false,
+                                                type_aliases,
+                                                choice_types,
+                                                introduced_binding_type,
+                                            )
+                                        },
+                                    ),
+                                    type_: introduced_binding_maybe_type,
+                                    last_uses: vec![],
+                                    closures_it_is_used_in: vec![],
+                                },
+                            )
+                        })
+                        .collect();
+                    if let Some(case_result_node) = &case.result {
+                        still_syntax_expression_uses_of_local_bindings_into(
+                            &mut pattern_introduced_binding_infos,
+                            None,
+                            still_syntax_node_as_ref(case_result_node),
+                        );
+                    }
+                    let mut local_bindings: std::collections::HashMap<
+                        &str,
+                        StillLocalBindingCompileInfo,
+                    > = (*local_bindings).clone();
+                    local_bindings.extend(pattern_introduced_binding_infos);
                     let compiled_case_result: CompiledStillExpression =
                         maybe_still_syntax_expression_to_rust(
                             errors,
@@ -13241,25 +13259,10 @@ fn still_syntax_expression_to_rust<'a>(
         },
     }
 }
-struct VecAtLeast1<A> {
-    first: A,
-    second_up: Vec<A>,
-}
-fn vec_at_least_1_one<A>(only_element: A) -> VecAtLeast1<A> {
-    VecAtLeast1 {
-        first: only_element,
-        second_up: vec![],
-    }
-}
-fn vec_at_least_1_into_iter<A>(vec_at_least_1: VecAtLeast1<A>) -> impl Iterator<Item = A> {
-    std::iter::once(vec_at_least_1.first).chain(vec_at_least_1.second_up)
-}
-fn vec_at_least_1s_extend<A>(earlier: &mut VecAtLeast1<A>, later: impl Iterator<Item = A>) {
-    earlier.second_up.extend(later);
-}
-fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
-    local_binding_last_uses: &mut std::collections::HashMap<&'a str, VecAtLeast1<lsp_types::Range>>,
-    local_bindings: &std::collections::HashMap<&'a str, Option<StillType>>,
+/// If called from outside itself, set `in_closures` to `None`
+fn still_syntax_expression_uses_of_local_bindings_into<'a>(
+    local_binding_infos: &mut std::collections::HashMap<&'a str, StillLocalBindingCompileInfo>,
+    maybe_in_closure: Option<lsp_types::Range>,
     expression_node: StillSyntaxNode<&'a StillSyntaxExpression>,
 ) {
     match expression_node.value {
@@ -13269,9 +13272,9 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
         StillSyntaxExpression::String { .. } => {}
         StillSyntaxExpression::Parenthesized(maybe_in_parens) => {
             if let Some(in_parens_node) = maybe_in_parens {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_unbox(in_parens_node),
                 );
             }
@@ -13281,9 +13284,9 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             expression: maybe_after_comment,
         } => {
             if let Some(after_comment_node) = maybe_after_comment {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_unbox(after_comment_node),
                 );
             }
@@ -13299,17 +13302,17 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
                         value: maybe_value,
                     } => {
                         if let Some(value_node) = maybe_value {
-                            still_syntax_expression_last_uses_of_local_bindings_into(
-                                local_binding_last_uses,
-                                local_bindings,
+                            still_syntax_expression_uses_of_local_bindings_into(
+                                local_binding_infos,
+                                maybe_in_closure,
                                 still_syntax_node_unbox(value_node),
                             );
                         }
                     }
                     StillSyntaxExpressionUntyped::Other(other_node) => {
-                        still_syntax_expression_last_uses_of_local_bindings_into(
-                            local_binding_last_uses,
-                            local_bindings,
+                        still_syntax_expression_uses_of_local_bindings_into(
+                            local_binding_infos,
+                            maybe_in_closure,
                             StillSyntaxNode {
                                 range: untyped_node.range,
                                 value: other_node,
@@ -13323,16 +13326,26 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             variable: variable_node,
             arguments,
         } => {
-            if local_bindings.contains_key(variable_node.value.as_str()) {
-                local_binding_last_uses.insert(
-                    &variable_node.value,
-                    vec_at_least_1_one(variable_node.range),
-                );
+            if let Some(local_binding_info) =
+                local_binding_infos.get_mut(variable_node.value.as_str())
+            {
+                local_binding_info.last_uses.clear();
+                match maybe_in_closure {
+                    None => {
+                        local_binding_info.last_uses.push(variable_node.range);
+                    }
+                    Some(in_closure) => {
+                        local_binding_info.closures_it_is_used_in.push(in_closure);
+                        // the variables in closures are considered their own thing
+                        // since they e.g. always need to be cloned
+                        local_binding_info.last_uses.push(in_closure);
+                    }
+                }
             }
             for argument_node in arguments {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_as_ref(argument_node),
                 );
             }
@@ -13341,16 +13354,16 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             matched: matched_node,
             cases,
         } => {
-            still_syntax_expression_last_uses_of_local_bindings_into(
-                local_binding_last_uses,
-                local_bindings,
+            still_syntax_expression_uses_of_local_bindings_into(
+                local_binding_infos,
+                maybe_in_closure,
                 still_syntax_node_unbox(matched_node),
             );
             if let Some((last_case, cases_before_last)) = cases.split_last() {
                 if let Some(last_case_result) = &last_case.result {
-                    still_syntax_expression_last_uses_of_local_bindings_into(
-                        local_binding_last_uses,
-                        local_bindings,
+                    still_syntax_expression_uses_of_local_bindings_into(
+                        local_binding_infos,
+                        maybe_in_closure,
                         still_syntax_node_as_ref(last_case_result),
                     );
                 }
@@ -13362,26 +13375,28 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
                 {
                     let mut local_bindings_last_uses_in_branch: std::collections::HashMap<
                         &str,
-                        VecAtLeast1<lsp_types::Range>,
+                        StillLocalBindingCompileInfo,
                     > = std::collections::HashMap::new();
-                    still_syntax_expression_last_uses_of_local_bindings_into(
+                    still_syntax_expression_uses_of_local_bindings_into(
                         &mut local_bindings_last_uses_in_branch,
-                        local_bindings,
+                        maybe_in_closure,
                         still_syntax_node_as_ref(case_result),
                     );
-                    for (local_binding_name, local_binding_last_uses_in_branch) in
+                    for (local_binding_name, local_binding_info_in_branch) in
                         local_bindings_last_uses_in_branch
                     {
-                        match local_binding_last_uses.get_mut(local_binding_name) {
+                        match local_binding_infos.get_mut(local_binding_name) {
                             None => {
-                                local_binding_last_uses
-                                    .insert(local_binding_name, local_binding_last_uses_in_branch);
+                                local_binding_infos
+                                    .insert(local_binding_name, local_binding_info_in_branch);
                             }
                             Some(existing) => {
-                                vec_at_least_1s_extend(
-                                    existing,
-                                    vec_at_least_1_into_iter(local_binding_last_uses_in_branch),
-                                );
+                                existing
+                                    .last_uses
+                                    .extend(local_binding_info_in_branch.last_uses);
+                                existing
+                                    .closures_it_is_used_in
+                                    .extend(local_binding_info_in_branch.closures_it_is_used_in);
                             }
                         }
                     }
@@ -13394,9 +13409,9 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             result: maybe_result,
         } => {
             if let Some(result_node) = maybe_result {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    Some(maybe_in_closure.unwrap_or(expression_node.range)),
                     still_syntax_node_unbox(result_node),
                 );
             }
@@ -13408,34 +13423,34 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             if let Some(declaration_node) = maybe_declaration
                 && let Some(declaration_result_node) = &declaration_node.value.result
             {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_unbox(declaration_result_node),
                 );
             }
             if let Some(result_node) = maybe_result {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_unbox(result_node),
                 );
             }
         }
         StillSyntaxExpression::Vec(elements) => {
             for element_node in elements {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_as_ref(element_node),
                 );
             }
         }
         StillSyntaxExpression::Record(fields) => {
             for field_vale_node in fields.iter().filter_map(|field| field.value.as_ref()) {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
                     still_syntax_node_as_ref(field_vale_node),
                 );
             }
@@ -13444,9 +13459,9 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             record: record_node,
             field: _,
         } => {
-            still_syntax_expression_last_uses_of_local_bindings_into(
-                local_binding_last_uses,
-                local_bindings,
+            still_syntax_expression_uses_of_local_bindings_into(
+                local_binding_infos,
+                maybe_in_closure,
                 still_syntax_node_unbox(record_node),
             );
         }
@@ -13455,29 +13470,25 @@ fn still_syntax_expression_last_uses_of_local_bindings_into<'a>(
             spread_key_symbol_range: _,
             fields,
         } => {
-            if let Some(record_node) = maybe_record {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
-                    still_syntax_node_unbox(record_node),
+            for field_vale_node in fields.iter().filter_map(|field| field.value.as_ref()) {
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
+                    still_syntax_node_as_ref(field_vale_node),
                 );
             }
-            for field_vale_node in fields.iter().filter_map(|field| field.value.as_ref()) {
-                still_syntax_expression_last_uses_of_local_bindings_into(
-                    local_binding_last_uses,
-                    local_bindings,
-                    still_syntax_node_as_ref(field_vale_node),
+            // because in rust the record to update comes after the fields
+            if let Some(record_node) = maybe_record {
+                still_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    maybe_in_closure,
+                    still_syntax_node_unbox(record_node),
                 );
             }
         }
     }
 }
-struct CompiledStillLetDeclarationInfo<'a> {
-    uses_allocator: bool,
-    local_bindings_including_let: std::collections::HashMap<&'a str, Option<StillType>>,
-}
-fn still_syntax_let_declaration_to_rust_into<'a>(
-    rust_stmts: &mut Vec<syn::Stmt>,
+fn still_syntax_let_declaration_to_rust_into(
     errors: &mut Vec<StillErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -13486,47 +13497,116 @@ fn still_syntax_let_declaration_to_rust_into<'a>(
         StillName,
         CompiledVariableDeclarationInfo,
     >,
-    local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, Option<StillType>>>,
-    declaration_node: StillSyntaxNode<&'a StillSyntaxLetDeclaration>,
-) -> CompiledStillLetDeclarationInfo<'a> {
-    let compiled_result: CompiledStillExpression = maybe_still_syntax_expression_to_rust(
-        errors,
-        || StillErrorNode {
-            range: declaration_node.range,
-            message: Box::from(
-                "missing assigned let variable declaration expression in let ..name.. here",
-            ),
-        },
-        records_used,
-        type_aliases,
-        choice_types,
-        project_variable_declarations,
-        local_bindings.clone(),
-        // could be ::Impl when all uses are allocated if necessary,
-        // too much analysis with little gain I think
-        FnRepresentation::RefDyn,
-        declaration_node
-            .value
-            .result
-            .as_ref()
-            .map(still_syntax_node_unbox),
-    );
+    local_bindings: std::rc::Rc<std::collections::HashMap<&str, StillLocalBindingCompileInfo>>,
+    closure_representation: FnRepresentation,
+    declaration_node: StillSyntaxNode<&StillSyntaxLetDeclaration>,
+    maybe_result: Option<StillSyntaxNode<&StillSyntaxExpression>>,
+) -> CompiledStillExpression {
+    let compiled_declaration_result: CompiledStillExpression =
+        maybe_still_syntax_expression_to_rust(
+            errors,
+            || StillErrorNode {
+                range: declaration_node.range,
+                message: Box::from(
+                    "missing assigned let variable declaration expression in let ..name.. here",
+                ),
+            },
+            records_used,
+            type_aliases,
+            choice_types,
+            project_variable_declarations,
+            local_bindings.clone(),
+            // could be ::Impl when all uses are allocated if necessary,
+            // too much analysis with little gain I think
+            FnRepresentation::RefDyn,
+            declaration_node
+                .value
+                .result
+                .as_ref()
+                .map(still_syntax_node_unbox),
+        );
+    let mut rust_stmts: Vec<syn::Stmt> = Vec::new();
     rust_stmts.push(syn::Stmt::Local(syn::Local {
         attrs: vec![],
         let_token: syn::token::Let(syn_span()),
         pat: syn_pat_variable(&declaration_node.value.name.value),
         init: Some(syn::LocalInit {
             eq_token: syn::token::Eq(syn_span()),
-            expr: Box::new(compiled_result.rust),
+            expr: Box::new(compiled_declaration_result.rust),
             diverge: None,
         }),
         semi_token: syn::token::Semi(syn_span()),
     }));
-    let mut local_bindings = std::rc::Rc::unwrap_or_clone(local_bindings);
-    local_bindings.insert(&declaration_node.value.name.value, compiled_result.type_);
-    CompiledStillLetDeclarationInfo {
-        uses_allocator: compiled_result.uses_allocator,
-        local_bindings_including_let: local_bindings,
+    let mut introduced_binding_infos: std::collections::HashMap<
+        &str,
+        StillLocalBindingCompileInfo,
+    > = std::iter::once((
+        declaration_node.value.name.value.as_str(),
+        StillLocalBindingCompileInfo {
+            is_copy: compiled_declaration_result
+                .type_
+                .as_ref()
+                .is_some_and(|result_type| {
+                    still_type_is_copy(false, type_aliases, choice_types, result_type)
+                }),
+            type_: compiled_declaration_result.type_,
+            last_uses: vec![],
+            closures_it_is_used_in: vec![],
+        },
+    ))
+    .collect::<std::collections::HashMap<_, _>>();
+    let mut local_bindings: std::collections::HashMap<&str, StillLocalBindingCompileInfo> =
+        std::rc::Rc::unwrap_or_clone(local_bindings);
+    if let Some(result_node) = maybe_result {
+        still_syntax_expression_uses_of_local_bindings_into(
+            &mut introduced_binding_infos,
+            None,
+            result_node,
+        );
+    }
+    local_bindings.extend(introduced_binding_infos);
+    let maybe_result_compiled: CompiledStillExpression = maybe_still_syntax_expression_to_rust(
+        errors,
+        || StillErrorNode {
+            range: declaration_node.value.name.range,
+            message: Box::from("missing result expression after let declaration let ... here"),
+        },
+        records_used,
+        type_aliases,
+        choice_types,
+        project_variable_declarations,
+        std::rc::Rc::new(local_bindings),
+        closure_representation,
+        maybe_result,
+    );
+    CompiledStillExpression {
+        uses_allocator: compiled_declaration_result.uses_allocator
+            || maybe_result_compiled.uses_allocator,
+        type_: maybe_result_compiled.type_,
+        rust: match maybe_result_compiled.rust {
+            syn::Expr::Block(rust_let_result_block) => {
+                rust_stmts.extend(rust_let_result_block.block.stmts);
+                syn::Expr::Block(syn::ExprBlock {
+                    label: rust_let_result_block.label,
+                    attrs: rust_let_result_block.attrs,
+                    block: syn::Block {
+                        brace_token: syn::token::Brace(syn_span()),
+                        stmts: rust_stmts,
+                    },
+                })
+            }
+            _ => {
+                rust_stmts.push(syn::Stmt::Expr(maybe_result_compiled.rust, None));
+                syn::Expr::Block(syn::ExprBlock {
+                    label: None,
+                    attrs: vec![],
+                    block: syn::Block {
+                        brace_token: syn::token::Brace(syn_span()),
+                        stmts: rust_stmts,
+                    },
+                })
+            }
+        },
     }
 }
 
