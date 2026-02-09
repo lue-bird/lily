@@ -10951,7 +10951,7 @@ fn variable_declaration_to_rust<'a>(
         choice_types,
         variable_declarations,
         std::rc::Rc::new(std::collections::HashMap::new()),
-        true,
+        FnRepresentation::Impl,
         result_node,
     );
     let Some(type_) = compiled_result.type_.and_then(|result_type| {
@@ -11790,7 +11790,7 @@ fn still_syntax_type_collect_variables_that_are_concrete_into(
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum FnRepresentation {
     RefDyn,
     Impl,
@@ -12021,7 +12021,7 @@ fn maybe_still_syntax_expression_to_rust<'a>(
         CompiledVariableDeclarationInfo,
     >,
     local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, Option<StillType>>>,
-    skip_allocating_closure: bool,
+    closure_representation: FnRepresentation,
     maybe_expression: Option<StillSyntaxNode<&'a StillSyntaxExpression>>,
 ) -> CompiledStillExpression {
     match maybe_expression {
@@ -12040,7 +12040,7 @@ fn maybe_still_syntax_expression_to_rust<'a>(
             choice_types,
             project_variable_declarations,
             local_bindings,
-            skip_allocating_closure,
+            closure_representation,
             expression_node,
         ),
     }
@@ -12055,7 +12055,7 @@ fn still_syntax_expression_to_rust<'a>(
         CompiledVariableDeclarationInfo,
     >,
     local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, Option<StillType>>>,
-    should_skip_allocating_closure: bool,
+    closure_representation: FnRepresentation,
     expression_node: StillSyntaxNode<&'a StillSyntaxExpression>,
 ) -> CompiledStillExpression {
     match expression_node.value {
@@ -12224,7 +12224,7 @@ fn still_syntax_expression_to_rust<'a>(
                 choice_types,
                 project_variable_declarations,
                 std::rc::Rc::new(local_bindings),
-                false,
+                FnRepresentation::RefDyn,
                 maybe_lambda_result.as_ref().map(still_syntax_node_unbox),
             );
             let rust_closure: syn::Expr = syn::Expr::Closure(syn::ExprClosure {
@@ -12252,10 +12252,9 @@ fn still_syntax_expression_to_rust<'a>(
                     })
                 }),
             });
-            let maybe_allocated_rust_closure: syn::Expr = if should_skip_allocating_closure {
-                rust_closure
-            } else {
-                syn::Expr::Call(syn::ExprCall {
+            let maybe_allocated_rust_closure: syn::Expr = match closure_representation {
+                FnRepresentation::Impl => rust_closure,
+                FnRepresentation::RefDyn => syn::Expr::Call(syn::ExprCall {
                     attrs: vec![],
                     func: Box::new(syn_expr_reference(["alloc_fn_as_dyn"])),
                     paren_token: syn::token::Paren(syn_span()),
@@ -12265,7 +12264,7 @@ fn still_syntax_expression_to_rust<'a>(
                     ]
                     .into_iter()
                     .collect(),
-                })
+                }),
             };
             let full_rust: syn::Expr = if rust_clones_before_closure.is_empty() {
                 maybe_allocated_rust_closure
@@ -12282,7 +12281,8 @@ fn still_syntax_expression_to_rust<'a>(
                 })
             };
             CompiledStillExpression {
-                uses_allocator: !should_skip_allocating_closure || compiled_result.uses_allocator,
+                uses_allocator: closure_representation == FnRepresentation::RefDyn
+                    || compiled_result.uses_allocator,
                 type_: input_type_maybes
                     .into_iter()
                     .collect::<Option<Vec<_>>>()
@@ -12311,7 +12311,7 @@ fn still_syntax_expression_to_rust<'a>(
                 choice_types,
                 project_variable_declarations,
                 local_bindings,
-                should_skip_allocating_closure,
+                closure_representation,
                 maybe_result.as_ref().map(still_syntax_node_unbox),
             ),
             Some(declaration_node) => {
@@ -12341,7 +12341,7 @@ fn still_syntax_expression_to_rust<'a>(
                         choice_types,
                         project_variable_declarations,
                         std::rc::Rc::new(let_declaration_compiled.local_bindings_including_let),
-                        should_skip_allocating_closure,
+                        closure_representation,
                         maybe_result.as_ref().map(still_syntax_node_unbox),
                     );
                 CompiledStillExpression {
@@ -12396,7 +12396,7 @@ fn still_syntax_expression_to_rust<'a>(
                         choice_types,
                         project_variable_declarations,
                         local_bindings.clone(),
-                        false,
+                        FnRepresentation::RefDyn,
                         still_syntax_node_as_ref(element_node),
                     );
                     uses_allocator = uses_allocator || compiled.uses_allocator;
@@ -12438,7 +12438,7 @@ fn still_syntax_expression_to_rust<'a>(
                 choice_types,
                 project_variable_declarations,
                 local_bindings.clone(),
-                should_skip_allocating_closure,
+                closure_representation,
                 maybe_in_parens.as_ref().map(still_syntax_node_unbox),
             )
         }
@@ -12480,7 +12480,7 @@ fn still_syntax_expression_to_rust<'a>(
                         choice_types,
                         project_variable_declarations,
                         local_bindings.clone(),
-                        should_skip_allocating_closure,
+                        closure_representation,
                         still_syntax_node_unbox(after_comment_node),
                     );
                 CompiledStillExpression {
@@ -12618,7 +12618,7 @@ fn still_syntax_expression_to_rust<'a>(
                                         choice_types,
                                         project_variable_declarations,
                                         local_bindings,
-                                        false,
+                                        FnRepresentation::RefDyn,
                                         still_syntax_node_unbox(value_node),
                                     );
                                 // TODO verify equal: origin choice type variant value with the type arguments inlined & value pattern type
@@ -12675,7 +12675,7 @@ fn still_syntax_expression_to_rust<'a>(
                                 choice_types,
                                 project_variable_declarations,
                                 local_bindings,
-                                should_skip_allocating_closure,
+                                closure_representation,
                                 StillSyntaxNode {
                                     range: untyped_node.range,
                                     value: other_expression,
@@ -12704,8 +12704,8 @@ fn still_syntax_expression_to_rust<'a>(
                                 choice_types,
                                 project_variable_declarations,
                                 local_bindings.clone(),
-                                // TODO eventually true for project variables
-                                false,
+                                // TODO ::Impl for project variables
+                                FnRepresentation::RefDyn,
                                 still_syntax_node_as_ref(argument_node),
                             );
                         uses_allocator = uses_allocator || compiled_argument.uses_allocator;
@@ -12917,7 +12917,7 @@ fn still_syntax_expression_to_rust<'a>(
                 choice_types,
                 project_variable_declarations,
                 local_bindings.clone(),
-                false,
+                FnRepresentation::RefDyn,
                 still_syntax_node_unbox(matched_node),
             );
             let mut arms_use_allocator: bool = false;
@@ -12964,7 +12964,7 @@ fn still_syntax_expression_to_rust<'a>(
                             choice_types,
                             project_variable_declarations,
                             std::rc::Rc::new(local_bindings),
-                            false,
+                            FnRepresentation::RefDyn,
                             case.result.as_ref().map(still_syntax_node_as_ref),
                         );
                     // TODO check all pattern types are equal to matched type
@@ -13047,7 +13047,7 @@ fn still_syntax_expression_to_rust<'a>(
                             choice_types,
                             project_variable_declarations,
                             local_bindings.clone(),
-                            false,
+                            closure_representation,
                             field.value.as_ref().map(still_syntax_node_as_ref),
                         );
                     fields_use_allocator =
@@ -13098,7 +13098,7 @@ fn still_syntax_expression_to_rust<'a>(
                 choice_types,
                 project_variable_declarations,
                 local_bindings,
-                false,
+                FnRepresentation::RefDyn,
                 still_syntax_node_unbox(record_node),
             );
             let Some(field_name_node) = maybe_field_name else {
@@ -13195,7 +13195,7 @@ fn still_syntax_expression_to_rust<'a>(
                                 choice_types,
                                 project_variable_declarations,
                                 local_bindings.clone(),
-                                false,
+                                closure_representation,
                                 field.value.as_ref().map(still_syntax_node_as_ref),
                             );
                         fields_use_allocator =
@@ -13217,7 +13217,7 @@ fn still_syntax_expression_to_rust<'a>(
                     choice_types,
                     project_variable_declarations,
                     local_bindings,
-                    false,
+                    FnRepresentation::RefDyn,
                     still_syntax_node_unbox(record_node),
                 );
                 // TODO check the updated field values are present in the compile record type
@@ -13502,8 +13502,9 @@ fn still_syntax_let_declaration_to_rust_into<'a>(
         choice_types,
         project_variable_declarations,
         local_bindings.clone(),
-        // TODO eventually true when all uses are allocated if necessary
-        false,
+        // could be ::Impl when all uses are allocated if necessary,
+        // too much analysis with little gain I think
+        FnRepresentation::RefDyn,
         declaration_node
             .value
             .result
