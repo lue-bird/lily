@@ -7268,9 +7268,9 @@ fn parse_still_string_triple_quoted(state: &mut ParseState) -> Option<String> {
 fn parse_still_text_content_char(state: &mut ParseState) -> Option<char> {
     parse_symbol_as(state, "\\\\", '\\')
         .or_else(|| parse_symbol_as(state, "\\'", '\''))
-        .or_else(|| parse_symbol_as(state, "\\\n", '\n'))
-        .or_else(|| parse_symbol_as(state, "\\\r", '\r'))
-        .or_else(|| parse_symbol_as(state, "\\\t", '\t'))
+        .or_else(|| parse_symbol_as(state, "\\n", '\n'))
+        .or_else(|| parse_symbol_as(state, "\\r", '\r'))
+        .or_else(|| parse_symbol_as(state, "\\t", '\t'))
         .or_else(|| parse_symbol_as(state, "\\\"", '"'))
         .or_else(|| {
             let start_offset_utf8: usize = state.offset_utf8;
