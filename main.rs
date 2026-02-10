@@ -2384,11 +2384,10 @@ enum StillType {
         inputs: Vec<StillType>,
         output: Box<StillType>,
     },
-    Construct {
+    ChoiceConstruct {
         name: StillName,
         arguments: Vec<StillType>,
     },
-    // TODO strongly consider std::collections::HashMap<StillName, StillType>
     Record(Vec<StillTypeField>),
 }
 #[derive(Clone, Debug)]
@@ -3022,7 +3021,7 @@ fn still_syntax_expression_type_with<'a>(
     }
 }
 const still_type_chr_name: &str = "chr";
-const still_type_chr: StillType = StillType::Construct {
+const still_type_chr: StillType = StillType::ChoiceConstruct {
     name: StillName::const_new(still_type_chr_name),
     arguments: vec![],
 };
@@ -3031,7 +3030,7 @@ const still_syntax_type_chr: StillSyntaxType = StillSyntaxType::Construct {
     arguments: vec![],
 };
 const still_type_dec_name: &str = "dec";
-const still_type_dec: StillType = StillType::Construct {
+const still_type_dec: StillType = StillType::ChoiceConstruct {
     name: StillName::const_new(still_type_dec_name),
     arguments: vec![],
 };
@@ -3040,7 +3039,7 @@ const still_syntax_type_dec: StillSyntaxType = StillSyntaxType::Construct {
     arguments: vec![],
 };
 const still_type_int_name: &str = "int";
-const still_type_int: StillType = StillType::Construct {
+const still_type_int: StillType = StillType::ChoiceConstruct {
     name: StillName::const_new(still_type_int_name),
     arguments: vec![],
 };
@@ -3049,7 +3048,7 @@ const still_syntax_type_int: StillSyntaxType = StillSyntaxType::Construct {
     arguments: vec![],
 };
 const still_type_str_name: &str = "str";
-const still_type_str: StillType = StillType::Construct {
+const still_type_str: StillType = StillType::ChoiceConstruct {
     name: StillName::const_new(still_type_str_name),
     arguments: vec![],
 };
@@ -3059,7 +3058,7 @@ const still_syntax_type_str: StillSyntaxType = StillSyntaxType::Construct {
 };
 const still_type_vec_name: &str = "vec";
 fn still_type_vec(element_type: StillType) -> StillType {
-    StillType::Construct {
+    StillType::ChoiceConstruct {
         name: StillName::new(still_type_vec_name),
         arguments: vec![element_type],
     }
@@ -8306,7 +8305,7 @@ fn still_project_info_to_rust(
                 })
                 .copied()
                 .collect::<Vec<_>>();
-        let mut all_scc_types_are_aliases: bool = true;
+        let mut scc_type_alias_count: usize = 0;
         // initialize only the parameters into compiled_choice_type_infos
         // so that no "not found" errors are raised
         for type_declaration_info in &type_declaration_infos {
@@ -8316,6 +8315,7 @@ fn still_project_info_to_rust(
                     parameters,
                     ..
                 } => {
+                    scc_type_alias_count += 1;
                     compiled_type_alias_infos.insert(
                         name_node.value.clone(),
                         TypeAliasInfo {
@@ -8335,7 +8335,6 @@ fn still_project_info_to_rust(
                     parameters,
                     ..
                 } => {
-                    all_scc_types_are_aliases = false;
                     compiled_choice_type_infos.insert(
                         name_node.value.clone(),
                         ChoiceTypeInfo {
@@ -8353,45 +8352,54 @@ fn still_project_info_to_rust(
             }
         }
         // report and skip (mutually) recursive type aliases. a bit messy
-        if all_scc_types_are_aliases {
-            if type_declaration_infos.len() >= 2
-                && let Some(StillSyntaxTypeDeclarationInfo::TypeAlias {
-                    name: first_scc_type_declaration_name_node,
-                    ..
-                }) = type_declaration_infos.first()
-            {
-                errors.push(StillErrorNode {
-                    range: first_scc_type_declaration_name_node.range,
-                    message: format!(
-                        "this type alias is (mutually) recursive: it references type aliases that themselves reference this type alias. The involved type aliases are: {}. This is tricky to represent in compile target languages, and can even lead to the type checker running in circles. You can break this infinite loop by wrapping this type or one of its recursive parts into a choice type.",
-                        type_declaration_infos
-                            .iter()
-                            .filter_map(|type_declaration_info| match type_declaration_info {
-                                StillSyntaxTypeDeclarationInfo::TypeAlias { name:name_node, .. } => Some(name_node.value.as_str()),
-                                StillSyntaxTypeDeclarationInfo::ChoiceType { .. } => None,
-                            })
-                            .collect::<Vec<&str>>()
-                            .join(", ")
-                        ).into_boxed_str(),
-                });
-                continue 'compile_types;
-            } else if let Some(first_scc_type_node) = type_declaration_strongly_connected_component
+        if scc_type_alias_count >= 2 {
+            let error_message: Box<str> = format!(
+                "this type alias is part of multiple (mutually) recursive types, multiple of which type aliases. That means it references type aliases that themselves eventually reference this type alias. The involved types are: {}. While there are legitimate uses for this, it can generally be tricky to represent in compile target languages, and can even lead to the type checker running in circles. You can break this infinite loop by wrapping this type or one of its recursive parts into a choice type. Choice types are allowed to recurse as much as they like.",
+                type_declaration_infos
+                    .iter()
+                    .map(|type_declaration_info| match type_declaration_info {
+                        StillSyntaxTypeDeclarationInfo::TypeAlias { name:name_node, .. } => name_node.value.as_str(),
+                        StillSyntaxTypeDeclarationInfo::ChoiceType { name:name_node,.. } => name_node.value.as_str(),
+                    })
+                    .collect::<Vec<&str>>()
+                    .join(", ")
+                ).into_boxed_str();
+            errors.extend(
+                type_declaration_infos
+                    .iter()
+                    .filter_map(
+                        |scc_type_declaration_info| match scc_type_declaration_info {
+                            StillSyntaxTypeDeclarationInfo::TypeAlias {
+                                name: scc_type_alias_name_node,
+                                ..
+                            } => Some(scc_type_alias_name_node.range),
+                            StillSyntaxTypeDeclarationInfo::ChoiceType { .. } => None,
+                        },
+                    )
+                    .map(|scc_type_alias_name_range| StillErrorNode {
+                        range: scc_type_alias_name_range,
+                        message: error_message.clone(),
+                    }),
+            );
+            continue 'compile_types;
+        } else if scc_type_alias_count == 1
+            && type_declaration_infos.len() == 1
+            && let Some(first_scc_type_node) = type_declaration_strongly_connected_component
                 .iter_nodes()
                 .next()
-                && type_graph
-                    .iter_successors(first_scc_type_node)
-                    .any(|n| n == first_scc_type_node)
-                && let Some(StillSyntaxTypeDeclarationInfo::TypeAlias {
-                    name: first_scc_type_declaration_name_node,
-                    ..
-                }) = type_declaration_infos.first()
-            {
-                errors.push(StillErrorNode {
+            && type_graph
+                .iter_successors(first_scc_type_node)
+                .any(|n| n == first_scc_type_node)
+            && let Some(StillSyntaxTypeDeclarationInfo::TypeAlias {
+                name: first_scc_type_declaration_name_node,
+                ..
+            }) = type_declaration_infos.first()
+        {
+            errors.push(StillErrorNode {
                     range: first_scc_type_declaration_name_node.range,
                     message: Box::from("this type alias is recursive: it references itself in the type is aliases. This is tricky to represent in compile target languages, and can even lead to the type checker running in circles. You can break this infinite loop by wrapping this type or one of its recursive parts into a choice type."),
                 });
-                continue 'compile_types;
-            }
+            continue 'compile_types;
         }
         let scc_type_declaration_names: std::collections::HashSet<&str> = type_declaration_infos
             .iter()
@@ -8629,7 +8637,7 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             }
         }
         fn opt(value: StillType) -> StillType {
-            StillType::Construct {
+            StillType::ChoiceConstruct {
                 name: StillName::const_new("opt"),
                 arguments: vec![value],
             }
@@ -8859,7 +8867,7 @@ fn still_type_to_syntax_node(type_: &StillType) -> StillSyntaxNode<StillSyntaxTy
             arrow_key_symbol_range: None,
             output: Some(still_syntax_node_box(still_type_to_syntax_node(output))),
         },
-        StillType::Construct { name, arguments } => StillSyntaxType::Construct {
+        StillType::ChoiceConstruct { name, arguments } => StillSyntaxType::Construct {
             name: still_syntax_node_empty(name.clone()),
             arguments: arguments.iter().map(still_type_to_syntax_node).collect(),
         },
@@ -10864,7 +10872,7 @@ fn still_type_is_copy(
             true
             // TODO for non-dyn it would be false
         }
-        StillType::Construct {
+        StillType::ChoiceConstruct {
             name: name_node,
             arguments,
         } => {
@@ -10898,7 +10906,7 @@ fn still_type_uses_lifetime(
     match type_ {
         StillType::Variable(_) => false,
         StillType::Function { .. } => true,
-        StillType::Construct { name, arguments } => {
+        StillType::ChoiceConstruct { name, arguments } => {
             (match type_aliases.get(name.as_str()) {
                 None => {
                     match choice_types.get(name.as_str()) {
@@ -10930,7 +10938,7 @@ fn still_type_has_owned_representation(
     match type_ {
         StillType::Variable(_) => variables_have_owned_representation,
         StillType::Function { .. } => false,
-        StillType::Construct {
+        StillType::ChoiceConstruct {
             name: name_node,
             arguments,
         } => {
@@ -10980,7 +10988,7 @@ fn still_type_constructs_recursive_type_in(
                     still_type_constructs_recursive_type_in(scc_type_declaration_names, input_type)
                 }))
         }
-        StillType::Construct { name, arguments } => {
+        StillType::ChoiceConstruct { name, arguments } => {
             // skipped for now as recursive types are currently assumed to always contain a lifetime
             // if name_node.value == still_type_vec_name {
             //     // is already behind a reference
@@ -11042,10 +11050,7 @@ fn variable_declaration_to_rust<'a>(
         FnRepresentation::Impl,
         result_node,
     );
-    let Some(type_) = compiled_result.type_.and_then(|result_type| {
-        still_type_resolve_outer_type_aliases(type_aliases, std::borrow::Cow::Owned(result_type))
-            .map(std::borrow::Cow::into_owned)
-    }) else {
+    let Some(type_) = compiled_result.type_ else {
         // rust top level declarations need explicit types; partial types won't do
         return None;
     };
@@ -11409,38 +11414,26 @@ fn still_syntax_type_to_choice_type(
         _ => None,
     }
 }
-/// None indicates an error already reported in a different place
-fn still_type_resolve_outer_type_aliases<'a>(
-    type_aliases: &'a std::collections::HashMap<StillName, TypeAliasInfo>,
-    still_type: std::borrow::Cow<'a, StillType>,
-) -> Option<std::borrow::Cow<'a, StillType>> {
-    match still_type.as_ref() {
-        StillType::Construct { name, arguments } => match type_aliases.get(name) {
-            None => Some(still_type),
-            Some(type_alias) => match &type_alias.type_ {
-                None => None,
-                Some(type_alias_type) => {
-                    if type_alias.parameters.is_empty() {
-                        return Some(std::borrow::Cow::Borrowed(type_alias_type));
-                    }
-                    let type_parameter_replacements: std::collections::HashMap<&str, &StillType> =
-                        type_alias
-                            .parameters
-                            .iter()
-                            .map(|n| n.value.as_str())
-                            .zip(arguments.iter())
-                            .collect::<std::collections::HashMap<_, _>>();
-                    let mut peeled: StillType = type_alias_type.clone();
-                    still_type_replace_variables(&type_parameter_replacements, &mut peeled);
-                    still_type_resolve_outer_type_aliases(
-                        type_aliases,
-                        std::borrow::Cow::Owned(peeled),
-                    )
-                }
-            },
-        },
-        _ => Some(still_type),
+fn still_type_construct_resolve_type_alias(
+    origin_type_alias: &TypeAliasInfo,
+    argument_types: &[StillType],
+) -> Option<StillType> {
+    let Some(type_alias_type) = &origin_type_alias.type_ else {
+        return None;
+    };
+    if origin_type_alias.parameters.is_empty() {
+        return Some(type_alias_type.clone());
     }
+    let type_parameter_replacements: std::collections::HashMap<&str, &StillType> =
+        origin_type_alias
+            .parameters
+            .iter()
+            .map(|n| n.value.as_str())
+            .zip(argument_types.iter())
+            .collect::<std::collections::HashMap<_, _>>();
+    let mut peeled: StillType = type_alias_type.clone();
+    still_type_replace_variables(&type_parameter_replacements, &mut peeled);
+    Some(peeled)
 }
 fn still_type_replace_variables(
     type_parameter_replacements: &std::collections::HashMap<&str, &StillType>,
@@ -11453,7 +11446,7 @@ fn still_type_replace_variables(
                 *type_ = replacement_type_node.clone();
             }
         }
-        StillType::Construct { name: _, arguments } => {
+        StillType::ChoiceConstruct { name: _, arguments } => {
             for argument_type in arguments {
                 still_type_replace_variables(type_parameter_replacements, argument_type);
             }
@@ -11649,17 +11642,10 @@ fn still_syntax_type_replace_variables(
 }
 fn still_type_collect_variables_that_are_concrete_into(
     type_parameter_replacements: &mut std::collections::HashMap<Box<str>, StillType>,
-    type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     type_with_variables: &StillType,
     concrete_type: StillType,
 ) {
-    let Some(resolved_type_with_variables) = still_type_resolve_outer_type_aliases(
-        type_aliases,
-        std::borrow::Cow::Borrowed(type_with_variables),
-    ) else {
-        return;
-    };
-    match resolved_type_with_variables.as_ref() {
+    match type_with_variables {
         StillType::Variable(variable_name) => {
             type_parameter_replacements.insert(Box::from(variable_name.as_str()), concrete_type);
         }
@@ -11667,42 +11653,32 @@ fn still_type_collect_variables_that_are_concrete_into(
             inputs,
             output: output_type,
         } => {
-            if let Some(StillType::Function {
+            if let StillType::Function {
                 inputs: concrete_function_inputs,
                 output: concrete_function_output_type,
-            }) = still_type_resolve_outer_type_aliases(
-                type_aliases,
-                std::borrow::Cow::Owned(concrete_type),
-            )
-            .map(std::borrow::Cow::into_owned)
+            } = concrete_type
             {
                 for (input_type, concrete_input_type) in
                     inputs.iter().zip(concrete_function_inputs.into_iter())
                 {
                     still_type_collect_variables_that_are_concrete_into(
                         type_parameter_replacements,
-                        type_aliases,
                         input_type,
                         concrete_input_type,
                     );
                 }
                 still_type_collect_variables_that_are_concrete_into(
                     type_parameter_replacements,
-                    type_aliases,
                     output_type,
                     *concrete_function_output_type,
                 );
             }
         }
-        StillType::Construct { name, arguments } => {
-            if let Some(StillType::Construct {
+        StillType::ChoiceConstruct { name, arguments } => {
+            if let StillType::ChoiceConstruct {
                 name: concrete_choice_type_construct_name,
                 arguments: concrete_choice_type_construct_arguments,
-            }) = still_type_resolve_outer_type_aliases(
-                type_aliases,
-                std::borrow::Cow::Owned(concrete_type),
-            )
-            .map(std::borrow::Cow::into_owned)
+            } = concrete_type
                 && name == concrete_choice_type_construct_name
             {
                 for (argument_type, concrete_argument_type) in arguments
@@ -11711,7 +11687,6 @@ fn still_type_collect_variables_that_are_concrete_into(
                 {
                     still_type_collect_variables_that_are_concrete_into(
                         type_parameter_replacements,
-                        type_aliases,
                         argument_type,
                         concrete_argument_type,
                     );
@@ -11719,13 +11694,7 @@ fn still_type_collect_variables_that_are_concrete_into(
             }
         }
         StillType::Record(fields) => {
-            if let Some(StillType::Record(mut concrete_fields)) =
-                still_type_resolve_outer_type_aliases(
-                    type_aliases,
-                    std::borrow::Cow::Owned(concrete_type),
-                )
-                .map(std::borrow::Cow::into_owned)
-            {
+            if let StillType::Record(mut concrete_fields) = concrete_type {
                 for field in fields {
                     if let Some(matching_concrete_field_index) = concrete_fields
                         .iter()
@@ -11735,7 +11704,6 @@ fn still_type_collect_variables_that_are_concrete_into(
                             concrete_fields.swap_remove(matching_concrete_field_index);
                         still_type_collect_variables_that_are_concrete_into(
                             type_parameter_replacements,
-                            type_aliases,
                             &field.value,
                             concrete_field.value,
                         );
@@ -11952,7 +11920,7 @@ fn still_type_to_rust(
                 }),
             }
         }
-        StillType::Construct { name, arguments } => {
+        StillType::ChoiceConstruct { name, arguments } => {
             let has_lifetime_parameter: bool = choice_types
                 .get(name.as_str())
                 .map(|compile_choice_type_info| compile_choice_type_info.has_lifetime_parameter)
@@ -12053,7 +12021,7 @@ fn still_type_variables_into<'a>(
             // TODO skip as it should not contain variables not used in the inputs
             still_type_variables_into(variables, output);
         }
-        StillType::Construct { name: _, arguments } => {
+        StillType::ChoiceConstruct { name: _, arguments } => {
             for argument_type in arguments {
                 still_type_variables_into(variables, argument_type);
             }
@@ -12080,7 +12048,7 @@ fn still_type_variables_and_records_into(
             }
             still_type_variables_and_records_into(type_variables, records_used, output);
         }
-        StillType::Construct { name: _, arguments } => {
+        StillType::ChoiceConstruct { name: _, arguments } => {
             for argument in arguments {
                 still_type_variables_and_records_into(type_variables, records_used, argument);
             }
@@ -12595,20 +12563,10 @@ fn still_syntax_expression_to_rust<'a>(
                                 type_: None,
                             };
                         };
-                        let Some(type_resolved) = still_type_resolve_outer_type_aliases(
-                            type_aliases,
-                            std::borrow::Cow::Owned(type_),
-                        ) else {
-                            return CompiledStillExpression {
-                                uses_allocator: false,
-                                rust: syn_expr_todo(),
-                                type_: None,
-                            };
-                        };
-                        let StillType::Construct {
+                        let StillType::ChoiceConstruct {
                             name: origin_choice_type_name,
                             arguments: origin_choice_type_arguments,
-                        } = type_resolved.into_owned()
+                        } = type_
                         else {
                             errors.push(StillErrorNode {
                                 range: maybe_type_node.as_ref().map(|n| n.range).unwrap_or(expression_node.range),
@@ -12659,7 +12617,7 @@ fn still_syntax_expression_to_rust<'a>(
                                 // TODO check origin variant also has no value
                                 CompiledStillExpression {
                                     uses_allocator: false,
-                                    type_: Some(StillType::Construct {
+                                    type_: Some(StillType::ChoiceConstruct {
                                         name: origin_choice_type_name,
                                         arguments: origin_choice_type_arguments,
                                     }),
@@ -12682,7 +12640,7 @@ fn still_syntax_expression_to_rust<'a>(
                                 CompiledStillExpression {
                                     uses_allocator: variant_value_needs_to_be_reference
                                         || value_compiled.uses_allocator,
-                                    type_: Some(StillType::Construct {
+                                    type_: Some(StillType::ChoiceConstruct {
                                         name: origin_choice_type_name,
                                         arguments: origin_choice_type_arguments,
                                     }),
@@ -12914,7 +12872,6 @@ fn still_syntax_expression_to_rust<'a>(
                                     if let Some(argument_type) = maybe_argument_type {
                                         still_type_collect_variables_that_are_concrete_into(
                                             &mut type_parameter_replacements,
-                                            type_aliases,
                                             parameter_type_node,
                                             argument_type,
                                         );
@@ -13189,19 +13146,14 @@ fn still_syntax_expression_to_rust<'a>(
                 errors.push(StillErrorNode { range: expression_node.range, message: Box::from("missing field name in record access (..record..).here. Field names start with a lowercase letter a-z") });
                 return compiled_record;
             };
-            let Some(record_type) = compiled_record.type_.and_then(|record_type| {
-                still_type_resolve_outer_type_aliases(
-                    type_aliases,
-                    std::borrow::Cow::Owned(record_type),
-                )
-            }) else {
+            let Some(record_type) = compiled_record.type_ else {
                 return CompiledStillExpression {
                     rust: syn_expr_todo(),
                     uses_allocator: false,
                     type_: None,
                 };
             };
-            let StillType::Record(record_type_fields) = record_type.into_owned() else {
+            let StillType::Record(record_type_fields) = record_type else {
                 errors.push(StillErrorNode {
                     range: field_name_node.range,
                     message: Box::from(
@@ -13834,59 +13786,6 @@ fn still_syntax_type_to_type(
             name: name_node,
             arguments,
         } => {
-            if let Some(origin_type_alias) = type_aliases.get(&name_node.value) {
-                match origin_type_alias.parameters.len().cmp(&arguments.len()) {
-                    std::cmp::Ordering::Equal => {}
-                    std::cmp::Ordering::Less => {
-                        errors.push(StillErrorNode {
-                            range: name_node.range,
-                            message: format!(
-                                "this type alias has {} less parameters than arguments are provided here.",
-                                arguments.len() - origin_type_alias.parameters.len(),
-                            ).into_boxed_str()
-                        });
-                    }
-                    std::cmp::Ordering::Greater => {
-                        errors.push(StillErrorNode {
-                            range: name_node.range,
-                            message: format!(
-                                "this type alias has {} more parameters than arguments are provided here. The additional parameters are called {}",
-                                origin_type_alias.parameters.len() - arguments.len(),
-                                origin_type_alias.parameters.iter().map(|parameter_node| parameter_node.value.as_str()).skip(arguments.len()).collect::<Vec<_>>().join(", ")
-                            ).into_boxed_str()
-                        });
-                    }
-                }
-            } else if let Some(origin_choice_type) = choice_types.get(&name_node.value) {
-                match origin_choice_type.parameters.len().cmp(&arguments.len()) {
-                    std::cmp::Ordering::Equal => {}
-                    std::cmp::Ordering::Less => {
-                        errors.push(StillErrorNode {
-                            range: name_node.range,
-                            message: format!(
-                                "this choice type has {} less parameters than arguments are provided here.",
-                                arguments.len() - origin_choice_type.parameters.len(),
-                            ).into_boxed_str()
-                        });
-                    }
-                    std::cmp::Ordering::Greater => {
-                        errors.push(StillErrorNode {
-                            range: name_node.range,
-                            message: format!(
-                                "this choice type has {} more parameters than arguments are provided here. The additional parameters are called {}",
-                                origin_choice_type.parameters.len() - arguments.len(),
-                                origin_choice_type.parameters.iter().map(|parameter_node| parameter_node.value.as_str()).skip(arguments.len()).collect::<Vec<_>>().join(", ")
-                            ).into_boxed_str()
-                        });
-                    }
-                }
-            } else {
-                // list similar names?
-                errors.push(StillErrorNode {
-                    range: name_node.range,
-                    message: Box::from("no type alias or choice type is declared with this name"),
-                });
-            }
             let argument_types: Vec<StillType> = arguments
                 .iter()
                 .map(|argument_node| {
@@ -13898,7 +13797,65 @@ fn still_syntax_type_to_type(
                     )
                 })
                 .collect::<Option<Vec<_>>>()?;
-            Some(StillType::Construct {
+            if let Some(origin_type_alias) = type_aliases.get(&name_node.value) {
+                match origin_type_alias.parameters.len().cmp(&arguments.len()) {
+                    std::cmp::Ordering::Equal => {}
+                    std::cmp::Ordering::Less => {
+                        errors.push(StillErrorNode {
+                            range: name_node.range,
+                            message: format!(
+                                "this type alias has {} less parameters than arguments are provided here.",
+                                arguments.len() - origin_type_alias.parameters.len(),
+                            ).into_boxed_str()
+                        });
+                        return None;
+                    }
+                    std::cmp::Ordering::Greater => {
+                        errors.push(StillErrorNode {
+                            range: name_node.range,
+                            message: format!(
+                                "this type alias has {} more parameters than arguments are provided here. The additional parameters are called {}",
+                                origin_type_alias.parameters.len() - arguments.len(),
+                                origin_type_alias.parameters.iter().map(|parameter_node| parameter_node.value.as_str()).skip(arguments.len()).collect::<Vec<_>>().join(", ")
+                            ).into_boxed_str()
+                        });
+                        // later arguments will be ignored
+                    }
+                }
+                return still_type_construct_resolve_type_alias(origin_type_alias, &argument_types);
+            }
+            let Some(origin_choice_type) = choice_types.get(&name_node.value) else {
+                errors.push(StillErrorNode {
+                    range: name_node.range,
+                    message: Box::from("no type alias or choice type is declared with this name"),
+                });
+                return None;
+            };
+            match origin_choice_type.parameters.len().cmp(&arguments.len()) {
+                std::cmp::Ordering::Equal => {}
+                std::cmp::Ordering::Less => {
+                    errors.push(StillErrorNode {
+                        range: name_node.range,
+                        message: format!(
+                            "this choice type has {} less parameters than arguments are provided here.",
+                            arguments.len() - origin_choice_type.parameters.len(),
+                        ).into_boxed_str()
+                    });
+                    return None;
+                }
+                std::cmp::Ordering::Greater => {
+                    errors.push(StillErrorNode {
+                        range: name_node.range,
+                        message: format!(
+                            "this choice type has {} more parameters than arguments are provided here. The additional parameters are called {}",
+                            origin_choice_type.parameters.len() - arguments.len(),
+                            origin_choice_type.parameters.iter().map(|parameter_node| parameter_node.value.as_str()).skip(arguments.len()).collect::<Vec<_>>().join(", ")
+                        ).into_boxed_str()
+                    });
+                    // later arguments will be ignored
+                }
+            }
+            Some(StillType::ChoiceConstruct {
                 name: name_node.value.clone(),
                 arguments: argument_types,
             })
@@ -14097,19 +14054,10 @@ fn still_syntax_pattern_to_rust<'a>(
                                 type_: None,
                             };
                         };
-                        let Some(resolved_type) = still_type_resolve_outer_type_aliases(
-                            type_aliases,
-                            std::borrow::Cow::Owned(type_),
-                        ) else {
-                            return CompiledStillPattern {
-                                rust: None,
-                                type_: None,
-                            };
-                        };
-                        let StillType::Construct {
+                        let StillType::ChoiceConstruct {
                             name: origin_choice_type_name,
                             arguments: origin_choice_type_arguments,
-                        } = resolved_type.into_owned()
+                        } = type_
                         else {
                             errors.push(StillErrorNode {
                                 range: maybe_type_node.as_ref().map(|n| n.range).unwrap_or(pattern_node.range),
@@ -14170,7 +14118,7 @@ fn still_syntax_pattern_to_rust<'a>(
                                 let Some(value_rust_pattern) = compiled_value.rust else {
                                     return CompiledStillPattern {
                                         rust: None,
-                                        type_: Some(StillType::Construct {
+                                        type_: Some(StillType::ChoiceConstruct {
                                             name: origin_choice_type_name,
                                             arguments: origin_choice_type_arguments,
                                         }),
@@ -14179,7 +14127,7 @@ fn still_syntax_pattern_to_rust<'a>(
                                 let Some(_value_type) = compiled_value.type_ else {
                                     return CompiledStillPattern {
                                         rust: None,
-                                        type_: Some(StillType::Construct {
+                                        type_: Some(StillType::ChoiceConstruct {
                                             name: origin_choice_type_name,
                                             arguments: origin_choice_type_arguments,
                                         }),
@@ -14208,7 +14156,7 @@ fn still_syntax_pattern_to_rust<'a>(
                                     elems: std::iter::once(rust_value).collect(),
                                 }),
                             }),
-                            type_: Some(StillType::Construct {
+                            type_: Some(StillType::ChoiceConstruct {
                                 name: origin_choice_type_name,
                                 arguments: origin_choice_type_arguments,
                             }),

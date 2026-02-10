@@ -58,9 +58,8 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 
 ## TODO
 - type checking (vec elements equal, case results equal, function arguments equal to parameters, typed, variant value) (notably also: check that each function output type only ever uses type variables used in the input type, and similarly: on non-function types, forbid the use of any new variables; in the error say "unknown type variable")
-- complete small standard library in rust (TODO `order`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, `vec-sort`, `vec-add-capacity`, ...)
-- replace `&'a dyn Fn(_) -> _` in function parameters by `impl Fn(_) -> _ + Clone + 'a`
-  and likewise remove `alloc.alloc(|_| _)` when used as direct function parameter: `|_| _`
+- complete small standard library in rust: `order`, `dec-power`, `str-compare`, `int-compare`, `dec-compare`, `dec-floor`, `dec-ceiling`, `dec-round`, `vec-sort`, `vec-add-capacity`, `done-or-continue`, `vec-walk(Fn(Element, State) -> DoneOrContinue<Done, State>) -> DoneOrContinue<Done, State>`
+- remove `alloc.alloc(|_| _)` when used as direct function parameter to a project variable
 - introduce `nat` type (`usize`) and require regular ints to be prefixed with `+`/`-`
 - simple io (`standard-in-read-line`, `standard-out-write`)
 - `case of` exhaustiveness checking
@@ -69,14 +68,17 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 
 ## considering
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
-- (currently no idea how to implement in rust, maybe can be done in user land given that it required Hash but I'd like order functions to be given for each operation or similar?) add `map`, `set` core types
-- replace non-recursive nominal-ish choice types by structural-ish choice types. Should be fairly easy to implement as `enum Variant0Variant1<Variant0, Variant1>` but still alright for FFI (you always have to type `Variant0Variant1::Variant0` similar to record structs currently _but_ crucially you have the option to use a still-declared type alias like `type Choice<'a> = Variant0Variant1<usize, &'a str>` to write `Choice::Variant0`)
 - (leaning towards yes) use better multiline string literal: starting each line with `/"` or `"""` just like zig's `//`
 - (leaning slightly towards yes) change `Str<'a>` to `enum { Slice(&'a str), Rc(Rc<String>) }` and converting to Rc to a slice when necessary by allocating the Rc (same for Vec)
-- (leaning no, at least for now) add or pattern `( first | second | third )` (potentially allow `:overall:( A | B | C )` (where the inner variant patterns don't need a type) specifically for variant)
-- make formatter range-independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
+- (maybe in the future) add or pattern `( first | second | third )`
+- (leaning towards no, partly due to matching syntax) make formatter range-independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
 - (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
 - output rust in realtime. Really cool since the compiled code is always up to date, need to check if file io is fast enough
+- (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
+- (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
+- (leaning towards no, sadly) replace non-recursive nominal-ish choice types by structural-ish choice types. Should be fairly easy to implement as `enum Variant0Variant1<Variant0, Variant1>` but still alright for FFI (you always have to type `Variant0Variant1::Variant0` similar to record structs currently _but_ crucially you have the option to use a still-declared type alias like `type Choice<'a> = Variant0Variant1<usize, &'a str>` to write `Choice::Variant0`)
+- (currently no idea how to implement in rust, maybe can be done in user land given that it required Hash but I'd like order functions to be given for each operation or similar?) add `map`, `set` core types
+- switch all core numbers to either 32 bit or 64 bit (64 bit would be nice for conversions if there are 32bit variations in the future and also be a reasonable default fur use as posix time or random seed, 32 bit is nice for chr conversion, default memory efficiency)
 - (leaning towards no) extend typing model to only specify type variables, so `myFunction<int, str>`, `[]<int>`, `Present<int> 1`, similar to dhall and zig (but worse, because not first class. If it was you could pass types in records etc).
 
   ```still
