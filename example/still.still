@@ -49,6 +49,13 @@ closure-requiring-clone-of-capture \:vec int:variable >
     , \:int:another > vec-attach variable [ another ]
     ]
 
+test-closure-impl
+    vec-walk-from [ 0, 1, 3 ]
+        0
+        (\:unt:sum, :unt:element >
+            :continue-or-exit unt unt:Continue unt-add sum element
+        )
+
 type state =
     unt
 

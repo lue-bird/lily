@@ -3101,7 +3101,7 @@ fn still_type_opt(value_type: StillType) -> StillType {
 const still_type_continue_or_exit_name: &str = "continue-or-exit";
 fn still_type_continue_or_exit(continue_type: StillType, exit_type: StillType) -> StillType {
     StillType::ChoiceConstruct {
-        name: StillName::new(still_type_opt_name),
+        name: StillName::new(still_type_continue_or_exit_name),
         arguments: vec![continue_type, exit_type],
     }
 }
@@ -8646,7 +8646,6 @@ fn still_project_info_to_rust(
                                 .map(|n| n.value.clone()),
                             type_: None,
                             has_allocator_parameter: true,
-                            kind: RustVariableItemKind::Fn,
                         },
                     );
                 }
@@ -8671,7 +8670,6 @@ fn still_project_info_to_rust(
                                 &compiled_choice_type_infos,
                                 still_syntax_node_as_ref(&result_type_node),
                             ),
-                            kind: RustVariableItemKind::Fn,
                             has_allocator_parameter: true,
                         },
                     );
@@ -8695,7 +8693,6 @@ fn still_project_info_to_rust(
                     CompiledVariableDeclarationInfo {
                         documentation: variable_declaration.documentation.map(|n| n.value.clone()),
                         name_range: Some(variable_declaration.name.range),
-                        kind: compiled_variable_declaration.kind,
                         has_allocator_parameter: compiled_variable_declaration
                             .has_allocator_parameter,
                         type_: Some(compiled_variable_declaration.type_),
@@ -8723,7 +8720,6 @@ fn still_project_info_to_rust(
 struct CompiledVariableDeclarationInfo {
     name_range: Option<lsp_types::Range>,
     documentation: Option<Box<str>>,
-    kind: RustVariableItemKind,
     type_: Option<StillType>,
     has_allocator_parameter: bool,
 }
@@ -8744,252 +8740,216 @@ static core_variable_declaration_infos: std::sync::LazyLock<
         [
             (
                 StillName::from("unt-add"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_unt,still_type_unt], still_type_unt),
                 "Addition operation (`+`)",
             ),
             (
                 StillName::from("unt-mul"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_unt,still_type_unt], still_type_unt),
                 "Multiplication operation (`*`)",
             ),
             (
                 StillName::from("unt-div"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_unt,still_type_unt], still_type_unt),
                 "Integer division operation (`/`), discarding any remainder. Try not to divide by 0, as 0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean",
             ),
             (
                 StillName::from("unt-order"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_unt,still_type_unt], still_type_order),
                 "Compare `unt` values",
             ),
             (
                 StillName::from("unt-to-int"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_unt], still_type_int),
                 "Convert `unt` to `int`",
             ),
             (
                 StillName::from("unt-to-dec"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_unt], still_type_dec),
                 "Convert `unt` to `dec`",
             ),
             (
                 StillName::from("unt-to-str"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_unt], still_type_str),
                 "Convert `unt` to `str`",
             ),
             (
                 StillName::from("str-to-unt"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_str], still_type_opt(still_type_unt)),
                 "Parse a complete `str` unto an `unt`, returning :opt unt:Absent otherwise",
             ),
             (
                 StillName::from("int-negate"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_int], still_type_int),
                 "Flip its sign",
             ),
             (
                 StillName::from("int-absolute"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_int], still_type_unt),
                 "If negative, negate, ultimately yielding an `unt`",
             ),
             (
                 StillName::from("int-add"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_int,still_type_int], still_type_int),
                 "Addition operation (`+`)",
             ),
             (
                 StillName::from("int-mul"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_int,still_type_int], still_type_int),
                 "Multiplication operation (`*`)",
             ),
             (
                 StillName::from("int-div"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_int,still_type_int], still_type_int),
                 "Integer division operation (`/`), discarding any remainder. Try not to divide by 0, as 0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean",
             ),
             (
                 StillName::from("int-order"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_int,still_type_int], still_type_order),
                 "Compare `int` values",
             ),
             (
                 StillName::from("int-to-dec"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_int], still_type_dec),
                 "Convert `int` to `dec`",
             ),
             (
                 StillName::from("int-to-str"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_int], still_type_str),
                 "Convert `int` to `str`",
             ),
             (
                 StillName::from("int-to-unt"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_int], still_type_opt(still_type_dec)),
                 "Convert the `int` to `unt` if >= 0, returning :opt unt:Absent otherwise",
             ),
             (
                 StillName::from("str-to-int"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_str], still_type_opt(still_type_int)),
                 "Parse a complete `str` into an `int`, returning :opt int:Absent otherwise",
             ),
             (
                 StillName::from("dec-negate"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec], still_type_dec),
                 "Flip its sign",
             ),
             (
                 StillName::from("dec-absolute"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec], still_type_dec),
                 "If negative, negate",
             ),
             (
                 StillName::from("dec-add"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec,still_type_dec], still_type_dec),
                 "Addition operation (`+`)",
             ),
             (
                 StillName::from("dec-mul"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec,still_type_dec], still_type_dec),
                 "Multiplication operation (`*`)",
             ),
             (
                 StillName::from("dec-div"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec,still_type_dec], still_type_dec),
                 "Division operation (`/`). Try not to divide by 0.0, as 0.0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean.",
             ),
             (
                 StillName::from("dec-to-power-of"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec,still_type_dec], still_type_dec),
                 "Exponentiation operation (`^`)",
             ),
             (
                 StillName::from("dec-truncate"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_dec], still_type_int),
                 "Its integer part, stripping away anything after the decimal point. Its like floor for positive inputs and ceiling for negative inputs",
             ),
             (
                 StillName::from("dec-floor"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_dec], still_type_int),
                 "Its nearest smaller integer",
             ),
             (
                 StillName::from("dec-ceiling"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_dec], still_type_int),
                 "Its nearest greater integer",
             ),
             (
                 StillName::from("dec-round"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_dec], still_type_int),
                 "Its nearest integer. If the input ends in .5, round away from 0.0",
             ),
             (
                 StillName::from("dec-order"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_dec,still_type_dec], still_type_order),
                 "Compare `dec` values",
             ),
             (
                 StillName::from("dec-to-str"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_dec], still_type_str),
                 "Convert `dec` to `str`",
             ),
             (
                 StillName::from("str-to-dec"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_str], still_type_opt(still_type_dec)),
                 "Parse a complete `str` into an `dec`, returning :opt dec:Absent otherwise",
             ),
             (
                 StillName::from("chr-byte-count"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_chr], still_type_unt),
                 "Encoded as UTF-8, how many bytes the `chr` spans, between 1 and 4",
             ),
             (
                 StillName::from("chr-order"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_chr,still_type_chr], still_type_order),
                 "Compare `chr` values by their unicode code point",
             ),
             (
                 StillName::from("chr-to-str"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_chr], still_type_str),
                 "Convert `chr` to `str`",
             ),
             (
                 StillName::from("str-byte-count"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_str], still_type_unt),
                 "Encoded as UTF-8, how many bytes the `str` spans",
             ),
             (
                 StillName::from("str-chr-at-byte-index"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_str, still_type_unt],
@@ -8999,7 +8959,6 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("str-slice-from-byte-index-with-byte-length"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_str, still_type_unt,still_type_unt],
@@ -9009,28 +8968,24 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("str-to-chrs"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_str], still_type_vec(still_type_chr)),
                 "Split the `str` into a `vec` of `chr`s",
             ),
             (
                 StillName::from("chrs-to-str"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_vec(still_type_chr)], still_type_str),
                 "Concatenate a `vec` of `chr`s into one `str`",
             ),
             (
                 StillName::from("str-order"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_str,still_type_str], still_type_order),
                 "Compare `str` values lexicographically (chr-wise comparison, then longer is greater). A detailed definition: https://doc.rust-lang.org/std/cmp/trait.Ord.html#lexicographical-comparison",
             ),
             (
                 StillName::from("str-walk-chrs-from"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                  [still_type_str,
@@ -9062,28 +9017,24 @@ I recommend creating helpers for common cases like mapping to an `opt` and keepi
             ),
             (
                 StillName::from("strs-flatten"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_vec(still_type_str)], still_type_str),
                 "Concatenate all the string elements",
             ),
             (
                 StillName::from("vec-repeat"),
-                RustVariableItemKind::Fn,
                 true,
                 function([still_type_unt, variable("A")], still_type_vec(variable("A"))),
                 "Build a `vec` with a given length and a given element at each index",
             ),
             (
                 StillName::from("vec-length"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_vec(variable("A"))], still_type_unt),
                 "Its element count",
             ),
             (
                 StillName::from("vec-element"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_vec(variable("A")),still_type_unt],
@@ -9103,7 +9054,6 @@ vec-last-element \:vec A:vec >
             ),
             (
                 StillName::from("vec-replace-element"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_vec(variable("A")),still_type_unt,variable("A")],
@@ -9113,7 +9063,6 @@ vec-last-element \:vec A:vec >
             ),
             (
                 StillName::from("vec-swap"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_vec(variable("A")),still_type_unt,variable("A")],
@@ -9135,7 +9084,6 @@ vec-remove-by-swapping-with-last \:vec A:vec, :unt:index >
             ),
             (
                 StillName::from("vec-truncate"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_vec(variable("A")), still_type_unt],
@@ -9155,7 +9103,6 @@ vec-remove-last \:vec A:vec >
             ),
             (
                 StillName::from("vec-increase-capacity-by"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_vec(variable("A")), still_type_unt],
@@ -9165,7 +9112,6 @@ vec-remove-last \:vec A:vec >
             ),
             (
                 StillName::from("vec-sort"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                     [still_type_vec(variable("A")),
@@ -9177,24 +9123,22 @@ vec-remove-last \:vec A:vec >
             ),
             (
                 StillName::from("vec-attach"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_vec(variable("A")), still_type_vec(variable("A"))], still_type_vec(variable("A"))),
                 "Glue the elements in a second `vec` after the first `vec`",
             ),
             (
                 StillName::from("vec-flatten"),
-                RustVariableItemKind::Fn,
                 false,
                 function([still_type_vec(still_type_vec(variable("A")))], still_type_vec(variable("A"))),
                 "Concatenate all the elements nested inside the inner `vec`s",
             ),
             (
                 StillName::from("vec-walk-from"),
-                RustVariableItemKind::Fn,
                 false,
                 function(
                  [still_type_vec(variable("A")),
+                  variable("State"),
                   function([variable("State"),variable("A")], still_type_continue_or_exit(variable("State"), variable("Exit")))
                  ],
                  still_type_continue_or_exit(variable("State"), variable("Exit"))
@@ -9231,14 +9175,13 @@ I recommend creating helpers for common cases like mapping to an `opt` and keepi
 ",
             ),
         ]
-        .map(|(name, kind, has_allocator_parameter, type_, documentation)| {
+        .map(|(name, has_allocator_parameter, type_, documentation)| {
             // TODO inline
             (
                 name,
                 CompiledVariableDeclarationInfo {
                     name_range: None,
                     documentation: Some(Box::from(documentation)),
-                    kind: kind,
                     type_: Some(type_),
                     has_allocator_parameter: has_allocator_parameter,
                 },
@@ -11576,12 +11519,6 @@ struct CompiledVariableDeclaration {
     rust: syn::Item,
     has_allocator_parameter: bool,
     type_: StillType,
-    kind: RustVariableItemKind,
-}
-#[derive(Clone, Copy)]
-enum RustVariableItemKind {
-    Fn,
-    Static,
 }
 fn variable_declaration_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
@@ -11649,7 +11586,6 @@ fn variable_declaration_to_rust<'a>(
         gt_token: Some(syn::token::Gt(syn_span())),
         where_clause: None,
     };
-    let has_no_type_variable_parameters: bool = still_type_parameters.is_empty();
     match type_ {
         StillType::Function {
             inputs: input_types,
@@ -11717,7 +11653,6 @@ fn variable_declaration_to_rust<'a>(
                         inputs: input_types,
                         output,
                     },
-                    kind: RustVariableItemKind::Fn,
                 })
             }
             result_rust => Some(CompiledVariableDeclaration {
@@ -11802,83 +11737,45 @@ fn variable_declaration_to_rust<'a>(
                     inputs: input_types,
                     output,
                 },
-                kind: RustVariableItemKind::Fn,
             }),
         },
-        type_not_function => {
-            if has_no_type_variable_parameters
-                // not necessary: && !has_lifetime_parameter
-                && // only covers a subset of theoretical rust values that qualify,
-                   // and doesn't allow e.g. Box<str>.
-                   // It only coincidentally works for all current still values.
-                   still_type_is_copy(false, type_aliases, choice_types, &type_not_function)
-            {
-                Some(CompiledVariableDeclaration {
-                    rust: syn::Item::Static(syn::ItemStatic {
-                        attrs: rust_attrs,
-                        vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
-                        mutability: syn::StaticMutability::None,
-                        static_token: syn::token::Static(syn_span()),
-                        ident: syn_ident(&still_name_to_static_rust(
-                            &variable_declaration_info.name.value,
-                        )),
-                        colon_token: syn::token::Colon(syn_span()),
-                        ty: Box::new(still_type_to_rust(
+        type_not_function => Some(CompiledVariableDeclaration {
+            rust: syn::Item::Fn(syn::ItemFn {
+                attrs: rust_attrs,
+                vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
+                sig: syn::Signature {
+                    constness: None,
+                    asyncness: None,
+                    unsafety: None,
+                    abi: None,
+                    fn_token: syn::token::Fn(syn_span()),
+                    ident: rust_ident,
+                    generics: rust_generics,
+                    paren_token: syn::token::Paren(syn_span()),
+                    inputs: (if compiled_result.uses_allocator {
+                        Some(default_allocator_fn_arg())
+                    } else {
+                        None
+                    })
+                    .into_iter()
+                    .collect(),
+                    output: syn::ReturnType::Type(
+                        syn::token::RArrow(syn_span()),
+                        Box::new(still_type_to_rust(
                             type_aliases,
                             choice_types,
-                            syn_static_lifetime_name,
-                            FnRepresentation::RefDyn,
+                            syn_default_lifetime_name,
+                            FnRepresentation::Impl,
                             &type_not_function,
                         )),
-                        eq_token: syn::token::Eq(syn_span()),
-                        expr: Box::new(compiled_result.rust),
-                        semi_token: syn::token::Semi(syn_span()),
-                    }),
-                    has_allocator_parameter: false,
-                    type_: type_not_function,
-                    kind: RustVariableItemKind::Static,
-                })
-            } else {
-                Some(CompiledVariableDeclaration {
-                    rust: syn::Item::Fn(syn::ItemFn {
-                        attrs: rust_attrs,
-                        vis: syn::Visibility::Public(syn::token::Pub(syn_span())),
-                        sig: syn::Signature {
-                            constness: None,
-                            asyncness: None,
-                            unsafety: None,
-                            abi: None,
-                            fn_token: syn::token::Fn(syn_span()),
-                            ident: rust_ident,
-                            generics: rust_generics,
-                            paren_token: syn::token::Paren(syn_span()),
-                            inputs: (if compiled_result.uses_allocator {
-                                Some(default_allocator_fn_arg())
-                            } else {
-                                None
-                            })
-                            .into_iter()
-                            .collect(),
-                            output: syn::ReturnType::Type(
-                                syn::token::RArrow(syn_span()),
-                                Box::new(still_type_to_rust(
-                                    type_aliases,
-                                    choice_types,
-                                    syn_default_lifetime_name,
-                                    FnRepresentation::Impl,
-                                    &type_not_function,
-                                )),
-                            ),
-                            variadic: None,
-                        },
-                        block: Box::new(syn_spread_expr_block(compiled_result.rust)),
-                    }),
-                    has_allocator_parameter: compiled_result.uses_allocator,
-                    type_: type_not_function,
-                    kind: RustVariableItemKind::Fn,
-                })
-            }
-        }
+                    ),
+                    variadic: None,
+                },
+                block: Box::new(syn_spread_expr_block(compiled_result.rust)),
+            }),
+            has_allocator_parameter: compiled_result.uses_allocator,
+            type_: type_not_function,
+        }),
     }
 }
 fn syn_spread_expr_block(syn_expr: syn::Expr) -> syn::Block {
@@ -13299,29 +13196,30 @@ fn still_syntax_expression_to_rust<'a>(
             variable: variable_node,
             arguments,
         } => {
-            let mut uses_allocator: bool = false;
-            let (rust_arguments, argument_maybe_types): (Vec<syn::Expr>, Vec<Option<StillType>>) =
-                arguments
-                    .iter()
-                    .map(|argument_node| {
-                        let compiled_argument: CompiledStillExpression =
-                            still_syntax_expression_to_rust(
-                                errors,
-                                records_used,
-                                type_aliases,
-                                choice_types,
-                                project_variable_declarations,
-                                local_bindings.clone(),
-                                // TODO ::Impl for project variables
-                                FnRepresentation::RefDyn,
-                                still_syntax_node_as_ref(argument_node),
-                            );
-                        uses_allocator = uses_allocator || compiled_argument.uses_allocator;
-                        (compiled_argument.rust, compiled_argument.type_)
-                    })
-                    .unzip();
             match local_bindings.get(variable_node.value.as_str()) {
                 Some(variable_info) => {
+                    let mut uses_allocator: bool = false;
+                    let (rust_arguments, _argument_maybe_types): (
+                        Vec<syn::Expr>,
+                        Vec<Option<StillType>>,
+                    ) = arguments
+                        .iter()
+                        .map(|argument_node| {
+                            let compiled_argument: CompiledStillExpression =
+                                still_syntax_expression_to_rust(
+                                    errors,
+                                    records_used,
+                                    type_aliases,
+                                    choice_types,
+                                    project_variable_declarations,
+                                    local_bindings.clone(),
+                                    FnRepresentation::RefDyn,
+                                    still_syntax_node_as_ref(argument_node),
+                                );
+                            uses_allocator = uses_allocator || compiled_argument.uses_allocator;
+                            (compiled_argument.rust, compiled_argument.type_)
+                        })
+                        .unzip();
                     let rust_reference: syn::Expr =
                         syn_expr_reference([&still_name_to_lowercase_rust(&variable_node.value)]);
                     let Some(variable_type) = &variable_info.type_ else {
@@ -13360,6 +13258,7 @@ fn still_syntax_expression_to_rust<'a>(
                                         });
                                     }
                                 }
+                                // TODO check if argument_maybe_types are equal to variable_input_types
                                 (**variable_output_type).clone()
                             }
                             _ => {
@@ -13395,6 +13294,28 @@ fn still_syntax_expression_to_rust<'a>(
                     }
                 }
                 None => {
+                    let mut uses_allocator: bool = false;
+                    let (rust_arguments, argument_maybe_types): (
+                        Vec<syn::Expr>,
+                        Vec<Option<StillType>>,
+                    ) = arguments
+                        .iter()
+                        .map(|argument_node| {
+                            let compiled_argument: CompiledStillExpression =
+                                still_syntax_expression_to_rust(
+                                    errors,
+                                    records_used,
+                                    type_aliases,
+                                    choice_types,
+                                    project_variable_declarations,
+                                    local_bindings.clone(),
+                                    FnRepresentation::Impl,
+                                    still_syntax_node_as_ref(argument_node),
+                                );
+                            uses_allocator = uses_allocator || compiled_argument.uses_allocator;
+                            (compiled_argument.rust, compiled_argument.type_)
+                        })
+                        .unzip();
                     let Some(project_variable_info) =
                         project_variable_declarations.get(variable_node.value.as_str())
                     else {
@@ -13413,18 +13334,6 @@ fn still_syntax_expression_to_rust<'a>(
                             type_: None,
                         };
                     };
-                    match project_variable_info.kind {
-                        RustVariableItemKind::Fn => {}
-                        RustVariableItemKind::Static => {
-                            return CompiledStillExpression {
-                                rust: syn_expr_reference([&still_name_to_static_rust(
-                                    &variable_node.value,
-                                )]),
-                                uses_allocator: false,
-                                type_: Some(project_variable_type.clone()),
-                            };
-                        }
-                    }
                     let rust_reference: syn::Expr =
                         syn_expr_reference([&still_name_to_lowercase_rust(&variable_node.value)]);
                     let type_: StillType = if arguments.is_empty() {
@@ -14913,26 +14822,11 @@ fn still_name_to_uppercase_rust(name: &str) -> String {
         // type variables used in core
         "A",
         "N",
-        "Continue",
-        "Exit",
+        "C",
+        "E",
+        "State",
         "Inputs",
         "Output",
-        "State",
-    ]
-    .contains(&sanitized.as_str())
-    {
-        sanitized + "ø_"
-    } else {
-        sanitized
-    }
-}
-/// all uppercase
-fn still_name_to_static_rust(name: &str) -> String {
-    let mut sanitized: String = name.replace("-", "_");
-    sanitized.make_ascii_uppercase();
-    if [
-        // type variables used in core
-        "A", "N",
     ]
     .contains(&sanitized.as_str())
     {

@@ -365,32 +365,32 @@ impl<A> Opt<A> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum ContinueOrExit<Continue, Exit> {
-    Continue(Continue),
-    Exit(Exit),
+pub enum Continue_or_exit<C, E> {
+    Continue(C),
+    Exit(E),
 }
-impl<Continue: StillIntoOwned + Clone, Exit: StillIntoOwned + Clone> StillIntoOwned
-    for ContinueOrExit<Continue, Exit>
+impl<C: StillIntoOwned + Clone, E: StillIntoOwned + Clone> StillIntoOwned
+    for Continue_or_exit<C, E>
 {
-    type Owned = ContinueOrExit<Continue::Owned, Exit::Owned>;
+    type Owned = Continue_or_exit<C::Owned, E::Owned>;
     fn into_owned(self) -> Self::Owned {
         match self {
-            ContinueOrExit::Continue(continue_) => {
-                ContinueOrExit::Continue(Continue::into_owned(continue_))
+            Continue_or_exit::Continue(continue_) => {
+                Continue_or_exit::Continue(C::into_owned(continue_))
             }
-            ContinueOrExit::Exit(exit) => ContinueOrExit::Exit(Exit::into_owned(exit)),
+            Continue_or_exit::Exit(exit) => Continue_or_exit::Exit(E::into_owned(exit)),
         }
     }
     fn into_owned_overwriting(self, allocation_to_reuse: &mut Self::Owned) {
         match (self, allocation_to_reuse) {
             (
-                ContinueOrExit::Continue(continue_),
-                ContinueOrExit::Continue(continue_allocation_to_reuse),
+                Continue_or_exit::Continue(continue_),
+                Continue_or_exit::Continue(continue_allocation_to_reuse),
             ) => {
-                Continue::into_owned_overwriting(continue_, continue_allocation_to_reuse);
+                C::into_owned_overwriting(continue_, continue_allocation_to_reuse);
             }
-            (ContinueOrExit::Exit(exit), ContinueOrExit::Exit(exit_allocation_to_reuse)) => {
-                Exit::into_owned_overwriting(exit, exit_allocation_to_reuse);
+            (Continue_or_exit::Exit(exit), Continue_or_exit::Exit(exit_allocation_to_reuse)) => {
+                E::into_owned_overwriting(exit, exit_allocation_to_reuse);
             }
             (self_, allocation_to_reuse) => {
                 *allocation_to_reuse = Self::into_owned(self_);
@@ -398,32 +398,32 @@ impl<Continue: StillIntoOwned + Clone, Exit: StillIntoOwned + Clone> StillIntoOw
         }
     }
 }
-impl<Continue: OwnedToStill, Exit: OwnedToStill> OwnedToStill for ContinueOrExit<Continue, Exit> {
+impl<C: OwnedToStill, E: OwnedToStill> OwnedToStill for Continue_or_exit<C, E> {
     type Still<'a>
-        = ContinueOrExit<Continue::Still<'a>, Exit::Still<'a>>
+        = Continue_or_exit<C::Still<'a>, E::Still<'a>>
     where
-        Continue: 'a,
-        Exit: 'a;
+        C: 'a,
+        E: 'a;
     fn to_still<'a>(&'a self, allocator: &'a impl Alloc) -> Self::Still<'a> {
         match self {
-            ContinueOrExit::Continue(continue_) => {
-                ContinueOrExit::Continue(Continue::to_still(continue_, allocator))
+            Continue_or_exit::Continue(continue_) => {
+                Continue_or_exit::Continue(C::to_still(continue_, allocator))
             }
-            ContinueOrExit::Exit(exit) => ContinueOrExit::Exit(Exit::to_still(exit, allocator)),
+            Continue_or_exit::Exit(exit) => Continue_or_exit::Exit(E::to_still(exit, allocator)),
         }
     }
 }
-impl<Continue, Exit> ContinueOrExit<Continue, Exit> {
-    fn to_control_flow(self) -> std::ops::ControlFlow<Exit, Continue> {
+impl<C, E> Continue_or_exit<C, E> {
+    fn to_control_flow(self) -> std::ops::ControlFlow<E, C> {
         match self {
-            ContinueOrExit::Continue(continue_) => std::ops::ControlFlow::Continue(continue_),
-            ContinueOrExit::Exit(exit) => std::ops::ControlFlow::Break(exit),
+            Continue_or_exit::Continue(continue_) => std::ops::ControlFlow::Continue(continue_),
+            Continue_or_exit::Exit(exit) => std::ops::ControlFlow::Break(exit),
         }
     }
-    fn from_control_flow(control_flow: std::ops::ControlFlow<Exit, Continue>) -> Self {
+    fn from_control_flow(control_flow: std::ops::ControlFlow<E, C>) -> Self {
         match control_flow {
-            std::ops::ControlFlow::Continue(continue_) => ContinueOrExit::Continue(continue_),
-            std::ops::ControlFlow::Break(exit) => ContinueOrExit::Exit(exit),
+            std::ops::ControlFlow::Continue(continue_) => Continue_or_exit::Continue(continue_),
+            std::ops::ControlFlow::Break(exit) => Continue_or_exit::Exit(exit),
         }
     }
 }
@@ -497,12 +497,12 @@ fn chrs_to_str<'a>(allocator: &'a impl Alloc, chars: Vec<Chr>) -> Str<'a> {
 fn str_order(left: Str, right: Str) -> Order {
     Order::from_ordering(left.cmp(right))
 }
-fn str_walk_chrs_from<Exit, State>(
+fn str_walk_chrs_from<State, E>(
     str: Str,
     initial_state: State,
-    on_element: impl Fn(State, Chr) -> ContinueOrExit<State, Exit>,
-) -> ContinueOrExit<State, Exit> {
-    ContinueOrExit::from_control_flow(std::iter::Iterator::try_fold(
+    on_element: impl Fn(State, Chr) -> Continue_or_exit<State, E>,
+) -> Continue_or_exit<State, E> {
+    Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
         &mut str.chars(),
         initial_state,
         |state, element| on_element(state, element).to_control_flow(),
@@ -673,21 +673,21 @@ fn vec_flatten<A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<A> {
         }
     })
 }
-fn vec_walk_from<A: Clone, Exit, State>(
+fn vec_walk_from<A: Clone, State, E>(
     vec: Vec<A>,
     state: State,
-    on_element: impl Fn(State, A) -> ContinueOrExit<State, Exit>,
-) -> ContinueOrExit<State, Exit> {
+    on_element: impl Fn(State, A) -> Continue_or_exit<State, E>,
+) -> Continue_or_exit<State, E> {
     match std::rc::Rc::try_unwrap(vec) {
         std::result::Result::Err(vec) => {
-            ContinueOrExit::from_control_flow(std::iter::Iterator::try_fold(
+            Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
                 &mut std::iter::Iterator::cloned(vec.iter()),
                 state,
                 |state, element| on_element(state, element).to_control_flow(),
             ))
         }
         std::result::Result::Ok(vec) => {
-            ContinueOrExit::from_control_flow(std::iter::Iterator::try_fold(
+            Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
                 &mut std::iter::IntoIterator::into_iter(vec),
                 state,
                 |state, element| on_element(state, element).to_control_flow(),
