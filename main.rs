@@ -14174,21 +14174,32 @@ fn still_syntax_expression_to_rust<'a>(
                         };
                     }
                 };
-            // _ => todo!() is appended to still make inexhaustive matching compile
-            // and be able to be run, rust will emit a warning
-            // TODO remove when can be determined to be exhaustive,
-            // otherwise also add error
-            rust_arms.push(syn::Arm {
-                attrs: vec![],
-                pat: syn::Pat::Wild(syn::PatWild {
-                    attrs: vec![],
-                    underscore_token: syn::token::Underscore(syn_span()),
-                }),
-                fat_arrow_token: syn::token::FatArrow(syn_span()),
-                guard: None,
-                body: Box::new(syn_expr_todo()),
-                comma: None,
-            });
+            match maybe_catch {
+                None => {}
+                Some(StilCasePatternsCatch::Exhaustive) => {}
+                Some(_catch_not_exhaustive) => {
+                    errors.push(StillErrorNode {
+                        range: cases
+                            .last()
+                            .map(|case| case.or_bar_key_symbol_range)
+                            .unwrap_or(matched_node.range),
+                        message: Box::from("inexhaustive pattern match. A pattern match must cover all possible cases, otherwise the program would need to crash if such a value was matched on."),
+                    });
+                    // _ => todo!() is appended to still make inexhaustive matching compile
+                    // and be able to be run, rust will emit a warning
+                    rust_arms.push(syn::Arm {
+                        attrs: vec![],
+                        pat: syn::Pat::Wild(syn::PatWild {
+                            attrs: vec![],
+                            underscore_token: syn::token::Underscore(syn_span()),
+                        }),
+                        fat_arrow_token: syn::token::FatArrow(syn_span()),
+                        guard: None,
+                        body: Box::new(syn_expr_todo()),
+                        comma: None,
+                    });
+                }
+            }
             CompiledStillExpression {
                 rust: syn::Expr::Match(syn::ExprMatch {
                     attrs: vec![],
@@ -14894,8 +14905,11 @@ fn still_pattern_catch_merge_with(
         StilCasePatternsCatch::Exhaustive => {
             errors.push(StillErrorNode { range: pattern_range, message: Box::from("unreachable pattern. All previous case patterns already exhaustively match any possible value") });
         }
-        StilCasePatternsCatch::Unts(unts) => {
-            if let StillPatternCatch::Unt(new_unt) = new_catch {
+        StilCasePatternsCatch::Unts(unts) => match new_catch {
+            StillPatternCatch::Exhaustive => {
+                *catch = StilCasePatternsCatch::Exhaustive;
+            }
+            StillPatternCatch::Unt(new_unt) => {
                 if unts.contains(&new_unt) {
                     errors.push(StillErrorNode {
                         range: pattern_range,
@@ -14905,9 +14919,13 @@ fn still_pattern_catch_merge_with(
                     unts.push(new_unt);
                 }
             }
-        }
-        StilCasePatternsCatch::Ints(ints) => {
-            if let StillPatternCatch::Int(new_int) = new_catch {
+            _ => {}
+        },
+        StilCasePatternsCatch::Ints(ints) => match new_catch {
+            StillPatternCatch::Exhaustive => {
+                *catch = StilCasePatternsCatch::Exhaustive;
+            }
+            StillPatternCatch::Int(new_int) => {
                 if ints.contains(&new_int) {
                     errors.push(StillErrorNode {
                         range: pattern_range,
@@ -14917,9 +14935,13 @@ fn still_pattern_catch_merge_with(
                     ints.push(new_int);
                 }
             }
-        }
-        StilCasePatternsCatch::Chars(chars) => {
-            if let StillPatternCatch::Char(new_char) = new_catch {
+            _ => {}
+        },
+        StilCasePatternsCatch::Chars(chars) => match new_catch {
+            StillPatternCatch::Exhaustive => {
+                *catch = StilCasePatternsCatch::Exhaustive;
+            }
+            StillPatternCatch::Char(new_char) => {
                 if chars.contains(&new_char) {
                     errors.push(StillErrorNode {
                         range: pattern_range,
@@ -14929,9 +14951,13 @@ fn still_pattern_catch_merge_with(
                     chars.push(new_char);
                 }
             }
-        }
-        StilCasePatternsCatch::Strings(strings) => {
-            if let StillPatternCatch::String(new_string) = new_catch {
+            _ => {}
+        },
+        StilCasePatternsCatch::Strings(strings) => match new_catch {
+            StillPatternCatch::Exhaustive => {
+                *catch = StilCasePatternsCatch::Exhaustive;
+            }
+            StillPatternCatch::String(new_string) => {
                 if strings.contains(&new_string) {
                     errors.push(StillErrorNode {
                         range: pattern_range,
@@ -14941,10 +14967,14 @@ fn still_pattern_catch_merge_with(
                     strings.push(new_string);
                 }
             }
-        }
-        StilCasePatternsCatch::Variants(variants) => {
-            if let StillPatternCatch::Variant(new_variants) = new_catch
-                && let Some((new_variant_name, new_variant_caught)) = new_variants
+            _ => {}
+        },
+        StilCasePatternsCatch::Variants(variants) => match new_catch {
+            StillPatternCatch::Exhaustive => {
+                *catch = StilCasePatternsCatch::Exhaustive;
+            }
+            StillPatternCatch::Variant(new_variants) => {
+                if let Some((new_variant_name, new_variant_caught)) = new_variants
                     .into_iter()
                     .find_map(
                         |(new_variant_name, new_variant_catch)| match new_variant_catch {
@@ -14954,34 +14984,50 @@ fn still_pattern_catch_merge_with(
                             VariantCatch::Uncaught { .. } => None,
                         },
                     )
-                && let Some(previous_catch_of_new_variant) = variants.get_mut(&new_variant_name)
-            {
-                match previous_catch_of_new_variant {
-                    VariantCatch::Caught(StilCasePatternsCatch::Exhaustive) => {
-                        println!("new_variant_name {new_variant_name}, variants: {variants:?}"); // TODO remove
-                        errors.push(StillErrorNode {
+                    && let Some(previous_catch_of_new_variant) = variants.get_mut(&new_variant_name)
+                {
+                    match previous_catch_of_new_variant {
+                        VariantCatch::Caught(StilCasePatternsCatch::Exhaustive) => {
+                            errors.push(StillErrorNode {
                             range: pattern_range,
                             message: Box::from("this pattern is unreachable as it's already matched by a previous case pattern"),
                         });
-                    }
-                    VariantCatch::Caught(previous_caught_of_new_variant) => {
-                        still_pattern_catch_merge_with(
-                            errors,
-                            pattern_range,
-                            previous_caught_of_new_variant,
-                            new_variant_caught,
-                        );
-                    }
-                    VariantCatch::Uncaught { .. } => {
-                        *previous_catch_of_new_variant = VariantCatch::Caught(
-                            still_pattern_catch_to_case_patterns_catch(new_variant_caught),
-                        );
+                        }
+                        VariantCatch::Caught(previous_caught_of_new_variant) => {
+                            still_pattern_catch_merge_with(
+                                errors,
+                                pattern_range,
+                                previous_caught_of_new_variant,
+                                new_variant_caught,
+                            );
+                            if variants.values().all(|variant_catch| {
+                                variant_catch
+                                    == &VariantCatch::Caught(StilCasePatternsCatch::Exhaustive)
+                            }) {
+                                *catch = StilCasePatternsCatch::Exhaustive;
+                            }
+                        }
+                        VariantCatch::Uncaught { .. } => {
+                            *previous_catch_of_new_variant = VariantCatch::Caught(
+                                still_pattern_catch_to_case_patterns_catch(new_variant_caught),
+                            );
+                            if variants.values().all(|variant_catch| {
+                                variant_catch
+                                    == &VariantCatch::Caught(StilCasePatternsCatch::Exhaustive)
+                            }) {
+                                *catch = StilCasePatternsCatch::Exhaustive;
+                            }
+                        }
                     }
                 }
             }
-        }
-        StilCasePatternsCatch::Record(possibilities) => {
-            if let StillPatternCatch::Record(new_possibility) = new_catch {
+            _ => {}
+        },
+        StilCasePatternsCatch::Record(possibilities) => match new_catch {
+            StillPatternCatch::Exhaustive => {
+                *catch = StilCasePatternsCatch::Exhaustive;
+            }
+            StillPatternCatch::Record(new_possibility) => {
                 if possibilities.iter().any(|record_possibility| {
                     record_possibility
                         .values()
@@ -15004,7 +15050,8 @@ fn still_pattern_catch_merge_with(
                     }
                 }
             }
-        }
+            _ => {}
+        },
     }
 }
 fn still_pattern_catch_catches_all_of_still_pattern_catch(
