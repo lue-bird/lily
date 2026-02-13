@@ -171,11 +171,7 @@ fn unt_mul(a: Unt, b: Unt) -> Unt {
     a * b
 }
 fn unt_div(to_divide: Unt, to_divide_by: Unt) -> Unt {
-    if to_divide_by == 0 {
-        0
-    } else {
-        to_divide / to_divide_by
-    }
+    Unt::checked_div(to_divide, to_divide_by).unwrap_or(0)
 }
 fn unt_order(left: Unt, right: Unt) -> Order {
     Order::from_ordering(left.cmp(&right))
@@ -224,11 +220,7 @@ fn int_mul(a: Int, b: Int) -> Int {
     a * b
 }
 fn int_div(to_divide: Int, to_divide_by: Int) -> Int {
-    if to_divide_by == 0 {
-        0
-    } else {
-        to_divide / to_divide_by
-    }
+    Int::checked_div(to_divide, to_divide_by).unwrap_or(0)
 }
 fn int_order(left: Int, right: Int) -> Order {
     Order::from_ordering(left.cmp(&right))
