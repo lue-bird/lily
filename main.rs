@@ -8929,7 +8929,6 @@ fn still_project_info_to_rust(
                     compiled_variable_declaration_infos.insert(
                         variable_declaration.name.value.clone(),
                         CompiledVariableDeclarationInfo {
-                            name_range: Some(variable_declaration.name.range),
                             documentation: variable_declaration
                                 .documentation
                                 .map(|n| n.value.clone()),
@@ -8948,7 +8947,6 @@ fn still_project_info_to_rust(
                     compiled_variable_declaration_infos.insert(
                         variable_declaration.name.value.clone(),
                         CompiledVariableDeclarationInfo {
-                            name_range: Some(variable_declaration.range),
                             documentation: variable_declaration
                                 .documentation
                                 .map(|n| n.value.clone()),
@@ -8981,7 +8979,6 @@ fn still_project_info_to_rust(
                     variable_declaration.name.value.clone(),
                     CompiledVariableDeclarationInfo {
                         documentation: variable_declaration.documentation.map(|n| n.value.clone()),
-                        name_range: Some(variable_declaration.name.range),
                         has_allocator_parameter: compiled_variable_declaration
                             .has_allocator_parameter,
                         type_: Some(compiled_variable_declaration.type_),
@@ -9007,7 +9004,6 @@ fn still_project_info_to_rust(
 }
 #[derive(Clone)]
 struct CompiledVariableDeclarationInfo {
-    name_range: Option<lsp_types::Range>,
     documentation: Option<Box<str>>,
     type_: Option<StillType>,
     has_allocator_parameter: bool,
@@ -9469,7 +9465,6 @@ I recommend creating helpers for common cases like mapping to an `opt` and keepi
             (
                 name,
                 CompiledVariableDeclarationInfo {
-                    name_range: None,
                     documentation: Some(Box::from(documentation)),
                     type_: Some(type_),
                     has_allocator_parameter: has_allocator_parameter,
