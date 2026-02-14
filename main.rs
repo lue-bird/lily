@@ -5419,6 +5419,7 @@ fn still_syntax_expression_uses_of_symbol_into(
             variable: variable_node,
             arguments,
         } => {
+            // TODO isn't this missing a check for project variables?
             let name: &str = variable_node.value.as_str();
             if let StillSymbolToReference::LocalBinding {
                 name: symbol_name,
@@ -5617,13 +5618,7 @@ fn still_syntax_expression_uses_of_symbol_into(
                                 },
                             )
                         {
-                            uses_so_far.push(lsp_types::Range {
-                                start: lsp_position_add_characters(
-                                    still_syntax_expression_node.range.end,
-                                    -(name_node.value.len() as i32),
-                                ),
-                                end: still_syntax_expression_node.range.end,
-                            });
+                            uses_so_far.push(name_node.range);
                         }
                         if let Some(value_node) = maybe_value {
                             still_syntax_expression_uses_of_symbol_into(
