@@ -1482,36 +1482,29 @@ fn respond_to_rename(
                     name: type_name_to_rename,
                     including_declaration_name: true,
                 };
-            state
-                .projects
-                .iter()
-                .filter_map(|(project_path, project_state)| {
-                    let mut all_uses_of_renamed_type: Vec<lsp_types::Range> = Vec::new();
-                    still_syntax_project_uses_of_symbol_into(
-                        &mut all_uses_of_renamed_type,
-                        &to_prepare_for_rename_project_state.type_aliases,
-                        &project_state.syntax,
-                        still_declared_symbol_to_rename,
-                    );
-                    let still_project_uri: lsp_types::Url =
-                        lsp_types::Url::from_file_path(project_path).ok()?;
-                    Some(lsp_types::TextDocumentEdit {
-                        text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
-                            uri: still_project_uri,
-                            version: None,
-                        },
-                        edits: all_uses_of_renamed_type
-                            .into_iter()
-                            .map(|use_range_of_renamed_project| {
-                                lsp_types::OneOf::Left(lsp_types::TextEdit {
-                                    range: use_range_of_renamed_project,
-                                    new_text: rename_arguments.new_name.clone(),
-                                })
-                            })
-                            .collect::<Vec<_>>(),
+
+            let mut all_uses_of_renamed_type: Vec<lsp_types::Range> = Vec::new();
+            still_syntax_project_uses_of_symbol_into(
+                &mut all_uses_of_renamed_type,
+                &to_prepare_for_rename_project_state.type_aliases,
+                &to_prepare_for_rename_project_state.syntax,
+                still_declared_symbol_to_rename,
+            );
+            vec![lsp_types::TextDocumentEdit {
+                text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
+                    uri: rename_arguments.text_document_position.text_document.uri,
+                    version: None,
+                },
+                edits: all_uses_of_renamed_type
+                    .into_iter()
+                    .map(|use_range_of_renamed_project| {
+                        lsp_types::OneOf::Left(lsp_types::TextEdit {
+                            range: use_range_of_renamed_project,
+                            new_text: rename_arguments.new_name.clone(),
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
+            }]
         }
     })
 }
