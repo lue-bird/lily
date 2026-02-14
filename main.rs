@@ -5419,16 +5419,26 @@ fn still_syntax_expression_uses_of_symbol_into(
             variable: variable_node,
             arguments,
         } => {
-            // TODO isn't this missing a check for project variables?
             let name: &str = variable_node.value.as_str();
-            if let StillSymbolToReference::LocalBinding {
-                name: symbol_name,
-                including_let_declaration_name: _,
-            } = symbol_to_collect_uses_of
-                && symbol_name == name
-                && local_bindings.contains(&name)
-            {
-                uses_so_far.push(still_syntax_expression_node.range);
+            let name_is_symbol_use: bool = match symbol_to_collect_uses_of {
+                StillSymbolToReference::LocalBinding {
+                    name: symbol_name,
+                    including_let_declaration_name: _,
+                } => {
+                    // fairly certain we can skip the local_bindings check and collection
+                    // since ::LocalBinding is only passed
+                    // into still_syntax_expression_uses_of_symbol_into
+                    // when checking within a scope expression
+                    symbol_name == name && local_bindings.contains(&name)
+                }
+                StillSymbolToReference::VariableOrVariant {
+                    name: symbol_name,
+                    including_declaration_name: _,
+                } => symbol_name == name,
+                _ => false,
+            };
+            if name_is_symbol_use {
+                uses_so_far.push(variable_node.range);
             }
             for argument_node in arguments {
                 still_syntax_expression_uses_of_symbol_into(
