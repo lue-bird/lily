@@ -895,7 +895,7 @@ fn respond_to_goto_definition(
                 .syntax
                 .declarations
                 .iter()
-                .filter_map(|origin_project_declaration_or_err| {
+                .find_map(|origin_project_declaration_or_err| {
                     let Ok(StillSyntaxDocumentedDeclaration {
                         documentation: _,
                         declaration: Some(declaration_node),
@@ -910,9 +910,6 @@ fn respond_to_goto_definition(
                     else {
                         return None;
                     };
-                    Some(name_node)
-                })
-                .find_map(|name_node| {
                     if name_node.value.as_str() == goto_name {
                         Some(name_node.range)
                     } else {
@@ -934,8 +931,8 @@ fn respond_to_goto_definition(
             name: goto_name,
             type_: maybe_type,
         } => {
-            let origin_choice_type_variant_name_range: lsp_types::Range =
-                maybe_type.and_then(|type_| {
+            let origin_choice_type_variant_name_range: lsp_types::Range = maybe_type
+                .and_then(|type_| {
                     still_syntax_type_to_choice_type(
                         &goto_symbol_project_state.type_aliases,
                         still_syntax_node_empty(type_),
@@ -962,6 +959,24 @@ fn respond_to_goto_definition(
                                 )
                             })
                     })
+                })
+                .or_else(|| {
+                    goto_symbol_project_state.choice_types.values().find_map(
+                        |origin_project_choice_type| {
+                            origin_project_choice_type
+                                .variants
+                                .iter()
+                                .find_map(|variant| {
+                                    variant.name.as_ref().and_then(|variant_name_node| {
+                                        if variant_name_node.value.as_str() == goto_name {
+                                            Some(variant_name_node.range)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                })
+                        },
+                    )
                 })?;
             Some(lsp_types::GotoDefinitionResponse::Scalar(
                 lsp_types::Location {
