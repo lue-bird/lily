@@ -529,7 +529,7 @@ fn respond_to_hover(
         )?;
     match hovered_symbol_node.value {
         StillSyntaxSymbol::TypeVariable { .. } => None,
-        StillSyntaxSymbol::ProjectMemberDeclarationName {
+        StillSyntaxSymbol::ProjectDeclarationName {
             name: hovered_declaration_name,
             documentation,
             declaration: declaration_node,
@@ -817,7 +817,7 @@ fn respond_to_goto_definition(
         )?;
     match goto_symbol_node.value {
         StillSyntaxSymbol::LetDeclarationName { .. }
-        | StillSyntaxSymbol::ProjectMemberDeclarationName { .. } => {
+        | StillSyntaxSymbol::ProjectDeclarationName { .. } => {
             // already at definition
             None
         }
@@ -1030,7 +1030,7 @@ fn respond_to_prepare_rename(
             prepare_rename_arguments.position,
         )?;
     Some(match prepare_rename_symbol_node.value {
-        StillSyntaxSymbol::ProjectMemberDeclarationName {
+        StillSyntaxSymbol::ProjectDeclarationName {
             name,
             declaration: _,
             documentation: _,
@@ -1100,24 +1100,23 @@ fn respond_to_rename(
                     .collect::<Vec<_>>(),
             }]
         }
-        StillSyntaxSymbol::ProjectMemberDeclarationName {
+        StillSyntaxSymbol::ProjectDeclarationName {
             name: to_rename_declaration_name,
             documentation: _,
-            declaration: _,
+            declaration: declaration_node,
         } => {
             let still_declared_symbol_to_rename: StillSymbolToReference =
-                if to_rename_declaration_name.starts_with(|c: char| c.is_ascii_uppercase()) {
-                    StillSymbolToReference::Type {
+                match declaration_node.value {
+                    StillSyntaxDeclaration::Variable { .. } => StillSymbolToReference::Variable {
                         name: to_rename_declaration_name,
                         including_declaration_name: true,
-                    }
-                } else {
-                    StillSymbolToReference::VariableOrVariant {
+                    },
+                    StillSyntaxDeclaration::TypeAlias { .. }
+                    | StillSyntaxDeclaration::ChoiceType { .. } => StillSymbolToReference::Type {
                         name: to_rename_declaration_name,
                         including_declaration_name: true,
-                    }
+                    },
                 };
-
             let mut all_uses_of_at_docs_project_member: Vec<lsp_types::Range> = Vec::new();
             still_syntax_project_uses_of_symbol_into(
                 &mut all_uses_of_at_docs_project_member,
@@ -1215,11 +1214,10 @@ fn respond_to_rename(
                         .collect::<Vec<_>>(),
                 }]
             } else {
-                let symbol_to_find: StillSymbolToReference =
-                    StillSymbolToReference::VariableOrVariant {
-                        name: to_rename_name,
-                        including_declaration_name: true,
-                    };
+                let symbol_to_find: StillSymbolToReference = StillSymbolToReference::Variable {
+                    name: to_rename_name,
+                    including_declaration_name: true,
+                };
                 let mut all_uses_of_renamed_variable: Vec<lsp_types::Range> = Vec::new();
                 still_syntax_project_uses_of_symbol_into(
                     &mut all_uses_of_renamed_variable,
@@ -1358,7 +1356,7 @@ fn respond_to_references(
                 })
                 .collect::<Vec<_>>()
         }
-        StillSyntaxSymbol::ProjectMemberDeclarationName {
+        StillSyntaxSymbol::ProjectDeclarationName {
             name: to_find_name,
             documentation: _,
             declaration: _,
@@ -1371,7 +1369,7 @@ fn respond_to_references(
                     including_declaration_name: references_arguments.context.include_declaration,
                 }
             } else {
-                StillSymbolToReference::VariableOrVariant {
+                StillSymbolToReference::Variable {
                     name: to_find_name,
                     including_declaration_name: references_arguments.context.include_declaration,
                 }
@@ -1467,13 +1465,10 @@ fn respond_to_references(
                     })
                     .collect::<Vec<_>>()
             } else {
-                let symbol_to_find: StillSymbolToReference =
-                    StillSymbolToReference::VariableOrVariant {
-                        name: to_find_name,
-                        including_declaration_name: references_arguments
-                            .context
-                            .include_declaration,
-                    };
+                let symbol_to_find: StillSymbolToReference = StillSymbolToReference::Variable {
+                    name: to_find_name,
+                    including_declaration_name: references_arguments.context.include_declaration,
+                };
                 let mut all_uses_of_found_variable: Vec<lsp_types::Range> = Vec::new();
                 still_syntax_project_uses_of_symbol_into(
                     &mut all_uses_of_found_variable,
@@ -1774,7 +1769,7 @@ fn respond_to_completion(
         .value
     {
         StillSyntaxSymbol::LetDeclarationName { .. } => None,
-        StillSyntaxSymbol::ProjectMemberDeclarationName { .. } => None,
+        StillSyntaxSymbol::ProjectDeclarationName { .. } => None,
         StillSyntaxSymbol::Variable {
             name: _,
             local_bindings,
@@ -4354,7 +4349,7 @@ fn still_syntax_choice_type_declaration_variant_into(
 #[derive(Clone, Debug)]
 enum StillSyntaxSymbol<'a> {
     // includes variant
-    ProjectMemberDeclarationName {
+    ProjectDeclarationName {
         name: &'a str,
         documentation: Option<&'a str>,
         declaration: StillSyntaxNode<&'a StillSyntaxDeclaration>,
@@ -4466,7 +4461,7 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                     )
                 {
                     Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
+                        value: StillSyntaxSymbol::ProjectDeclarationName {
                             name: &name_node.value,
                             declaration: still_syntax_declaration_node,
                             documentation: maybe_documentation,
@@ -4498,7 +4493,7 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                                     )
                                 {
                                     Some(StillSyntaxNode {
-                                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
+                                        value: StillSyntaxSymbol::ProjectDeclarationName {
                                             name: &variant_name_node.value,
                                             declaration: still_syntax_declaration_node,
                                             documentation: maybe_documentation,
@@ -4530,7 +4525,7 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                         || lsp_range_includes_position(*type_keyword_range, position))
                 {
                     Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
+                        value: StillSyntaxSymbol::ProjectDeclarationName {
                             name: &name_node.value,
                             declaration: still_syntax_declaration_node,
                             documentation: maybe_documentation,
@@ -4570,7 +4565,7 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
             } => {
                 if lsp_range_includes_position(name_node.range, position) {
                     Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::ProjectMemberDeclarationName {
+                        value: StillSyntaxSymbol::ProjectDeclarationName {
                             name: &name_node.value,
                             declaration: still_syntax_declaration_node,
                             documentation: maybe_documentation,
@@ -5161,7 +5156,7 @@ enum StillSymbolToReference<'a> {
         including_declaration_name: bool,
     },
     // TODO rename to Variable
-    VariableOrVariant {
+    Variable {
         name: &'a str,
         including_declaration_name: bool,
     },
@@ -5296,7 +5291,7 @@ fn still_syntax_declaration_uses_of_symbol_into(
             result: maybe_result,
         } => {
             if symbol_to_collect_uses_of
-                == (StillSymbolToReference::VariableOrVariant {
+                == (StillSymbolToReference::Variable {
                     name: &name_node.value,
                     including_declaration_name: true,
                 })
@@ -5431,7 +5426,7 @@ fn still_syntax_expression_uses_of_symbol_into(
                     // when checking within a scope expression
                     symbol_name == name && local_bindings.contains(&name)
                 }
-                StillSymbolToReference::VariableOrVariant {
+                StillSymbolToReference::Variable {
                     name: symbol_name,
                     including_declaration_name: _,
                 } => symbol_name == name,
@@ -5465,6 +5460,7 @@ fn still_syntax_expression_uses_of_symbol_into(
                 if let Some(case_pattern_node) = &case.pattern {
                     still_syntax_pattern_uses_of_symbol_into(
                         uses_so_far,
+                        type_aliases,
                         still_syntax_node_as_ref(case_pattern_node),
                         symbol_to_collect_uses_of,
                     );
@@ -5500,6 +5496,7 @@ fn still_syntax_expression_uses_of_symbol_into(
             for parameter_node in parameters {
                 still_syntax_pattern_uses_of_symbol_into(
                     uses_so_far,
+                    type_aliases,
                     still_syntax_node_as_ref(parameter_node),
                     symbol_to_collect_uses_of,
                 );
@@ -5603,20 +5600,20 @@ fn still_syntax_expression_uses_of_symbol_into(
                         name: name_node,
                         value: maybe_value,
                     } => {
-                        let maybe_origin_choice_type_name =
-                            maybe_type.as_ref().and_then(|type_node| {
-                                still_syntax_type_to_choice_type(
-                                    type_aliases,
-                                    still_syntax_node_as_ref(type_node),
-                                )
-                                .map(|(origin_choice_type_name, _)| origin_choice_type_name)
-                            });
                         if let StillSymbolToReference::Variant {
                             name: symbol_name,
                             including_declaration_name: _,
                             origin_type_name: variant_to_collect_uses_of_maybe_origin_type_name,
                         } = symbol_to_collect_uses_of
                             && symbol_name == name_node.value.as_str()
+                            && let maybe_origin_choice_type_name =
+                                maybe_type.as_ref().and_then(|type_node| {
+                                    still_syntax_type_to_choice_type(
+                                        type_aliases,
+                                        still_syntax_node_as_ref(type_node),
+                                    )
+                                    .map(|(origin_choice_type_name, _)| origin_choice_type_name)
+                                })
                             && variant_to_collect_uses_of_maybe_origin_type_name.is_none_or(
                                 |variant_to_collect_uses_of_origin_type_name| {
                                     maybe_origin_choice_type_name.is_none_or(
@@ -5736,6 +5733,7 @@ fn still_syntax_let_declaration_uses_of_symbol_into(
 
 fn still_syntax_pattern_uses_of_symbol_into(
     uses_so_far: &mut Vec<lsp_types::Range>,
+    type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     still_syntax_pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
     symbol_to_collect_uses_of: StillSymbolToReference,
 ) {
@@ -5744,10 +5742,10 @@ fn still_syntax_pattern_uses_of_symbol_into(
         StillSyntaxPattern::Unt(_) => {}
         StillSyntaxPattern::Int(_) => {}
         StillSyntaxPattern::Typed {
-            type_: maybe_type_node,
+            type_: maybe_type,
             pattern: maybe_pattern_node_in_typed,
         } => {
-            if let Some(type_node) = maybe_type_node {
+            if let Some(type_node) = maybe_type {
                 still_syntax_type_uses_of_symbol_into(
                     uses_so_far,
                     still_syntax_node_as_ref(type_node),
@@ -5759,26 +5757,40 @@ fn still_syntax_pattern_uses_of_symbol_into(
                     StillSyntaxPatternUntyped::Ignored => {}
                     StillSyntaxPatternUntyped::Variable(_) => {}
                     StillSyntaxPatternUntyped::Variant {
-                        name: variable,
+                        name: variant_name_node,
                         value: maybe_value,
                     } => {
-                        if let StillSymbolToReference::VariableOrVariant {
-                            name: symbol_name,
+                        if let StillSymbolToReference::Variant {
+                            name: variant_to_collect_uses_of_name,
                             including_declaration_name: _,
+                            origin_type_name: variant_to_collect_uses_of_maybe_origin_type_name,
                         } = symbol_to_collect_uses_of
-                            && symbol_name == variable.value.as_str()
+                            && variant_to_collect_uses_of_name == variant_name_node.value
+                            && let maybe_origin_choice_type_name =
+                                maybe_type.as_ref().and_then(|type_node| {
+                                    still_syntax_type_to_choice_type(
+                                        type_aliases,
+                                        still_syntax_node_as_ref(type_node),
+                                    )
+                                    .map(|(origin_choice_type_name, _)| origin_choice_type_name)
+                                })
+                            && variant_to_collect_uses_of_maybe_origin_type_name.is_none_or(
+                                |variant_to_collect_uses_of_origin_type_name| {
+                                    maybe_origin_choice_type_name.is_none_or(
+                                        |origin_choice_type_name| {
+                                            origin_choice_type_name
+                                                == variant_to_collect_uses_of_origin_type_name
+                                        },
+                                    )
+                                },
+                            )
                         {
-                            uses_so_far.push(lsp_types::Range {
-                                start: lsp_position_add_characters(
-                                    variable.range.end,
-                                    -(variable.value.len() as i32),
-                                ),
-                                end: variable.range.end,
-                            });
+                            uses_so_far.push(variant_name_node.range);
                         }
                         if let Some(value) = maybe_value {
                             still_syntax_pattern_uses_of_symbol_into(
                                 uses_so_far,
+                                type_aliases,
                                 still_syntax_node_unbox(value),
                                 symbol_to_collect_uses_of,
                             );
@@ -5794,6 +5806,7 @@ fn still_syntax_pattern_uses_of_symbol_into(
             if let Some(pattern_node_after_comment) = maybe_pattern_after_comment {
                 still_syntax_pattern_uses_of_symbol_into(
                     uses_so_far,
+                    type_aliases,
                     still_syntax_node_unbox(pattern_node_after_comment),
                     symbol_to_collect_uses_of,
                 );
@@ -5803,6 +5816,7 @@ fn still_syntax_pattern_uses_of_symbol_into(
             for value in fields.iter().filter_map(|field| field.value.as_ref()) {
                 still_syntax_pattern_uses_of_symbol_into(
                     uses_so_far,
+                    type_aliases,
                     still_syntax_node_as_ref(value),
                     symbol_to_collect_uses_of,
                 );
