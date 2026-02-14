@@ -1,7 +1,7 @@
 {
   "name": "still",
   "displayName": "still",
-  "description": "language server for still, in rust",
+  "description": "language server for still",
   "author": "lue_bird",
   "icon": "images/icon.png",
   "license": "MIT",

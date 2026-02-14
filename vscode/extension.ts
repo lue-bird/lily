@@ -30,20 +30,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       {
         scheme: "file",
         language: "still",
-      },
-      {
-        scheme: "file",
-        language: "json",
-      },
+      }
     ],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.still"),
-      // documentation says this is deprecated but how else
-      // would you get the client to ping on configuration changes?
-      configurationSection: "still"
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.still")
     },
-    // technically not necessary but saves an unnecessary roundtrip
-    initializationOptions: getSettings(vscode.workspace.getConfiguration().get<IClientSettings>("still")),
   };
   client = new LanguageClient(
     "still",
@@ -52,20 +43,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     clientOptions,
   );
   await client.start();
-}
-function getSettings(config: IClientSettings | undefined): object {
-  return config
-    ? {
-      stillPath: config.stillPath,
-      stillFormatPath: config.stillFormatPath,
-      stillTestPath: config.stillTestPath,
-    }
-    : {};
-}
-export interface IClientSettings {
-  stillFormatPath: "builtin" | string;
-  stillPath: string;
-  stillTestPath: string;
 }
 
 export function deactivate(): Thenable<void> | undefined {
