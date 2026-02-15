@@ -7,9 +7,9 @@ fn main() {
     'main_loop: for _ in std::iter::repeat_n((), 10) {
         let interface = still::interface(
             &allocator,
-            still::OwnedToStill::to_still(&still_state, &allocator),
+            still::OwnedToStill::into_still(still_state, &allocator),
         );
-        let maybe_new_state: Option<StillState> = handle_io(&allocator, interface);
+        let maybe_new_state: Option<StillState> = handle_io(&interface);
         match maybe_new_state {
             None => {
                 break 'main_loop;
@@ -25,10 +25,7 @@ fn main() {
 /// change this when you introduce a type alias in still or otherwise change its state type
 type StillState<'a> = still::Str<'a>;
 /// returns a new state
-fn handle_io<'a>(
-    allocator: &'a bumpalo::Bump,
-    interface: still::Io<'a, still::Str<'a>>,
-) -> Option<still::Str<'a>> {
+fn handle_io<'a>(interface: &still::Io<'a, still::Str<'a>>) -> Option<still::Str<'a>> {
     match interface {
         still::Io::Standard_out_write(to_write) => {
             print!("{}", to_write);
@@ -36,8 +33,8 @@ fn handle_io<'a>(
             None
         }
         still::Io::Batch(ios) => {
-            for io in ios.iter().copied() {
-                if let Some(new_state) = handle_io(allocator, io) {
+            for io in ios.iter() {
+                if let Some(new_state) = handle_io(io) {
                     return Some(new_state);
                 }
             }
@@ -46,7 +43,7 @@ fn handle_io<'a>(
         still::Io::Standard_in_read_line(on_read_line) => {
             let mut read_line: String = String::new();
             let _ = std::io::stdin().read_line(&mut read_line);
-            Some(on_read_line(allocator.alloc(read_line)))
+            Some(on_read_line(still::Str::from_string(read_line)))
         }
     }
 }

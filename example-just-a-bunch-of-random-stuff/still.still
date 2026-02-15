@@ -104,3 +104,18 @@ book
       `Wave to us! We'll be in row 118,000.
     ]
 
+choice rope
+    | One str
+    | Append { left rope, right rope }
+
+rope-into \:str:builder :rope:rope >
+    rope
+    | :rope:One "" >
+        rope
+    | :rope:One :str:_ >
+        rope
+    | :rope:Append { left :rope:left, right :rope:One "" } >
+        rope-into builder left
+    | :rope:Append { left :rope:left, right :rope:_ } >
+        rope-into builder left
+

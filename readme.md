@@ -6,8 +6,15 @@ very small, explicitly boring, purely functional programming language that compi
 greet \:str:name >
     strs-flatten [ "Hello, ", name, "\n" ]
 ```
-Variables don't actually perform any effects.
-[`example-hello-world/`](https://github.com/lue-bird/still/tree/main/example-hello-world) shows how to use the compiled code.
+Variables don't perform any effects.
+The compiled code can however be used from rust to actually do something:
+```rust
+mod still;
+fn main() {
+    print!("{}", still::greet(still::Str::Slice("insert your name here")));
+}
+```
+→ complete setup: [`example-hello-world/`](https://github.com/lue-bird/still/tree/main/example-hello-world)
 
 ### echo in loop
 ```still
@@ -222,9 +229,9 @@ Then point your editor to the created `???/target/debug/still lsp`.
 - (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
 - (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chrs-backwards-from`
+- (leaning towards yes) add `str-attach-unt`, `str-attach-int`, `str-attach-dec`
 - (leaning towards yes) rename chr to char
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
-- (leaning slightly towards yes) change `Str<'a>` to `enum { Slice(&'a str), Rc(Rc<String>) }` and converting to Rc to a slice when necessary by allocating the Rc (same for Vec)
 - (maybe in the future) add or pattern `( first | second | third )`
 - (leaning towards no, partly due to matching syntax) make formatter range-independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
 - (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field

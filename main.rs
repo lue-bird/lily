@@ -8865,7 +8865,7 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("unt-to-str"),
-                true,
+                false,
                 function([still_type_unt], still_type_str),
                 "Convert `unt` to `str`",
             ),
@@ -8919,7 +8919,7 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("int-to-str"),
-                true,
+                false,
                 function([still_type_int], still_type_str),
                 "Convert `int` to `str`",
             ),
@@ -9003,7 +9003,7 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("dec-to-str"),
-                true,
+                false,
                 function([still_type_dec], still_type_str),
                 "Convert `dec` to `str`",
             ),
@@ -9027,7 +9027,7 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("chr-to-str"),
-                true,
+                false,
                 function([still_type_chr], still_type_str),
                 "Convert `chr` to `str`",
             ),
@@ -9048,7 +9048,7 @@ static core_variable_declaration_infos: std::sync::LazyLock<
             ),
             (
                 StillName::from("str-slice-from-byte-index-with-byte-length"),
-                false,
+                true,
                 function(
                     [still_type_str, still_type_unt,still_type_unt],
                     still_type_opt(still_type_str),
@@ -9105,10 +9105,24 @@ I recommend creating helpers for common cases like mapping to an `opt` and keepi
 ",
             ),
             (
+                StillName::from("str-attach"),
+                false,
+                function([still_type_str,still_type_str], still_type_str),
+                "Append the chars of the second given string at the end of the first.
+To push a single char, use `str-attach-chr`.",
+            ),
+            (
+                StillName::from("str-attach-chr"),
+                false,
+                function([still_type_str,still_type_str], still_type_str),
+                "Push a given `chr` to the end of the first.",
+            ),
+            (
                 StillName::from("strs-flatten"),
-                true,
+                false,
                 function([still_type_vec(still_type_str)], still_type_str),
-                "Concatenate all the string elements",
+                "Concatenate all the string elements.
+When building large strings, prefer `str-attach` and `str-attach-chr`.",
             ),
             (
                 StillName::from("vec-repeat"),
@@ -9402,18 +9416,18 @@ Read if interested: [swift's grapheme cluster docs](https://docs.swift.org/swift
             ChoiceTypeInfo {
                 name_range: None,
                 documentation: Some(Box::from(
-                    r#"Immutable text (segment) like `"abc"` or `"\"hello 👀 \\\r\n world \u{2665}\""` (`\u{2665}` represents the hex code for ♥, `\"` represents ", `\\` represents \\, `\n` represents line break, `\r` represents carriage return).
+                    r#"Text (or a text segment) like `"abc"` or `"\"hello 👀 \\\r\n world \u{2665}\""` (`\u{2665}` represents the hex code for ♥, `\"` represents ", `\\` represents \\, `\n` represents line break, `\r` represents carriage return).
 Internally, a string is compactly represented as UTF-8 bytes and can be accessed as such.
 ```still
 strs-flatten [ "My name is ", "Jenna", " and I'm ", int-to-str 60, " years old." ]
 # = "My name is Jenna and I'm 60 years old."
 ```
-Do not use plain `str` to build a big string.
+When building large strings, prefer `str-attach` and `str-attach-chr`.
 "#
                 )),
                 parameters: vec![],
                 variants: vec![],
-                is_copy: true,
+                is_copy: false,
                 has_owned_representation: true,
                 has_lifetime_parameter: true,
                 type_variants: vec![],
@@ -13377,9 +13391,15 @@ fn still_syntax_expression_to_rust<'a>(
             quoting_style: _,
         } => CompiledStillExpression {
             uses_allocator: false,
-            rust: syn::Expr::Lit(syn::ExprLit {
+            rust: syn::Expr::Call(syn::ExprCall {
                 attrs: vec![],
-                lit: syn::Lit::Str(syn::LitStr::new(content, syn_span())),
+                func: Box::new(syn_expr_reference(["Str", "Slice"])),
+                paren_token: syn::token::Paren(syn_span()),
+                args: std::iter::once(syn::Expr::Lit(syn::ExprLit {
+                    attrs: vec![],
+                    lit: syn::Lit::Str(syn::LitStr::new(content, syn_span())),
+                }))
+                .collect(),
             }),
             type_: Some(still_type_str),
         },
@@ -13486,6 +13506,7 @@ fn still_syntax_expression_to_rust<'a>(
                     let compiled_parameter: CompiledStillPattern = still_syntax_pattern_to_rust(
                         errors,
                         records_used,
+                        &mut Vec::new(),
                         &mut parameter_introduced_bindings,
                         &mut bindings_to_clone,
                         type_aliases,
@@ -14413,6 +14434,7 @@ fn still_syntax_expression_to_rust<'a>(
                         });
                         return None;
                     };
+                    let mut introduced_str_bindings_to_match = Vec::new();
                     let mut case_pattern_introduced_bindings: std::collections::HashMap<
                         &str,
                         StillLocalBindingCompileInfo,
@@ -14421,6 +14443,7 @@ fn still_syntax_expression_to_rust<'a>(
                     let compiled_pattern: CompiledStillPattern = still_syntax_pattern_to_rust(
                         errors,
                         records_used,
+                        &mut introduced_str_bindings_to_match,
                         &mut case_pattern_introduced_bindings,
                         &mut bindings_to_clone,
                         type_aliases,
@@ -14529,10 +14552,24 @@ fn still_syntax_expression_to_rust<'a>(
                             }
                         }
                     }
+                    let mut introduced_str_bindings_to_match_iterator = introduced_str_bindings_to_match.into_iter();
+                    fn syn_expr_binding_eq_str((binding_range, str):(lsp_types::Range, &str)) -> syn::Expr {
+                        syn::Expr::Binary(syn::ExprBinary { attrs: vec![], left: Box::new(syn_expr_reference([&still_str_binding_name(binding_range)])), op: syn::BinOp::Eq(syn::token::EqEq(syn_span())), right: Box::new(syn::Expr::Lit(syn::ExprLit {attrs:vec![], lit: syn::Lit::Str(syn::LitStr::new(str, syn_span()))})) })
+                    }
                     Some(syn::Arm {
                         attrs: vec![],
                         pat: case_rust_pattern,
-                        guard: None,
+                        guard: introduced_str_bindings_to_match_iterator.next().map(|introduced_str_binding0_to_match|
+                                ( syn::token::If(syn_span())
+                                , Box::new(
+                                    introduced_str_bindings_to_match_iterator
+                                        .fold(syn_expr_binding_eq_str(introduced_str_binding0_to_match), |so_far, introduced_str_binding_to_match|
+                                            syn::Expr::Binary(syn::ExprBinary {attrs:vec![], left:Box::new(so_far),
+                                            op: syn::BinOp::And(syn::token::AndAnd(syn_span())),
+                                            right: Box::new(syn_expr_binding_eq_str(introduced_str_binding_to_match))})
+                                        )
+                                    )
+                                )),
                         fat_arrow_token: syn::token::FatArrow(syn_span()),
                         body: Box::new(syn::Expr::Block(syn::ExprBlock {
                             attrs: vec![],
@@ -15744,6 +15781,7 @@ fn maybe_still_syntax_pattern_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     error_on_none: impl FnOnce() -> StillErrorNode,
     records_used: &mut std::collections::HashSet<Vec<StillName>>,
+    introduced_str_bindings_to_match: &mut Vec<(lsp_types::Range, &'a str)>,
     introduced_bindings: &mut std::collections::HashMap<&'a str, StillLocalBindingCompileInfo>,
     bindings_to_clone: &mut Vec<BindingToClone<'a>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -15763,6 +15801,7 @@ fn maybe_still_syntax_pattern_to_rust<'a>(
         Some(pattern_node) => still_syntax_pattern_to_rust(
             errors,
             records_used,
+            introduced_str_bindings_to_match,
             introduced_bindings,
             bindings_to_clone,
             type_aliases,
@@ -15981,6 +16020,7 @@ struct CompiledStillPattern {
 fn still_syntax_pattern_to_rust<'a>(
     errors: &mut Vec<StillErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<StillName>>,
+    introduced_str_bindings_to_match: &mut Vec<(lsp_types::Range, &'a str)>,
     introduced_bindings: &mut std::collections::HashMap<&'a str, StillLocalBindingCompileInfo>,
     bindings_to_clone: &mut Vec<BindingToClone<'a>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -16064,14 +16104,24 @@ fn still_syntax_pattern_to_rust<'a>(
         StillSyntaxPattern::String {
             content,
             quoting_style: _,
-        } => CompiledStillPattern {
-            type_: Some(still_type_str),
-            rust: Some(syn::Pat::Lit(syn::ExprLit {
-                attrs: vec![],
-                lit: syn::Lit::Str(syn::LitStr::new(content, syn_span())),
-            })),
-            catch: Some(StillPatternCatch::String(content.clone())),
-        },
+        } => {
+            introduced_str_bindings_to_match.push((pattern_node.range, content));
+            CompiledStillPattern {
+                type_: Some(still_type_str),
+                rust: Some(syn::Pat::Ident(syn::PatIdent {
+                    attrs: vec![],
+                    by_ref: if is_reference {
+                        None
+                    } else {
+                        Some(syn::token::Ref(syn_span()))
+                    },
+                    mutability: None,
+                    ident: syn_ident(&still_str_binding_name(pattern_node.range)),
+                    subpat: None,
+                })),
+                catch: Some(StillPatternCatch::String(content.clone())),
+            }
+        }
         StillSyntaxPattern::WithComment {
             comment: _,
             pattern: maybe_after_comment,
@@ -16082,6 +16132,7 @@ fn still_syntax_pattern_to_rust<'a>(
                 message: Box::from("missing pattern after comment # ...\\n here"),
             },
             records_used,
+            introduced_str_bindings_to_match,
             introduced_bindings,
             bindings_to_clone,
             type_aliases,
@@ -16324,6 +16375,7 @@ fn still_syntax_pattern_to_rust<'a>(
                             let compiled_value: CompiledStillPattern = still_syntax_pattern_to_rust(
                                 errors,
                                 records_used,
+                                introduced_str_bindings_to_match,
                                 introduced_bindings,
                                 bindings_to_clone,
                                 type_aliases,
@@ -16433,6 +16485,7 @@ fn still_syntax_pattern_to_rust<'a>(
                         message: Box::from("missing field value after this name"),
                     },
                     records_used,
+                    introduced_str_bindings_to_match,
                     introduced_bindings,
                     bindings_to_clone,
                     type_aliases,
@@ -16507,6 +16560,12 @@ fn still_syntax_pattern_to_rust<'a>(
             }
         }
     }
+}
+fn still_str_binding_name(range: lsp_types::Range) -> String {
+    format!(
+        "strø_{}_{}_{}_{}",
+        range.start.line, range.start.character, range.end.line, range.end.character
+    )
 }
 fn bindings_to_clone_to_rust_into(
     rust_stmts: &mut Vec<syn::Stmt>,

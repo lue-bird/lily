@@ -67,7 +67,7 @@ fn alloc_fn_as_dyn<'a, Inputs, Output>(
 /// still_state = StillIntoOwned::into_owned(updated_state_still);
 /// ...
 /// ```
-/// Note that into_still is currently not recommended as it clones every string.
+/// Currently, this is the recommend way if possible.
 ///
 /// See also `OwnedToStill`
 pub trait StillIntoOwned: std::marker::Sized {
@@ -98,8 +98,7 @@ pub trait OwnedToStill {
     where
         Self: 'a;
     fn to_still<'a>(&'a self, allocator: &'a impl Alloc) -> Self::Still<'a>;
-    /// equivalent to to_still but able to reuse some allocations.
-    /// It is currently not recommended to use this as it clones every string.
+    /// equivalent to to_still but able to reuse some allocations
     fn into_still<'a>(self, allocator: &'a impl Alloc) -> Self::Still<'a>;
 }
 impl<T: OwnedToStill> OwnedToStill for std::boxed::Box<T> {
@@ -215,11 +214,11 @@ fn unt_to_int(unt: Unt) -> Int {
 fn unt_to_dec(unt: Unt) -> Dec {
     unt as f32
 }
-fn unt_to_str(allocator: &impl Alloc, unt: Unt) -> Str<'_> {
-    allocator.alloc(std::format!("{}", unt))
+fn unt_to_str(unt: Unt) -> Str<'static> {
+    Str::from_string(std::format!("{}", unt))
 }
 fn str_to_unt(str: Str) -> Opt<Unt> {
-    match str.parse::<Unt>() {
+    match str.as_str().parse::<Unt>() {
         std::result::Result::Err(_) => Opt::Absent,
         std::result::Result::Ok(unt) => Opt::Present(unt),
     }
@@ -267,11 +266,11 @@ fn int_to_unt(int: Int) -> Opt<Unt> {
 fn int_to_dec(int: Int) -> Dec {
     int as f32
 }
-fn int_to_str(allocator: &impl Alloc, int: Int) -> Str<'_> {
-    allocator.alloc(std::format!("{}", int))
+fn int_to_str(int: Int) -> Str<'static> {
+    Str::from_string(std::format!("{}", int))
 }
 fn str_to_int(str: Str) -> Opt<Int> {
-    match str.parse::<Int>() {
+    match str.as_str().parse::<Int>() {
         std::result::Result::Err(_) => Opt::Absent,
         std::result::Result::Ok(int) => Opt::Present(int),
     }
@@ -334,11 +333,11 @@ fn dec_order(left: Dec, right: Dec) -> Order {
         std::option::Option::None => Order::Equal,
     }
 }
-fn dec_to_str(allocator: &impl Alloc, dec: Dec) -> Str<'_> {
-    allocator.alloc(std::format!("{}", dec))
+fn dec_to_str(dec: Dec) -> Str<'static> {
+    Str::from_string(std::format!("{}", dec))
 }
 fn str_to_dec(str: Str) -> Opt<Dec> {
-    match str.parse::<Dec>() {
+    match str.as_str().parse::<Dec>() {
         std::result::Result::Err(_) => Opt::Absent,
         std::result::Result::Ok(dec) => Opt::Present(dec),
     }
@@ -495,57 +494,134 @@ fn chr_byte_count(chr: Chr) -> Unt {
 fn chr_order(left: Chr, right: Chr) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn chr_to_str(allocator: &impl Alloc, chr: Chr) -> Str<'_> {
-    allocator.alloc(std::format!("{}", chr))
+fn chr_to_str(chr: Chr) -> Str<'static> {
+    Str::from_string(std::format!("{}", chr))
 }
-
-pub type Str<'a> = &'a str;
-impl<'a> StillIntoOwned for Str<'a> {
-    type Owned = std::boxed::Box<str>;
-    fn into_owned(self) -> Self::Owned {
-        std::convert::Into::<std::boxed::Box<str>>::into(self)
+/// prefer Str::into_string over Str::to_string
+#[derive(Clone)]
+pub enum Str<'a> {
+    Rc(std::rc::Rc<std::string::String>),
+    Slice(&'a str),
+}
+impl std::convert::AsRef<str> for Str<'_> {
+    fn as_ref(&self) -> &'_ str {
+        match self {
+            Str::Rc(rc) => rc,
+            Str::Slice(slice) => slice,
+        }
     }
 }
-impl OwnedToStill for std::boxed::Box<str> {
+impl std::fmt::Debug for Str<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_str(), formatter)
+    }
+}
+impl std::fmt::Display for Str<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.as_str(), formatter)
+    }
+}
+impl Str<'_> {
+    pub fn as_str(&self) -> &'_ str {
+        match self {
+            Str::Rc(rc) => rc,
+            Str::Slice(slice) => slice,
+        }
+    }
+    pub fn into_string(self) -> std::string::String {
+        match self {
+            Str::Rc(rc) => std::rc::Rc::unwrap_or_clone(rc),
+            Str::Slice(slice) => std::string::ToString::to_string(slice),
+        }
+    }
+    pub fn from_string(string: std::string::String) -> Self {
+        Str::Rc(std::rc::Rc::new(string))
+    }
+}
+impl Eq for Str<'_> {}
+impl PartialEq for Str<'_> {
+    fn eq(&self, other: &Str<'_>) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+impl PartialEq<str> for Str<'_> {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+impl Ord for Str<'_> {
+    fn cmp(&self, other: &Str<'_>) -> std::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+impl PartialOrd for Str<'_> {
+    fn partial_cmp(&self, other: &Str<'_>) -> std::option::Option<std::cmp::Ordering> {
+        std::option::Option::Some(self.cmp(other))
+    }
+}
+impl PartialOrd<str> for Str<'_> {
+    fn partial_cmp(&self, other: &str) -> std::option::Option<std::cmp::Ordering> {
+        std::option::Option::Some(self.as_str().cmp(other))
+    }
+}
+impl<'a> StillIntoOwned for Str<'a> {
+    type Owned = std::rc::Rc<std::string::String>;
+    fn into_owned(self) -> Self::Owned {
+        match self {
+            Str::Rc(rc) => rc,
+            Str::Slice(slice) => std::rc::Rc::new(std::string::ToString::to_string(slice)),
+        }
+    }
+}
+impl OwnedToStill for std::rc::Rc<std::string::String> {
     type Still<'a> = Str<'a>;
     fn to_still<'a>(&'a self, _: &'a impl Alloc) -> Self::Still<'a> {
-        self
+        Str::Slice(self)
     }
-    fn into_still<'a>(self, allocator: &'a impl Alloc) -> Self::Still<'a> {
-        allocator.alloc(self)
+    fn into_still<'a>(self, _: &'a impl Alloc) -> Self::Still<'a> {
+        Str::Rc(self)
     }
 }
 
 fn str_byte_count(str: Str) -> Unt {
-    str.len()
+    str.as_str().len()
 }
 fn str_chr_at_byte_index(str: Str, byte_index: Unt) -> Opt<Chr> {
     Opt::from_option(
-        str.get(str.ceil_char_boundary(byte_index)..)
+        str.as_str()
+            .get(str.as_str().ceil_char_boundary(byte_index)..)
             .and_then(|chr_sub| std::iter::Iterator::next(&mut chr_sub.chars())),
     )
 }
 fn str_slice_from_byte_index_with_byte_length<'a>(
+    allocator: &'a impl Alloc,
     str: Str<'a>,
     start_index: Unt,
     slice_byte_length: Unt,
 ) -> Str<'a> {
-    str.get(
-        str.floor_char_boundary(start_index)
-            ..str.ceil_char_boundary(start_index + slice_byte_length),
+    let slice: &str = match str {
+        Str::Slice(slice) => slice,
+        Str::Rc(rc) => allocator.alloc(rc),
+    };
+    Str::Slice(
+        slice
+            .get(
+                slice.floor_char_boundary(start_index)
+                    ..slice.ceil_char_boundary(start_index + slice_byte_length),
+            )
+            .unwrap_or(""),
     )
-    .unwrap_or("")
 }
 fn str_to_chrs(str: Str) -> Vec<Chr> {
-    std::rc::Rc::new(std::iter::Iterator::collect(str.chars()))
+    std::rc::Rc::new(std::iter::Iterator::collect(str.as_str().chars()))
 }
-fn chrs_to_str<'a>(allocator: &'a impl Alloc, chars: Vec<Chr>) -> Str<'a> {
+fn chrs_to_str<'a>(chars: Vec<Chr>) -> Str<'a> {
     let string: std::string::String =
         std::iter::Iterator::collect(std::iter::Iterator::copied(chars.iter()));
-    allocator.alloc(string)
+    Str::from_string(string)
 }
 fn str_order(left: Str, right: Str) -> Order {
-    Order::from_ordering(left.cmp(right))
+    Order::from_ordering(left.cmp(&right))
 }
 fn str_walk_chrs_from<State, E>(
     str: Str,
@@ -553,15 +629,24 @@ fn str_walk_chrs_from<State, E>(
     on_element: impl Fn(State, Chr) -> Continue_or_exit<State, E>,
 ) -> Continue_or_exit<State, E> {
     Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
-        &mut str.chars(),
+        &mut str.as_str().chars(),
         initial_state,
         |state, element| on_element(state, element).to_control_flow(),
     ))
 }
-fn strs_flatten<'a>(allocator: &'a impl Alloc, vec_of_str: Vec<Str>) -> Str<'a> {
+fn strs_attach_chr(left: Str, right: Chr) -> Str<'static> {
+    let mut string: std::string::String = left.into_string();
+    string.push(right);
+    Str::from_string(string)
+}
+fn strs_attach(left: Str, right: Str) -> Str<'static> {
+    let string: std::string::String = left.into_string();
+    Str::from_string(string + right.as_str())
+}
+fn strs_flatten<'a>(vec_of_str: Vec<Str>) -> Str<'a> {
     let string: std::string::String =
-        std::iter::Iterator::collect(std::iter::Iterator::copied(vec_of_str.iter()));
-    allocator.alloc(string)
+        std::iter::Iterator::collect(std::iter::Iterator::map(vec_of_str.iter(), Str::as_str));
+    Str::from_string(string)
 }
 
 /// Do not call `_.to_vec()` on it. Prefer `Rc::unwrap_or_clone`
