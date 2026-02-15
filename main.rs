@@ -9187,7 +9187,7 @@ vec-remove-by-swapping-with-last \:vec A:vec, :unt:index >
             ),
             (
                 StillName::from("vec-truncate"),
-                false,
+                true,
                 function(
                     [still_type_vec(variable("A")), still_type_unt],
                     still_type_vec(variable("A")),
@@ -9201,6 +9201,24 @@ vec-remove-last \:vec A:vec >
         vec
     | :opt unt:Present :unt:truncated-length >
         vec-truncate vec truncated-length
+```
+",
+            ),
+            (
+                StillName::from("vec-slice-from-index-with-length"),
+                true,
+                function(
+                    [still_type_vec(variable("A")), still_type_unt],
+                    still_type_vec(variable("A")),
+                ),
+                r"Take at most a given count of elements from a given start index
+```still
+vec-remove-first \:vec A:vec >
+    vec-slice-from-index-with-length
+        vec
+        1
+        # can exceed the length of the original vec
+        (vec-length vec)
 ```
 ",
             ),
@@ -9225,10 +9243,18 @@ vec-remove-last \:vec A:vec >
                 "Reserve capacity for at least a given count of additional elements to be inserted in the given vec (reserving space is done automatically when inserting elements but when knowing more about the final size, we can avoid reallocations).",
             ),
             (
+                StillName::from("vec-attach-element"),
+                false,
+                function([still_type_vec(variable("A")), still_type_vec(variable("A"))], still_type_vec(variable("A"))),
+                "Glue a single given element after the first given `vec`.
+To append a `vec` of elements, use `vec-attach`",
+            ),
+            (
                 StillName::from("vec-attach"),
                 false,
                 function([still_type_vec(variable("A")), still_type_vec(variable("A"))], still_type_vec(variable("A"))),
-                "Glue the elements in a second `vec` after the first `vec`",
+                "Glue the elements in a second given `vec` after the first given `vec`.
+To append only a single element, use `vec-append-element`",
             ),
             (
                 StillName::from("vec-flatten"),
@@ -9643,7 +9669,7 @@ vec-element 3 my-vec
                 variants: vec![],
                 is_copy: false,
                 has_owned_representation: true,
-                has_lifetime_parameter: false,
+                has_lifetime_parameter: true,
                 type_variants: vec![],
             },
         ),
@@ -13780,7 +13806,7 @@ fn still_syntax_expression_to_rust<'a>(
                 type_: maybe_vec_element_type.map(still_type_vec),
                 rust: syn::Expr::Call(syn::ExprCall {
                     attrs: vec![],
-                    func: Box::new(syn_expr_reference(["vec_literal"])),
+                    func: Box::new(syn_expr_reference(["Vec", "from_array"])),
                     paren_token: syn::token::Paren(syn_span()),
                     args: std::iter::once(syn::Expr::Array(syn::ExprArray {
                         attrs: vec![],
@@ -14074,7 +14100,7 @@ fn still_syntax_expression_to_rust<'a>(
                             Some(StillType::ChoiceConstruct {
                                 name: choice_type_name,
                                 arguments: _,
-                            }) => choice_type_name != "vec",
+                            }) => choice_type_name != still_type_vec_name,
                             Some(_) => true,
                         };
                         if type_is_conflicting {
@@ -14091,7 +14117,7 @@ fn still_syntax_expression_to_rust<'a>(
                         CompiledStillExpression {
                             rust: syn::Expr::Call(syn::ExprCall {
                                 attrs: vec![],
-                                func: Box::new(syn_expr_reference(["vec_literal"])),
+                                func: Box::new(syn_expr_reference(["Vec", "from_array"])),
                                 paren_token: syn::token::Paren(syn_span()),
                                 args: std::iter::once(syn::Expr::Array(syn::ExprArray {
                                     attrs: vec![],
@@ -16635,7 +16661,7 @@ fn still_name_to_lowercase_rust(name: &str) -> String {
     if let Some(first) = sanitized.get_mut(0..=0) {
         first.make_ascii_lowercase();
     }
-    if rust_lowercase_keywords.contains(&sanitized.as_str()) || sanitized == "vec_literal" {
+    if rust_lowercase_keywords.contains(&sanitized.as_str()) {
         sanitized + "ø"
     } else {
         sanitized

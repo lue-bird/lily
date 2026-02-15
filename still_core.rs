@@ -14,7 +14,7 @@ use std::marker::Copy;
 use std::ops::Fn;
 // core //
 
-/// bring your own bump/... allocator. For example:
+/// bring your own bump/... allocator. For example for [bumpalo](https://docs.rs/bumpalo/latest/bumpalo/index.html):
 /// ```
 /// impl Alloc for bumpalo::Bump {
 ///     fn alloc<A>(&self, value: A) -> &A {
@@ -201,7 +201,7 @@ fn unt_to_int(unt: Unt) -> Int {
 fn unt_to_dec(unt: Unt) -> Dec {
     unt as f32
 }
-fn unt_to_str(unt: Unt) -> Str<'static> {
+fn unt_to_str<'a>(unt: Unt) -> Str<'a> {
     Str::from_string(std::format!("{}", unt))
 }
 fn str_to_unt(str: Str) -> Opt<Unt> {
@@ -253,7 +253,7 @@ fn int_to_unt(int: Int) -> Opt<Unt> {
 fn int_to_dec(int: Int) -> Dec {
     int as f32
 }
-fn int_to_str(int: Int) -> Str<'static> {
+fn int_to_str<'a>(int: Int) -> Str<'a> {
     Str::from_string(std::format!("{}", int))
 }
 fn str_to_int(str: Str) -> Opt<Int> {
@@ -320,7 +320,7 @@ fn dec_order(left: Dec, right: Dec) -> Order {
         std::option::Option::None => Order::Equal,
     }
 }
-fn dec_to_str(dec: Dec) -> Str<'static> {
+fn dec_to_str<'a>(dec: Dec) -> Str<'a> {
     Str::from_string(std::format!("{}", dec))
 }
 fn str_to_dec(str: Str) -> Opt<Dec> {
@@ -481,7 +481,7 @@ fn chr_byte_count(chr: Chr) -> Unt {
 fn chr_order(left: Chr, right: Chr) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn chr_to_str(chr: Chr) -> Str<'static> {
+fn chr_to_str<'a>(chr: Chr) -> Str<'a> {
     Str::from_string(std::format!("{}", chr))
 }
 /// prefer Str::into_string over Str::to_string
@@ -600,7 +600,7 @@ fn str_slice_from_byte_index_with_byte_length<'a>(
     )
 }
 fn str_to_chrs(str: Str) -> Vec<Chr> {
-    std::rc::Rc::new(std::iter::Iterator::collect(str.as_str().chars()))
+    Vec::from_vec(std::iter::Iterator::collect(str.as_str().chars()))
 }
 fn chrs_to_str<'a>(chars: Vec<Chr>) -> Str<'a> {
     let string: std::string::String =
@@ -621,12 +621,12 @@ fn str_walk_chrs_from<State, E>(
         |state, element| on_element(state, element).to_control_flow(),
     ))
 }
-fn strs_attach_chr(left: Str, right: Chr) -> Str<'static> {
+fn strs_attach_chr<'a>(left: Str, right: Chr) -> Str<'a> {
     let mut string: std::string::String = left.into_string();
     string.push(right);
     Str::from_string(string)
 }
-fn strs_attach(left: Str, right: Str) -> Str<'static> {
+fn strs_attach<'a>(left: Str, right: Str) -> Str<'a> {
     let string: std::string::String = left.into_string();
     Str::from_string(string + right.as_str())
 }
@@ -636,17 +636,29 @@ fn strs_flatten<'a>(vec_of_str: Vec<Str>) -> Str<'a> {
     Str::from_string(string)
 }
 
-/// Do not call `_.to_vec()` on it. Prefer `Rc::unwrap_or_clone`
-pub type Vec<A> = std::rc::Rc<std::vec::Vec<A>>;
-impl<A: StillIntoOwned + Clone> StillIntoOwned for Vec<A> {
+/// Do not call `_.to_vec()` on it. Prefer `.into_vec()`
+#[derive(Clone)]
+pub enum Vec<'a, A> {
+    Rc(std::rc::Rc<std::vec::Vec<A>>),
+    Slice(&'a [A]),
+}
+impl<A: StillIntoOwned + Clone> StillIntoOwned for Vec<'_, A> {
     type Owned = std::vec::Vec<A::Owned>;
     fn into_owned(self) -> Self::Owned {
-        match std::rc::Rc::try_unwrap(self) {
-            std::result::Result::Ok(owned) => std::iter::Iterator::collect(
-                std::iter::Iterator::map(std::iter::IntoIterator::into_iter(owned), A::into_owned),
-            ),
-            std::result::Result::Err(rc) => std::iter::Iterator::collect(std::iter::Iterator::map(
-                std::iter::Iterator::cloned(rc.iter()),
+        match self {
+            Vec::Rc(rc) => match std::rc::Rc::try_unwrap(rc) {
+                std::result::Result::Ok(owned) => {
+                    std::iter::Iterator::collect(std::iter::Iterator::map(
+                        std::iter::IntoIterator::into_iter(owned),
+                        A::into_owned,
+                    ))
+                }
+                std::result::Result::Err(rc) => std::iter::Iterator::collect(
+                    std::iter::Iterator::map(std::iter::Iterator::cloned(rc.iter()), A::into_owned),
+                ),
+            },
+            Vec::Slice(slice) => std::iter::Iterator::collect(std::iter::Iterator::map(
+                std::iter::Iterator::cloned(slice.iter()),
                 A::into_owned,
             )),
         }
@@ -654,36 +666,53 @@ impl<A: StillIntoOwned + Clone> StillIntoOwned for Vec<A> {
     fn into_owned_overwriting(self, vec_allocation_to_reuse: &mut Self::Owned) {
         vec_allocation_to_reuse.clear();
         let vec_allocation_to_reuse_len: usize = vec_allocation_to_reuse.len();
-        match std::rc::Rc::try_unwrap(self) {
-            std::result::Result::Ok(mut owned) => {
-                vec_allocation_to_reuse.truncate(owned.len());
-                // could we iterate owned by_ref instead of drain?
-                // I'm not sure if that would drop an element
-                for (element_allocation_to_reuse, element) in std::iter::Iterator::zip(
-                    vec_allocation_to_reuse.iter_mut(),
-                    std::vec::Vec::drain(&mut owned, 0..vec_allocation_to_reuse_len),
-                ) {
-                    A::into_owned_overwriting(element, element_allocation_to_reuse);
+        match self {
+            Vec::Rc(rc) => match std::rc::Rc::try_unwrap(rc) {
+                std::result::Result::Ok(mut owned) => {
+                    vec_allocation_to_reuse.truncate(owned.len());
+                    // could we iterate owned by_ref instead of drain?
+                    // I'm not sure if that would drop an element
+                    for (element_allocation_to_reuse, element) in std::iter::Iterator::zip(
+                        vec_allocation_to_reuse.iter_mut(),
+                        std::vec::Vec::drain(&mut owned, 0..vec_allocation_to_reuse_len),
+                    ) {
+                        A::into_owned_overwriting(element, element_allocation_to_reuse);
+                    }
+                    std::iter::Extend::extend(
+                        vec_allocation_to_reuse,
+                        std::iter::Iterator::map(
+                            std::iter::IntoIterator::into_iter(owned),
+                            A::into_owned,
+                        ),
+                    );
                 }
-                std::iter::Extend::extend(
-                    vec_allocation_to_reuse,
-                    std::iter::Iterator::map(
-                        std::iter::IntoIterator::into_iter(owned),
-                        A::into_owned,
-                    ),
-                );
-            }
-            std::result::Result::Err(rc) => {
-                vec_allocation_to_reuse.truncate(rc.len());
+                std::result::Result::Err(rc) => {
+                    vec_allocation_to_reuse.truncate(rc.len());
+                    for (element_allocation_to_reuse, element) in
+                        std::iter::Iterator::zip(vec_allocation_to_reuse.iter_mut(), rc.iter())
+                    {
+                        A::into_owned_overwriting(element.clone(), element_allocation_to_reuse);
+                    }
+                    std::iter::Extend::extend(
+                        vec_allocation_to_reuse,
+                        std::iter::Iterator::map(
+                            std::iter::Iterator::skip(rc.iter(), vec_allocation_to_reuse.len()),
+                            |element| A::into_owned(element.clone()),
+                        ),
+                    );
+                }
+            },
+            Vec::Slice(slice) => {
+                vec_allocation_to_reuse.truncate(slice.len());
                 for (element_allocation_to_reuse, element) in
-                    std::iter::Iterator::zip(vec_allocation_to_reuse.iter_mut(), rc.iter())
+                    std::iter::Iterator::zip(vec_allocation_to_reuse.iter_mut(), slice.iter())
                 {
                     A::into_owned_overwriting(element.clone(), element_allocation_to_reuse);
                 }
                 std::iter::Extend::extend(
                     vec_allocation_to_reuse,
                     std::iter::Iterator::map(
-                        std::iter::Iterator::skip(rc.iter(), vec_allocation_to_reuse.len()),
+                        std::iter::Iterator::skip(slice.iter(), vec_allocation_to_reuse.len()),
                         |element| A::into_owned(element.clone()),
                     ),
                 );
@@ -693,113 +722,200 @@ impl<A: StillIntoOwned + Clone> StillIntoOwned for Vec<A> {
 }
 impl<A: OwnedToStill> OwnedToStill for std::vec::Vec<A> {
     type Still<'a>
-        = Vec<A::Still<'a>>
+        = Vec<'a, A::Still<'a>>
     where
         A: 'a;
     fn to_still<'a>(&'a self, allocator: &'a impl Alloc) -> Self::Still<'a> {
-        std::rc::Rc::new(std::iter::Iterator::collect(std::iter::Iterator::map(
+        Vec::from_vec(std::iter::Iterator::collect(std::iter::Iterator::map(
             self.iter(),
             |element_owned_ref| A::to_still(element_owned_ref, allocator),
         )))
     }
     fn into_still<'a>(self, allocator: &'a impl Alloc) -> Self::Still<'a> {
         // is the optimizer smart enough to inline map if possible?
-        std::rc::Rc::new(std::iter::Iterator::collect(std::iter::Iterator::map(
+        Vec::from_vec(std::iter::Iterator::collect(std::iter::Iterator::map(
             std::iter::IntoIterator::into_iter(self),
             |element_owned| A::into_still(element_owned, allocator),
         )))
     }
 }
-fn vec_literal<const N: usize, A>(elements: [A; N]) -> Vec<A> {
-    std::rc::Rc::new(std::convert::Into::<std::vec::Vec<A>>::into(elements))
+impl<A: std::fmt::Debug> std::fmt::Debug for Vec<'_, A> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Vec::Rc(rc) => std::fmt::Debug::fmt(rc, formatter),
+            Vec::Slice(slice) => std::fmt::Debug::fmt(slice, formatter),
+        }
+    }
 }
-fn vec_repeat<A: Clone>(length: Unt, element: A) -> Vec<A> {
-    std::rc::Rc::new(std::iter::Iterator::collect(std::iter::repeat_n(
+impl<A: Eq> Eq for Vec<'_, A> {}
+impl<A: PartialEq> PartialEq for Vec<'_, A> {
+    fn eq(&self, other: &Vec<A>) -> bool {
+        self.as_slice().eq(other.as_slice())
+    }
+}
+impl<A> std::convert::AsRef<[A]> for Vec<'_, A> {
+    fn as_ref(&self) -> &[A] {
+        self.as_slice()
+    }
+}
+impl<A> Vec<'_, A> {
+    pub fn from_array<'a, const N: usize>(elements: [A; N]) -> Vec<'a, A> {
+        Vec::from_vec(std::convert::Into::<std::vec::Vec<A>>::into(elements))
+    }
+    pub fn from_vec(vec: std::vec::Vec<A>) -> Self {
+        Vec::Rc(std::rc::Rc::new(vec))
+    }
+    pub fn into_vec(self) -> std::vec::Vec<A>
+    where
+        A: Clone,
+    {
+        match self {
+            Vec::Rc(rc) => std::rc::Rc::unwrap_or_clone(rc),
+            Vec::Slice(slice) => slice.to_vec(),
+        }
+    }
+    pub fn as_slice(&self) -> &[A] {
+        match self {
+            Vec::Rc(rc) => rc,
+            Vec::Slice(slice) => slice,
+        }
+    }
+    pub fn iter(&self) -> impl std::iter::Iterator<Item = &A> {
+        self.as_slice().iter()
+    }
+}
+fn vec_repeat<'a, A: Clone>(length: Unt, element: A) -> Vec<'a, A> {
+    Vec::from_vec(std::iter::Iterator::collect(std::iter::repeat_n(
         element, length,
     )))
 }
 fn vec_length<A>(vec: Vec<A>) -> Unt {
-    vec.len()
+    vec.as_slice().len()
 }
 fn vec_element<A: Clone>(vec: Vec<A>, index: Unt) -> Opt<A> {
-    match vec.get(index) {
+    match vec.as_slice().get(index) {
         std::option::Option::None => Opt::Absent,
         std::option::Option::Some(element) => Opt::Present(element.clone()),
     }
 }
 fn vec_replace_element<A: Clone>(vec: Vec<A>, index: Unt, new_element: A) -> Vec<A> {
-    if index >= vec.len() {
+    if index >= vec.as_slice().len() {
         return vec;
     }
-    let mut owned_vec: std::vec::Vec<A> = std::rc::Rc::unwrap_or_clone(vec);
+    let mut owned_vec: std::vec::Vec<A> = vec.into_vec();
     owned_vec[index] = new_element;
-    std::rc::Rc::new(owned_vec)
+    Vec::from_vec(owned_vec)
 }
 fn vec_swap<A: Clone>(vec: Vec<A>, a_index: Unt, b_index: Unt) -> Vec<A> {
-    if a_index >= vec.len() || b_index >= vec.len() || a_index == b_index {
+    if a_index >= vec.as_slice().len() || b_index >= vec.as_slice().len() || a_index == b_index {
         return vec;
     }
-    let mut owned_vec: std::vec::Vec<A> = std::rc::Rc::unwrap_or_clone(vec);
+    let mut owned_vec: std::vec::Vec<A> = vec.into_vec();
     owned_vec.swap(a_index, b_index);
-    std::rc::Rc::new(owned_vec)
+    Vec::from_vec(owned_vec)
 }
-fn vec_truncate<A: Clone>(vec: Vec<A>, taken_length: Unt) -> Vec<A> {
-    match std::rc::Rc::try_unwrap(vec) {
-        std::result::Result::Ok(mut owned_vec) => {
-            owned_vec.truncate(taken_length);
-            std::rc::Rc::new(owned_vec)
-        }
-        std::result::Result::Err(vec_rc) => std::rc::Rc::new(
-            vec_rc
-                .get(..taken_length)
-                .map(std::convert::Into::<std::vec::Vec<A>>::into)
-                .unwrap_or_else(|| std::vec![]),
-        ),
-    }
-}
-fn vec_increase_capacity_by<A: Clone>(vec: Vec<A>, capacity_increase: Unt) -> Vec<A> {
-    let mut owned_vec: std::vec::Vec<A> = std::rc::Rc::unwrap_or_clone(vec);
-    owned_vec.reserve(capacity_increase);
-    std::rc::Rc::new(owned_vec)
-}
-fn vec_sort<A: Clone>(vec: Vec<A>, element_order: impl Fn(A, A) -> Order) -> Vec<A> {
-    let mut owned_vec: std::vec::Vec<A> = std::rc::Rc::unwrap_or_clone(vec);
-    owned_vec.sort_unstable_by(|a, b| element_order(a.clone(), b.clone()).to_ordering());
-    std::rc::Rc::new(owned_vec)
-}
-fn vec_attach<A: Clone>(left: Vec<A>, right: Vec<A>) -> Vec<A> {
-    let mut combined: std::vec::Vec<A> = std::rc::Rc::unwrap_or_clone(left);
-    match std::rc::Rc::try_unwrap(right) {
-        std::result::Result::Err(rc) => {
-            combined.extend_from_slice(&rc);
-        }
-        std::result::Result::Ok(owned) => {
-            std::iter::Extend::extend(&mut combined, owned);
-        }
-    }
-    std::rc::Rc::new(combined)
-}
-fn vec_flatten<A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<A> {
-    std::rc::Rc::new(match std::rc::Rc::try_unwrap(vec_vec) {
-        std::result::Result::Err(vec_vec) => {
-            std::iter::Iterator::collect(std::iter::Iterator::cloned(
-                std::iter::Iterator::flat_map(vec_vec.iter(), |inner| inner.iter()),
-            ))
-        }
-        std::result::Result::Ok(vec_vec) => {
-            let mut flattened: std::vec::Vec<A> = std::vec::Vec::new();
-            for inner in vec_vec {
-                match std::rc::Rc::try_unwrap(inner) {
-                    std::result::Result::Err(inner) => {
-                        flattened.extend_from_slice(&inner);
-                    }
-                    std::result::Result::Ok(inner) => {
-                        std::iter::Extend::extend(&mut flattened, inner);
-                    }
+fn vec_truncate<'a, A: 'a>(
+    allocator: &'a impl Alloc,
+    vec: Vec<'a, A>,
+    taken_length: Unt,
+) -> Vec<'a, A> {
+    match vec {
+        Vec::Rc(rc) => {
+            if taken_length >= rc.len() {
+                return Vec::Rc(rc);
+            }
+            match std::rc::Rc::try_unwrap(rc) {
+                std::result::Result::Ok(mut owned_vec) => {
+                    owned_vec.truncate(taken_length);
+                    Vec::from_vec(owned_vec)
+                }
+                std::result::Result::Err(vec_rc) => {
+                    Vec::Slice(allocator.alloc(vec_rc).get(..taken_length).unwrap_or(&[]))
                 }
             }
-            flattened
         }
+        Vec::Slice(slice) => Vec::Slice(slice.get(..taken_length).unwrap_or(slice)),
+    }
+}
+fn vec_slice_from_index_with_length<'a, A>(
+    allocator: &'a impl Alloc,
+    vec: Vec<'a, A>,
+    start_index: Unt,
+    slice_length: Unt,
+) -> Vec<'a, A> {
+    let slice: &[A] = match vec {
+        Vec::Rc(rc) => allocator.alloc(rc),
+        Vec::Slice(slice) => slice,
+    };
+    Vec::Slice(
+        slice
+            .get(start_index..(start_index + slice_length))
+            .unwrap_or(&[]),
+    )
+}
+fn vec_increase_capacity_by<A: Clone>(vec: Vec<A>, capacity_increase: Unt) -> Vec<A> {
+    let mut owned_vec: std::vec::Vec<A> = vec.into_vec();
+    owned_vec.reserve(capacity_increase);
+    Vec::from_vec(owned_vec)
+}
+fn vec_sort<A: Clone>(vec: Vec<A>, element_order: impl Fn(A, A) -> Order) -> Vec<A> {
+    let mut owned_vec: std::vec::Vec<A> = vec.into_vec();
+    owned_vec.sort_unstable_by(|a, b| element_order(a.clone(), b.clone()).to_ordering());
+    Vec::from_vec(owned_vec)
+}
+fn vec_attach_element<'a, A: Clone>(left: Vec<A>, right_element: A) -> Vec<'a, A> {
+    let mut combined: std::vec::Vec<A> = left.into_vec();
+    combined.push(right_element);
+    Vec::from_vec(combined)
+}
+fn vec_attach<'a, A: Clone>(left: Vec<A>, right: Vec<A>) -> Vec<'a, A> {
+    let mut combined: std::vec::Vec<A> = left.into_vec();
+    match right {
+        Vec::Rc(right_rc) => match std::rc::Rc::try_unwrap(right_rc) {
+            std::result::Result::Err(rc) => {
+                combined.extend_from_slice(&rc);
+            }
+            std::result::Result::Ok(owned) => {
+                std::iter::Extend::extend(&mut combined, owned);
+            }
+        },
+        Vec::Slice(right_slice) => {
+            combined.extend_from_slice(right_slice);
+        }
+    }
+    Vec::from_vec(combined)
+}
+fn vec_flatten<'a, A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<'a, A> {
+    Vec::from_vec(match vec_vec {
+        Vec::Rc(vec_vec) => match std::rc::Rc::try_unwrap(vec_vec) {
+            std::result::Result::Ok(vec_vec) => {
+                let mut flattened: std::vec::Vec<A> = std::vec::Vec::new();
+                for inner in vec_vec {
+                    match inner {
+                        Vec::Rc(inner) => match std::rc::Rc::try_unwrap(inner) {
+                            std::result::Result::Ok(inner) => {
+                                std::iter::Extend::extend(&mut flattened, inner);
+                            }
+                            std::result::Result::Err(inner) => {
+                                flattened.extend_from_slice(&inner);
+                            }
+                        },
+                        Vec::Slice(inner) => {
+                            flattened.extend_from_slice(inner);
+                        }
+                    }
+                }
+                flattened
+            }
+            std::result::Result::Err(vec_vec) => {
+                std::iter::Iterator::collect(std::iter::Iterator::cloned(
+                    std::iter::Iterator::flat_map(vec_vec.iter(), Vec::iter),
+                ))
+            }
+        },
+        Vec::Slice(slice) => std::iter::Iterator::collect(std::iter::Iterator::cloned(
+            std::iter::Iterator::flat_map(slice.iter(), Vec::iter),
+        )),
     })
 }
 fn vec_walk_from<A: Clone, State, E>(
@@ -807,20 +923,27 @@ fn vec_walk_from<A: Clone, State, E>(
     state: State,
     on_element: impl Fn(State, A) -> Continue_or_exit<State, E>,
 ) -> Continue_or_exit<State, E> {
-    match std::rc::Rc::try_unwrap(vec) {
-        std::result::Result::Err(vec) => {
-            Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
-                &mut std::iter::Iterator::cloned(vec.iter()),
-                state,
-                |state, element| on_element(state, element).to_control_flow(),
-            ))
-        }
-        std::result::Result::Ok(vec) => {
-            Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
-                &mut std::iter::IntoIterator::into_iter(vec),
-                state,
-                |state, element| on_element(state, element).to_control_flow(),
-            ))
-        }
+    match vec {
+        Vec::Rc(vec) => match std::rc::Rc::try_unwrap(vec) {
+            std::result::Result::Ok(vec) => {
+                Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
+                    &mut std::iter::IntoIterator::into_iter(vec),
+                    state,
+                    |state, element| on_element(state, element).to_control_flow(),
+                ))
+            }
+            std::result::Result::Err(vec) => {
+                Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
+                    &mut std::iter::Iterator::cloned(vec.iter()),
+                    state,
+                    |state, element| on_element(state, element).to_control_flow(),
+                ))
+            }
+        },
+        Vec::Slice(slice) => Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
+            &mut std::iter::Iterator::cloned(slice.iter()),
+            state,
+            |state, element| on_element(state, element).to_control_flow(),
+        )),
     }
 }
