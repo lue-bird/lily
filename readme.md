@@ -57,43 +57,6 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 
 - no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): infix operators, currying, lifetime tracking, traits/type classes, objects, task/async, hidden mutation, macros & reflection, side effects, modules, hidden context values, undefined
 
-## TODO (none are blocking, just additions)
-- make `StillIntoOwned::into_owned_overwriting` actually useful in practice.
-  Currently, since `to_still` takes a reference with a lifetime of the returned still,
-  it can't be used to then mutate the original state
-- implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums
-
-## considering
-- (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
-- (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
-- (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chrs-backwards-from`
-- (leaning towards yes) rename chr to char
-- (leaning towards yes) allow comments before variant (field name, case?, variant?)
-- (leaning slightly towards yes) change `Str<'a>` to `enum { Slice(&'a str), Rc(Rc<String>) }` and converting to Rc to a slice when necessary by allocating the Rc (same for Vec)
-- (maybe in the future) add or pattern `( first | second | third )`
-- (leaning towards no, partly due to matching syntax) make formatter range-independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
-- (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
-- output rust in realtime. Really cool since the compiled code is always up to date, need to check if file io is fast enough
-- (leaning towards no, sadly) replace non-recursive nominal-ish choice types by structural-ish choice types. Should be fairly easy to implement as `enum Variant0Variant1<Variant0, Variant1>` but still alright for FFI (you always have to type `Variant0Variant1::Variant0` similar to record structs currently _but_ crucially you have the option to use a still-declared type alias like `type Choice<'a> = Variant0Variant1<usize, &'a str>` to write `Choice::Variant0`)
-- (currently no idea how to implement in rust, maybe can be done in user land given that it required Hash but I'd like order functions to be given for each operation or similar?) add `map`, `set` core types
-- switch all core numbers to either 32 bit or 64 bit (64 bit would be nice for conversions if there are 32bit variations in the future and also be a reasonable default fur use as posix time or random seed, 32 bit is nice for chr conversion, default memory efficiency)
-- (leaning towards no) extend typing model to only specify type variables, so `myFunction<int, str>`, `[]<int>`, `Present<int> 1`, similar to dhall and zig (but worse, because not first class. If it was you could pass types in records etc).
-
-  ```still
-  stack-map<A, B> \:\A > B:element-change, :stack<A>:stack >
-      case stack of
-      Empty<A> > Empty<B>
-      Cons<A> { head :A:head, tail :stack<A>:tail } >
-          Cons<B>
-              { head element-change head
-              , tail stack-map<A, B> element-change tail
-              }
-  ```
-  This generally removes some verbosity, is consistent with choice type/ type alias construction,
-  allows non-called generic functions, would allow the removal of all "::Typed" patterns and expressions (except recursion? but maybe there is a better solution for that).
-- (seems completely useless) infer constness of generated variable/fn items
-- (leaning towards no) allow concrete bounded variables in some type aliases and choice types instead of &dyn
-
 ## syntax overview
 ```still
 # this is a comment.
@@ -111,7 +74,7 @@ s0me-Name
 `Ma! I got a thing going here.
 `You got lint on your fuzz.
 `Ow! That's me!
-`Wave to us! We'll be in row 118,000.
+`Wave to us! "\\\ ` ' \n \r \t \{ \m \u}
 
 # character (of type chr)
 '👀'
@@ -141,6 +104,10 @@ int-add -2 +3
 # a bunch of labelled values grouped together
 #   (of type { likes unt, dislikes unt, boosts unt })
 { likes 1, dislikes unt-add 1 2, boosts 3 }
+
+# local variable declaration (must be in order and not recursive)
+let local-variable-name "Anissa"
+strs-flatten [ "Hello, ", local-variable-name, "\n" ]
 
 # an abbreviation for a commonly used type
 type point Unity-type-parameter =
@@ -246,6 +213,41 @@ Rebuild the project with
 cargo build
 ```
 Then point your editor to the created `???/target/debug/still lsp`.
+
+## TODO (none are blocking, just additions)
+- print variable declaration types more nicely (and generated types more concisely)
+- implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums
+
+## considering
+- (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
+- (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
+- (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chrs-backwards-from`
+- (leaning towards yes) rename chr to char
+- (leaning towards yes) allow comments before variant (field name, case?, variant?)
+- (leaning slightly towards yes) change `Str<'a>` to `enum { Slice(&'a str), Rc(Rc<String>) }` and converting to Rc to a slice when necessary by allocating the Rc (same for Vec)
+- (maybe in the future) add or pattern `( first | second | third )`
+- (leaning towards no, partly due to matching syntax) make formatter range-independent, and instead cut a line >=100 (is that possible to do when trying to get a maximally fast formatter? Because it seems an intermediate recursive structure is required)
+- (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
+- output rust in realtime. Really cool since the compiled code is always up to date, need to check if file io is fast enough
+- (leaning towards no, sadly) replace non-recursive nominal-ish choice types by structural-ish choice types. Should be fairly easy to implement as `enum Variant0Variant1<Variant0, Variant1>` but still alright for FFI (you always have to type `Variant0Variant1::Variant0` similar to record structs currently _but_ crucially you have the option to use a still-declared type alias like `type Choice<'a> = Variant0Variant1<usize, &'a str>` to write `Choice::Variant0`)
+- (currently no idea how to implement in rust, maybe can be done in user land given that it required Hash but I'd like order functions to be given for each operation or similar?) add `map`, `set` core types
+- switch all core numbers to either 32 bit or 64 bit (64 bit would be nice for conversions if there are 32bit variations in the future and also be a reasonable default fur use as posix time or random seed, 32 bit is nice for chr conversion, default memory efficiency)
+- (leaning towards no) extend typing model to only specify type variables, so `myFunction<int, str>`, `[]<int>`, `Present<int> 1`, similar to dhall and zig (but worse, because not first class. If it was you could pass types in records etc).
+
+  ```still
+  stack-map<A, B> \:\A > B:element-change, :stack<A>:stack >
+      case stack of
+      Empty<A> > Empty<B>
+      Cons<A> { head :A:head, tail :stack<A>:tail } >
+          Cons<B>
+              { head element-change head
+              , tail stack-map<A, B> element-change tail
+              }
+  ```
+  This generally removes some verbosity, is consistent with choice type/ type alias construction,
+  allows non-called generic functions, would allow the removal of all "::Typed" patterns and expressions (except recursion? but maybe there is a better solution for that).
+- (seems completely useless) infer constness of generated variable/fn items
+- (leaning towards no) allow concrete bounded variables in some type aliases and choice types instead of &dyn
 
 ### log of failed optimizations
 - switching to mimalloc, ~>25% faster (really nice) at the cost of 25% more memory consumption.
