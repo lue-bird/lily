@@ -4,7 +4,7 @@ fn main() {
     let mut allocator: bumpalo::Bump = bumpalo::Bump::new();
     let mut still_state: still::Opt<<StillState<'static> as still::StillIntoOwned>::Owned> =
         still::Opt::Absent;
-    'main_loop: for _ in std::iter::repeat_n((), 10) {
+    'main_loop: loop {
         let interface = still::interface(
             &allocator,
             still::OwnedToStill::into_still(still_state, &allocator),
