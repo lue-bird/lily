@@ -58,7 +58,6 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 - no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): infix operators, currying, lifetime tracking, traits/type classes, objects, task/async, hidden mutation, macros & reflection, side effects, modules, hidden context values, undefined
 
 ## TODO (none are blocking, just additions)
-- use better multiline string literal: starting each line with `/` just like zig's `//`
 - make `StillIntoOwned::into_owned_overwriting` actually useful in practice.
   Currently, since `to_still` takes a reference with a lifetime of the returned still,
   it can't be used to then mutate the original state
@@ -107,6 +106,12 @@ s0me-Name
 
 # string (of type str)
 "Yahallo"
+
+# multi-line string (each line starts with `, then raw text until linebreak)
+`Ma! I got a thing going here.
+`You got lint on your fuzz.
+`Ow! That's me!
+`Wave to us! We'll be in row 118,000.
 
 # character (of type chr)
 '👀'

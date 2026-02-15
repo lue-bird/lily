@@ -2299,14 +2299,14 @@ fn lsp_position_positive_delta(
 ) -> Result<PositionDelta, String> {
     match before.line.cmp(&after.line) {
         std::cmp::Ordering::Greater => Err(format!(
-            "before line > after line (before: {}, after {})",
+            "before line > after line (before: {}, after: {})",
             lsp_position_to_string(before),
             lsp_position_to_string(after)
         )),
         std::cmp::Ordering::Equal => {
             if before.character > after.character {
                 Err(format!(
-                    "before character > after character (before: {}, after {})",
+                    "before character > after character (before: {}, after: {})",
                     lsp_position_to_string(before),
                     lsp_position_to_string(after)
                 ))
@@ -2434,7 +2434,7 @@ enum StillSyntaxPatternUntyped {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StillSyntaxStringQuotingStyle {
     SingleQuoted,
-    TripleQuoted,
+    TickedLines,
 }
 
 #[derive(Clone, Debug)]
@@ -3395,7 +3395,7 @@ fn still_syntax_pattern_into(
         StillSyntaxPattern::String {
             content,
             quoting_style,
-        } => still_string_into(so_far, *quoting_style, content),
+        } => still_string_into(so_far, indent, *quoting_style, content),
         StillSyntaxPattern::WithComment {
             comment: comment_node,
             pattern: maybe_pattern_after_comment,
@@ -3587,6 +3587,7 @@ fn still_int_into(so_far: &mut String, representation: &StillSyntaxInt) {
 }
 fn still_string_into(
     so_far: &mut String,
+    indent: usize,
     quoting_style: StillSyntaxStringQuotingStyle,
     content: &str,
 ) {
@@ -3611,35 +3612,17 @@ fn still_string_into(
             }
             so_far.push('"');
         }
-        StillSyntaxStringQuotingStyle::TripleQuoted => {
-            so_far.push_str("\"\"\"");
-            // because only quotes connected to the ending """ should be escaped to \"
-            let mut quote_count_to_insert: usize = 0;
-            'pushing_escaped_content: for char in content.chars() {
-                if char == '\"' {
-                    quote_count_to_insert += 1;
-                    continue 'pushing_escaped_content;
-                }
-                so_far.extend(std::iter::repeat_n('\"', quote_count_to_insert));
-                match char {
-                    '\\' => so_far.push_str("\\\\"),
-                    '\t' => so_far.push_str("\\t"),
-                    '\r' => so_far.push('\r'),
-                    '\n' => so_far.push('\n'),
-                    '\"' => {
-                        quote_count_to_insert += 1;
-                    }
-                    other_character => {
-                        if still_char_needs_unicode_escaping(other_character) {
-                            still_unicode_char_escape_into(so_far, other_character);
-                        } else {
-                            so_far.push(other_character);
-                        }
-                    }
+        StillSyntaxStringQuotingStyle::TickedLines => {
+            let mut lines_iterator: std::str::Split<char> = content.split('\n');
+            if let Some(line0) = lines_iterator.next() {
+                so_far.push('`');
+                so_far.push_str(line0);
+                for line in lines_iterator {
+                    linebreak_indented_into(so_far, indent);
+                    so_far.push('`');
+                    so_far.push_str(line);
                 }
             }
-            so_far.extend(std::iter::repeat_n("\\\"", quote_count_to_insert));
-            so_far.push_str("\"\"\"");
         }
     }
 }
@@ -3955,7 +3938,7 @@ fn still_syntax_expression_not_parenthesized_into(
             content,
             quoting_style,
         } => {
-            still_string_into(so_far, *quoting_style, content);
+            still_string_into(so_far, indent, *quoting_style, content);
         }
     }
 }
@@ -6704,21 +6687,37 @@ fn still_syntax_highlight_expression_into(
                     value: StillSyntaxHighlightKind::String,
                 });
             }
-            StillSyntaxStringQuotingStyle::TripleQuoted => {
-                highlighted_so_far.extend(
-                    still_syntax_highlight_multi_line(
-                        StillSyntaxNode {
-                            range: expression_node.range,
-                            value: content,
+            StillSyntaxStringQuotingStyle::TickedLines => {
+                highlighted_so_far.push(StillSyntaxNode {
+                    range: lsp_types::Range {
+                        start: expression_node.range.start,
+                        // hacky: full line end
+                        end: lsp_types::Position {
+                            line: expression_node.range.start.line,
+                            character: 1_000_000_000,
                         },
-                        3,
-                        3,
-                    )
-                    .map(|range| StillSyntaxNode {
-                        range: range,
-                        value: StillSyntaxHighlightKind::String,
-                    }),
-                );
+                    },
+                    value: StillSyntaxHighlightKind::String,
+                });
+                highlighted_so_far.extend(content.split("\n").enumerate().skip(1).map(
+                    |(inner_index, _)| {
+                        let line: u32 = expression_node.range.start.line + inner_index as u32;
+                        StillSyntaxNode {
+                            // hacky: full line
+                            range: lsp_types::Range {
+                                start: lsp_types::Position {
+                                    line: line,
+                                    character: 0,
+                                },
+                                end: lsp_types::Position {
+                                    line: line,
+                                    character: 1_000_000_000,
+                                },
+                            },
+                            value: StillSyntaxHighlightKind::String,
+                        }
+                    },
+                ));
             }
         },
     }
@@ -6782,27 +6781,6 @@ fn parse_linebreak(state: &mut ParseState) -> bool {
         false
     }
 }
-fn parse_linebreak_as_str<'a>(state: &mut ParseState<'a>) -> Option<&'a str> {
-    // see EOL in https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocuments
-    if state.source[state.offset_utf8..].starts_with("\n") {
-        state.offset_utf8 += 1;
-        state.position.line += 1;
-        state.position.character = 0;
-        Some("\n")
-    } else if state.source[state.offset_utf8..].starts_with("\r\n") {
-        state.offset_utf8 += 2;
-        state.position.line += 1;
-        state.position.character = 0;
-        Some("\r\n")
-    } else if state.source[state.offset_utf8..].starts_with("\r") {
-        state.offset_utf8 += 1;
-        state.position.line += 1;
-        state.position.character = 0;
-        Some("\r")
-    } else {
-        None
-    }
-}
 /// prefer using after `parse_line_break` or similar failed
 fn parse_any_guaranteed_non_linebreak_char_as_char(state: &mut ParseState) -> Option<char> {
     match state.source[state.offset_utf8..].chars().next() {
@@ -6812,16 +6790,6 @@ fn parse_any_guaranteed_non_linebreak_char_as_char(state: &mut ParseState) -> Op
             state.position.character += parsed_char.len_utf16() as u32;
             Some(parsed_char)
         }
-    }
-}
-/// symbol cannot be non-utf8 characters or \n
-fn parse_char_symbol_as_char(state: &mut ParseState, symbol: char) -> Option<char> {
-    if state.source[state.offset_utf8..].starts_with(symbol) {
-        state.offset_utf8 += symbol.len_utf8();
-        state.position.character += symbol.len_utf16() as u32;
-        Some(symbol)
-    } else {
-        None
     }
 }
 /// symbol cannot contain non-utf8 characters or \n
@@ -6907,6 +6875,15 @@ fn parse_still_keyword_as_range(state: &mut ParseState, symbol: &str) -> Option<
         None
     }
 }
+fn parse_before_next_linebreak_or_end_as_str<'a>(state: &mut ParseState<'a>) -> &'a str {
+    let content: &str = state.source[state.offset_utf8..]
+        .lines()
+        .next()
+        .unwrap_or("");
+    state.offset_utf8 += content.len();
+    state.position.character += content.encode_utf16().count() as u32;
+    content
+}
 
 fn parse_still_whitespace(state: &mut ParseState) {
     while parse_linebreak(state) || parse_same_line_char_if(state, char::is_whitespace) {}
@@ -6927,13 +6904,7 @@ fn parse_still_comment<'a>(state: &mut ParseState<'a>) -> Option<&'a str> {
     if !parse_symbol(state, "#") {
         return None;
     }
-    let content: &str = state.source[state.offset_utf8..]
-        .lines()
-        .next()
-        .unwrap_or("");
-    state.offset_utf8 += content.len();
-    state.position.character += content.encode_utf16().count() as u32;
-    Some(content)
+    Some(parse_before_next_linebreak_or_end_as_str(state))
 }
 fn parse_still_lowercase_name(state: &mut ParseState) -> Option<StillName> {
     let mut chars_from_offset: std::str::Chars = state.source[state.offset_utf8..].chars();
@@ -7165,7 +7136,6 @@ fn parse_still_syntax_pattern(
     let start_position: lsp_types::Position = state.position;
     parse_still_char(state)
         .map(StillSyntaxPattern::Char)
-        .or_else(|| parse_still_syntax_pattern_string(state))
         .or_else(|| parse_still_syntax_pattern_record(state))
         .or_else(|| parse_still_syntax_pattern_int(state))
         .or_else(|| parse_still_syntax_pattern_unt(state))
@@ -7176,6 +7146,7 @@ fn parse_still_syntax_pattern(
             },
             value: pattern,
         })
+        .or_else(|| parse_still_syntax_pattern_string(state))
         .or_else(|| parse_still_syntax_pattern_with_comment(state))
         .or_else(|| parse_still_syntax_pattern_typed(state))
 }
@@ -7294,16 +7265,34 @@ fn parse_still_syntax_pattern_with_comment(
         },
     })
 }
-fn parse_still_syntax_pattern_string(state: &mut ParseState) -> Option<StillSyntaxPattern> {
-    parse_still_string_triple_quoted(state)
-        .map(|content| StillSyntaxPattern::String {
-            content: content,
-            quoting_style: StillSyntaxStringQuotingStyle::TripleQuoted,
-        })
-        .or_else(|| {
-            parse_still_string_single_quoted(state).map(|content| StillSyntaxPattern::String {
+fn parse_still_syntax_pattern_string(
+    state: &mut ParseState,
+) -> Option<StillSyntaxNode<StillSyntaxPattern>> {
+    let start_position: lsp_types::Position = state.position;
+    parse_still_string_single_quoted(state)
+        .map(|content| StillSyntaxNode {
+            value: StillSyntaxPattern::String {
                 content: content,
                 quoting_style: StillSyntaxStringQuotingStyle::SingleQuoted,
+            },
+            range: lsp_types::Range {
+                start: start_position,
+                end: state.position,
+            },
+        })
+        .or_else(|| {
+            parse_still_string_ticked_lines(state).map(|content| StillSyntaxNode {
+                value: StillSyntaxPattern::String {
+                    content: content,
+                    quoting_style: StillSyntaxStringQuotingStyle::TickedLines,
+                },
+                range: lsp_types::Range {
+                    start: start_position,
+                    end: lsp_types::Position {
+                        line: state.position.line,
+                        character: 0,
+                    },
+                },
             })
         })
 }
@@ -7368,7 +7357,6 @@ fn parse_still_char(state: &mut ParseState) -> Option<Option<char>> {
     let _: bool = parse_symbol(state, "'");
     Some(result)
 }
-/// commits after a single quote, so check for triple quoted beforehand
 fn parse_still_string_single_quoted(state: &mut ParseState) -> Option<String> {
     if !parse_symbol(state, "\"") {
         return None;
@@ -7391,31 +7379,20 @@ fn parse_still_string_single_quoted(state: &mut ParseState) -> Option<String> {
     }
     Some(result)
 }
-fn parse_still_string_triple_quoted(state: &mut ParseState) -> Option<String> {
-    if !parse_symbol(state, "\"\"\"") {
+fn parse_still_string_ticked_lines(state: &mut ParseState) -> Option<String> {
+    if !parse_symbol(state, "`") {
         return None;
     }
-    let mut result: String = String::new();
-    while !parse_symbol(state, "\"\"\"") {
-        match parse_linebreak_as_str(state) {
-            Some(linebreak) => result.push_str(linebreak),
-            None => match parse_char_symbol_as_char(state, '\"')
-                .or_else(|| parse_still_text_content_char(state))
-            {
-                Some(next_content_char) => {
-                    result.push(next_content_char);
-                }
-                None => match parse_any_guaranteed_non_linebreak_char_as_char(state) {
-                    Some(next_content_char) => {
-                        result.push(next_content_char);
-                    }
-                    None => return Some(result),
-                },
-            },
-        }
+    let mut result: String = parse_before_next_linebreak_or_end_as_str(state).to_string();
+    parse_still_whitespace(state);
+    while parse_symbol(state, "`") {
+        result.push('\n');
+        result.push_str(parse_before_next_linebreak_or_end_as_str(state));
+        parse_still_whitespace(state);
     }
     Some(result)
 }
+
 fn parse_still_text_content_char(state: &mut ParseState) -> Option<char> {
     parse_symbol_as(state, "\\\\", '\\')
         .or_else(|| parse_symbol_as(state, "\\'", '\''))
@@ -7655,20 +7632,21 @@ fn parse_still_syntax_expression_not_space_separated(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
     let start_position: lsp_types::Position = state.position;
-    let start_expression: StillSyntaxExpression = parse_still_syntax_expression_string(state)
-        .or_else(|| parse_still_syntax_expression_list(state))
-        .or_else(|| parse_still_syntax_expression_parenthesized(state))
-        .or_else(|| parse_still_syntax_expression_variable(state))
-        .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
-        .or_else(|| parse_still_syntax_expression_number(state))
-        .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))?;
-    let mut result_node: StillSyntaxNode<StillSyntaxExpression> = StillSyntaxNode {
-        range: lsp_types::Range {
-            start: start_position,
-            end: state.position,
-        },
-        value: start_expression,
-    };
+    let mut result_node: StillSyntaxNode<StillSyntaxExpression> =
+        parse_still_syntax_expression_list(state)
+            .or_else(|| parse_still_syntax_expression_parenthesized(state))
+            .or_else(|| parse_still_syntax_expression_variable(state))
+            .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
+            .or_else(|| parse_still_syntax_expression_number(state))
+            .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))
+            .map(|start_expression| StillSyntaxNode {
+                range: lsp_types::Range {
+                    start: start_position,
+                    end: state.position,
+                },
+                value: start_expression,
+            })
+            .or_else(|| parse_still_syntax_expression_string(state))?;
     while parse_symbol(state, ".") {
         let maybe_field_name: Option<StillSyntaxNode<StillName>> =
             parse_still_lowercase_name_node(state);
@@ -7931,16 +7909,34 @@ fn parse_still_syntax_let_declaration(
         },
     })
 }
-fn parse_still_syntax_expression_string(state: &mut ParseState) -> Option<StillSyntaxExpression> {
-    parse_still_string_triple_quoted(state)
-        .map(|content| StillSyntaxExpression::String {
-            content: content,
-            quoting_style: StillSyntaxStringQuotingStyle::TripleQuoted,
-        })
-        .or_else(|| {
-            parse_still_string_single_quoted(state).map(|content| StillSyntaxExpression::String {
+fn parse_still_syntax_expression_string(
+    state: &mut ParseState,
+) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
+    let start_position: lsp_types::Position = state.position;
+    parse_still_string_single_quoted(state)
+        .map(|content| StillSyntaxNode {
+            value: StillSyntaxExpression::String {
                 content: content,
                 quoting_style: StillSyntaxStringQuotingStyle::SingleQuoted,
+            },
+            range: lsp_types::Range {
+                start: start_position,
+                end: state.position,
+            },
+        })
+        .or_else(|| {
+            parse_still_string_ticked_lines(state).map(|content| StillSyntaxNode {
+                value: StillSyntaxExpression::String {
+                    content: content,
+                    quoting_style: StillSyntaxStringQuotingStyle::TickedLines,
+                },
+                range: lsp_types::Range {
+                    start: start_position,
+                    end: lsp_types::Position {
+                        line: state.position.line,
+                        character: 0,
+                    },
+                },
             })
         })
 }
@@ -11502,24 +11498,24 @@ fn still_type_uses_lifetime(
         StillType::Function { .. } => true,
         StillType::ChoiceConstruct { name, arguments } => {
             (match type_aliases.get(name.as_str()) {
+                Some(type_alias) => type_alias.has_lifetime_parameter,
                 None => {
                     match choice_types.get(name.as_str()) {
+                        Some(choice_type_info) => choice_type_info.has_lifetime_parameter,
                         None => {
                             // not found, therefore from (mutually) recursive type,
                             // therefore compiled to a reference
                             true
                         }
-                        Some(choice_type_info) => choice_type_info.has_lifetime_parameter,
                     }
                 }
-                Some(type_alias) => type_alias.has_lifetime_parameter,
-            }) && arguments
-                .iter()
-                .all(|input_type| still_type_uses_lifetime(type_aliases, choice_types, input_type))
+            }) || arguments.iter().any(|argument_type| {
+                still_type_uses_lifetime(type_aliases, choice_types, argument_type)
+            })
         }
         StillType::Record(fields) => fields
             .iter()
-            .all(|field| still_type_uses_lifetime(type_aliases, choice_types, &field.value)),
+            .any(|field| still_type_uses_lifetime(type_aliases, choice_types, &field.value)),
     }
 }
 /// TODO make part of `still_type_to_type`
@@ -11550,12 +11546,12 @@ fn still_type_has_owned_representation(
                     }
                 }
                 Some(choice_type_info) => choice_type_info.has_owned_representation,
-            }) && arguments.iter().all(|input_type| {
+            }) && arguments.iter().all(|argument_type| {
                 still_type_has_owned_representation(
                     variables_have_owned_representation,
                     type_aliases,
                     choice_types,
-                    input_type,
+                    argument_type,
                 )
             })
         }
