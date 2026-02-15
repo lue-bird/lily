@@ -372,13 +372,13 @@ impl<A: OwnedToStill> OwnedToStill for Opt<A> {
     }
 }
 impl<A> Opt<A> {
-    fn from_option(option: std::option::Option<A>) -> Self {
+    pub fn from_option(option: std::option::Option<A>) -> Self {
         match option {
             std::option::Option::None => Opt::Absent,
             std::option::Option::Some(value) => Opt::Present(value),
         }
     }
-    fn to_option(self) -> std::option::Option<A> {
+    pub fn into_option(self) -> std::option::Option<A> {
         match self {
             Opt::Absent => std::option::Option::None,
             Opt::Present(value) => std::option::Option::Some(value),
