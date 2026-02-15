@@ -40,35 +40,23 @@ fn alloc_fn_as_dyn<'a, Inputs, Output>(
 /// that is entirely self-owned and whose parts
 /// don't point into some temporary memory allocator.
 /// For example:
-/// `Vec<'_, { x: Str<'_>, y: isize }>`
+/// `Vec<'_, { x: Str<'_>, y: Int }>`
 /// will get turned into
-/// `std::vec::Vec<{ x: Box<str>, y: isize }`
-/// Notice how all _inner_ values are also converted,
-/// making this operation more expensive than even `to_owned`/`clone`
+/// `std::vec::Vec<{ x: std::rc::Rc<String>, y: isize }`
+/// Notice how all _inner_ values are also converted.
 ///
 /// ```
 /// let mut allocator = ...;
 /// let mut still_state: <Some_still_type<'static> as StillIntoOwned>::Owned =
 ///     StillIntoOwned::into_owned(some_still_fn(&allocator));
 /// ..some_event_loop.. {
-///     let old_state_still: Some_still_type = OwnedToStill::to_still(still_state);
+///     let old_state_still: Some_still_type = OwnedToStill::into_still(&allocator, still_state);
 ///     let updated_state_still: Some_still_type =
 ///         some_still_fn(&allocator, old_state_still);
 ///     still_state = StillIntoOwned::into_owned(updated_state_still);
 ///     allocator.reset();
 ///  }
 /// ```
-/// or alternatively, which might reuse more allocations but consumes the old owned state
-/// ```
-/// ...
-/// let old_state_still: Some_still_type = OwnedToStill::into_still(still_state);
-/// let updated_state_still: Some_still_type =
-///     some_still_fn(&allocator, old_state_still);
-/// still_state = StillIntoOwned::into_owned(updated_state_still);
-/// ...
-/// ```
-/// Currently, this is the recommend way if possible.
-///
 /// See also `OwnedToStill`
 pub trait StillIntoOwned: std::marker::Sized {
     type Owned: Clone;
@@ -76,10 +64,9 @@ pub trait StillIntoOwned: std::marker::Sized {
     /// `still.into_owned_overwriting(&mut owned)` is functionally equivalent to `owned = still.into_owned()`
     /// but can be overridden to reuse the allocations of `owned`.
     /// Note that currently, since `to_still` takes a reference with a lifetime of the returned still,
-    /// it can't actually be used to then mutate the original state,
-    /// so it's use is really limited.
-    /// If you think there's a way around this (without unsafe or other assumptions not encoded into the type system),
-    // please open an issue
+    /// it often can't actually be used to then mutate the original state,
+    /// so it's use is really limited, and an `into_sill` into `into_owned` is usually
+    /// the way to go
     fn into_owned_overwriting(self, allocation_to_reuse: &mut Self::Owned) {
         *allocation_to_reuse = Self::into_owned(self);
     }
@@ -88,18 +75,19 @@ pub trait StillIntoOwned: std::marker::Sized {
 ///
 /// Take a fully owned value (one whose type does not have a lifetime)
 /// and convert it to a still value, for example
-/// `&std::vec::Vec<{ x: Box<str>, y: isize }>` gets turned into `Vec<'_, { x: Str<'_>, y: isize }>`
+/// `std::vec::Vec<{ x: Box<str>, y: isize }>` gets turned into `Vec<'_, { x: Str<'_>, y: Int }>`
 /// Notice how all _inner_ values are also turned into still values,
-/// making this operation more expensive that simply borrowing.
+/// making this operation way more expensive that simply borrowing.
 ///
 /// See also `StillIntoOwned` which includes an example of how to use it
 pub trait OwnedToStill {
     type Still<'a>
     where
         Self: 'a;
-    fn to_still<'a>(&'a self, allocator: &'a impl Alloc) -> Self::Still<'a>;
-    /// equivalent to to_still but able to reuse some allocations
     fn into_still<'a>(self, allocator: &'a impl Alloc) -> Self::Still<'a>;
+    /// like into_still but when you only have a reference available.
+    /// Prefer `into_still` if possible to reuse allocations
+    fn to_still<'a>(&'a self, allocator: &'a impl Alloc) -> Self::Still<'a>;
 }
 impl<T: OwnedToStill> OwnedToStill for std::boxed::Box<T> {
     type Still<'a>
@@ -109,7 +97,6 @@ impl<T: OwnedToStill> OwnedToStill for std::boxed::Box<T> {
     fn to_still<'a>(&'a self, allocator: &'a impl Alloc) -> Self::Still<'a> {
         allocator.alloc(T::to_still(self, allocator))
     }
-    /// same as
     fn into_still<'a>(self, allocator: &'a impl Alloc) -> Self::Still<'a> {
         allocator.alloc(T::into_still(*self, allocator))
     }
@@ -119,7 +106,7 @@ impl<T: StillIntoOwned + Clone> StillIntoOwned for &T {
     fn into_owned(self) -> Self::Owned {
         std::boxed::Box::new(T::into_owned(self.clone()))
     }
-    // TODO once std::boxed::Box::map becomes stable, use that to optimize into_owned_overwriting
+    // once std::boxed::Box::map becomes stable, use that to optimize into_owned_overwriting
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
