@@ -621,12 +621,12 @@ fn str_walk_chrs_from<State, E>(
         |state, element| on_element(state, element).to_control_flow(),
     ))
 }
-fn strs_attach_chr<'a>(left: Str, right: Chr) -> Str<'a> {
+fn str_attach_chr<'a>(left: Str, right: Chr) -> Str<'a> {
     let mut string: std::string::String = left.into_string();
     string.push(right);
     Str::from_string(string)
 }
-fn strs_attach<'a>(left: Str, right: Str) -> Str<'a> {
+fn str_attach<'a>(left: Str, right: Str) -> Str<'a> {
     let string: std::string::String = left.into_string();
     Str::from_string(string + right.as_str())
 }
