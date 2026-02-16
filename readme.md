@@ -225,6 +225,7 @@ Then point your editor to the created `???/target/debug/still lsp`.
 - check if types need to be added to generated rust for: `let`? lambdas that ignore/have a variable?
 - print variable declaration types more nicely (and generated types more concisely)
 - implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums (or remove it)
+- improve condition for printing escaped characters. Maybe only do it for control characters?
 
 ## considering
 - (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
@@ -233,8 +234,7 @@ Then point your editor to the created `???/target/debug/still lsp`.
 - (leaning towards yes) add `str-attach-unt`, `str-attach-int`, `str-attach-dec`
 - (leaning towards yes) rename chr to char
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
-- (to make some parts almost infinitely scalable:) for formatting: leave declarations fully outside of "touched ranges" alone; for compilation: if touched only in one declaration and its type ends up the same, only change that field, (optionally: if type changed, recompile "downstream"); also , when keeping all existing names and only adding a new one, no need to recompile anything else
-- (leaning towards yes) switch to `position_encoding: Some(lsp_types::PositionEncodingKind::UTF8)`. This makes source edits and parsing easier and faster at the cost of compatibility with lsp clients below version 3.17.0. Is that acceptable?
+- (to make some parts almost infinitely scalable:) for formatting: leave declarations fully outside of "touched ranges" alone; for compilation: if touched only in one declaration and its type ends up the same, only change that declaration's output, (optionally: if type changed, recompile "downstream"); also, when edited range lies exclusively between existing declaration ranges, only compile that one
 - in syntax tree, use separate range type for single-line tokens like keywords, symbols, names etc to save on memory consumption
 - (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
 - (leaning towards no, sadly) replace non-recursive nominal-ish choice types by structural-ish choice types. Should be fairly easy to implement as `enum Variant0Variant1<Variant0, Variant1>` but still alright for FFI (you always have to type `Variant0Variant1::Variant0` similar to record structs currently _but_ crucially you have the option to use a still-declared type alias like `type Choice<'a> = Variant0Variant1<usize, &'a str>` to write `Choice::Variant0`)
