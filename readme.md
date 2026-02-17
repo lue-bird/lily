@@ -222,7 +222,13 @@ cargo build
 Then point your editor to the created `???/target/debug/still lsp`.
 
 ## TODO (none are blocking, just additions)
+- Since Vec::SLice is almost never constructed,
+  we might just add Range<usize> manually to the Rc case, and for Str
+  keep the Slice only for Static slices and add a range to the Rc case.
+  (alternatively: use weak and keep the original Rc alive (somehow bound to the allocator lifetime). Preferably one that is guaranteed to live at least `'a` and doesn't deallocate itself and when asked for a `'a` slice can never be unwrapped (basically reference count = frozen))
 - check if types need to be added to generated rust for: `let`? lambdas that ignore/have a variable?
+- find out if allocating a closure with an rc leaks its content (I assume it does which is shit. Is there even a way around it south of making the whole closure an Rc<Box<>>?)
+- find out if allocating a box of an rc leaks its content (probably? which is bad. No idea how to fix that either. Might need to think more about unstable features like representing recursive parts with Rc and relying on asRef pattern matching. Or alloc_boxed that somehow respects drop)
 - print variable declaration types more nicely (and generated types more concisely)
 - implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums (or remove it)
 - improve condition for printing escaped characters. Maybe only do it for control characters?

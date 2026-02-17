@@ -591,23 +591,27 @@ fn str_chr_at_byte_index(str: Str, byte_index: Unt) -> Opt<Chr> {
     )
 }
 fn str_slice_from_byte_index_with_byte_length<'a>(
-    allocator: &'a impl Alloc,
     str: Str<'a>,
     start_index: Unt,
     slice_byte_length: Unt,
 ) -> Str<'a> {
-    let slice: &str = match str {
-        Str::Slice(slice) => slice,
-        Str::Rc(rc) => allocator.alloc(rc),
-    };
-    Str::Slice(
-        slice
+    match str {
+        Str::Slice(slice) => Str::Slice(
+            slice
+                .get(
+                    slice.floor_char_boundary(start_index)
+                        ..slice.ceil_char_boundary(start_index + slice_byte_length),
+                )
+                .unwrap_or(""),
+        ),
+        Str::Rc(rc) => rc
             .get(
-                slice.floor_char_boundary(start_index)
-                    ..slice.ceil_char_boundary(start_index + slice_byte_length),
+                rc.floor_char_boundary(start_index)
+                    ..rc.ceil_char_boundary(start_index + slice_byte_length),
             )
-            .unwrap_or(""),
-    )
+            .map(|slice| Str::from_string(std::string::ToString::to_string(slice)))
+            .unwrap_or(Str::Slice("")),
+    }
 }
 fn str_to_chrs(str: Str) -> Vec<Chr> {
     Vec::from_vec(std::iter::Iterator::collect(str.as_str().chars()))
@@ -824,44 +828,47 @@ fn vec_swap<A: Clone>(vec: Vec<A>, a_index: Unt, b_index: Unt) -> Vec<A> {
     owned_vec.swap(a_index, b_index);
     Vec::from_vec(owned_vec)
 }
-fn vec_truncate<'a, A: 'a>(
-    allocator: &'a impl Alloc,
-    vec: Vec<'a, A>,
-    taken_length: Unt,
-) -> Vec<'a, A> {
+fn vec_truncate<'a, A: Clone + 'a>(vec: Vec<'a, A>, taken_length: Unt) -> Vec<'a, A> {
     match vec {
         Vec::Rc(rc) => {
             if taken_length >= rc.len() {
                 return Vec::Rc(rc);
             }
-            match std::rc::Rc::try_unwrap(rc) {
-                std::result::Result::Ok(mut owned_vec) => {
-                    owned_vec.truncate(taken_length);
-                    Vec::from_vec(owned_vec)
-                }
-                std::result::Result::Err(vec_rc) => {
-                    Vec::Slice(allocator.alloc(vec_rc).get(..taken_length).unwrap_or(&[]))
-                }
-            }
+            let mut owned_vec: std::vec::Vec<A> = std::rc::Rc::unwrap_or_clone(rc);
+            owned_vec.truncate(taken_length);
+            Vec::from_vec(owned_vec)
         }
         Vec::Slice(slice) => Vec::Slice(slice.get(..taken_length).unwrap_or(slice)),
     }
 }
-fn vec_slice_from_index_with_length<'a, A>(
-    allocator: &'a impl Alloc,
+fn vec_slice_from_index_with_length<'a, A: Clone>(
     vec: Vec<'a, A>,
     start_index: Unt,
     slice_length: Unt,
 ) -> Vec<'a, A> {
-    let slice: &[A] = match vec {
-        Vec::Rc(rc) => allocator.alloc(rc),
-        Vec::Slice(slice) => slice,
-    };
-    Vec::Slice(
-        slice
-            .get(start_index..(start_index + slice_length))
-            .unwrap_or(&[]),
-    )
+    match vec {
+        Vec::Rc(rc) => {
+            if start_index >= rc.len() {
+                return Vec::Slice(&[]);
+            }
+            let slice_range: std::ops::Range<usize> =
+                start_index..(start_index + slice_length).max(rc.len());
+            match std::rc::Rc::try_unwrap(rc) {
+                std::result::Result::Ok(mut owned_vec) => Vec::from_vec(
+                    std::iter::Iterator::collect::<std::vec::Vec<_>>(owned_vec.drain(slice_range)),
+                ),
+                std::result::Result::Err(rc) => rc
+                    .get(slice_range)
+                    .map(|slice: &[A]| Vec::from_vec(slice.to_vec()))
+                    .unwrap_or(Vec::Slice(&[])),
+            }
+        }
+        Vec::Slice(slice) => Vec::Slice(
+            slice
+                .get(start_index..(start_index + slice_length).max(slice.len()))
+                .unwrap_or(&[]),
+        ),
+    }
 }
 fn vec_increase_capacity_by<A: Clone>(vec: Vec<A>, capacity_increase: Unt) -> Vec<A> {
     let mut owned_vec: std::vec::Vec<A> = vec.into_vec();

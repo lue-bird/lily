@@ -9102,7 +9102,7 @@ Note that the inverse never fails: `chr-to-code-point`",
             ),
             (
                 StillName::from("str-slice-from-byte-index-with-byte-length"),
-                true,
+                false,
                 function(
                     [still_type_str, still_type_unt,still_type_unt],
                     still_type_str,
@@ -9241,7 +9241,7 @@ vec-remove-by-swapping-with-last \:vec A:vec, :unt:index >
             ),
             (
                 StillName::from("vec-truncate"),
-                true,
+                false,
                 function(
                     [still_type_vec(variable("A")), still_type_unt],
                     still_type_vec(variable("A")),
@@ -9260,7 +9260,7 @@ vec-remove-last \:vec A:vec >
             ),
             (
                 StillName::from("vec-slice-from-index-with-length"),
-                true,
+                false,
                 function(
                     [still_type_vec(variable("A")), still_type_unt],
                     still_type_vec(variable("A")),
