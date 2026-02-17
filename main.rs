@@ -14844,10 +14844,7 @@ fn still_syntax_pattern_to_rust<'a>(
     }
 }
 fn still_str_binding_name(range: lsp_types::Range) -> String {
-    format!(
-        "strø_{}_{}_{}_{}",
-        range.start.line, range.start.character, range.end.line, range.end.character
-    )
+    format!("strø_{}_{}", range.start.line, range.start.character)
 }
 fn bindings_to_clone_to_rust_into(
     rust_stmts: &mut Vec<syn::Stmt>,
