@@ -54,14 +54,6 @@ Then point your editor to `still lsp`, see also [specific setups](#editor-setups
 - no blocking compile errors. You can always build, even if your record is still missing a field value, your matching is still inexhaustive, some parens are empty, etc.
   You will still see all the errors, though.
 
-- io and memory is handled in steps.
-  Each step builds new io from the current state (the io also specifies how to build new state based on events).
-  During that step, any function anywhere can liberally allocate memory as needed.
-  After that step, the updated state is cloned into a loop-global variable and the allocator containing all the memory allocated in this step is reset.
-  See [`example/`](/example/)
-
-  Requiring cloning of some state and deep conversions alone disqualifies this memory model for performance-critical programs. It can only be competitive for regular applications which tend to have simple state but a bunch of memory waste at each frame/update/...
-
 - no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): infix operators, currying, lifetime tracking, traits/type classes/overloading, objects, task/async, hidden mutation, macros & reflection, side effects, modules, hidden context values, exceptions, undefined
 
 ## syntax overview
@@ -222,13 +214,8 @@ cargo build
 Then point your editor to the created `???/target/debug/still lsp`.
 
 ## TODO (none are blocking, just additions)
-- Since Vec::SLice is almost never constructed,
-  we might just add Range<usize> manually to the Rc case, and for Str
-  keep the Slice only for Static slices and add a range to the Rc case.
-  (alternatively: use weak and keep the original Rc alive (somehow bound to the allocator lifetime). Preferably one that is guaranteed to live at least `'a` and doesn't deallocate itself and when asked for a `'a` slice can never be unwrapped (basically reference count = frozen))
 - check if types need to be added to generated rust for: `let`? lambdas that ignore/have a variable?
-- find out if allocating a closure with an rc leaks its content (I assume it does which is shit. Is there even a way around it south of making the whole closure an Rc<Box<>>?)
-- find out if allocating a box of an rc leaks its content (probably? which is bad. No idea how to fix that either. Might need to think more about unstable features like representing recursive parts with Rc and relying on asRef pattern matching. Or alloc_boxed that somehow respects drop)
+- add Range<usize> manually to the Vec::Rc and Str::Rc case
 - print variable declaration types more nicely (and generated types more concisely)
 - implement `StillIntoOwned::into_owned_overwriting` for generated structs and enums (or remove it)
 - improve condition for printing escaped characters. Maybe only do it for control characters?

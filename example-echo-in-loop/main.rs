@@ -1,31 +1,29 @@
+// enabling deref_patterns is sadly required for matching recursive choice types
+#![feature(deref_patterns)]
+#![allow(incomplete_features)]
+
 mod still;
 
+/// you'll most likely want to introduce an alias for this on the still side instead
+type StillState = still::Str;
+
 fn main() {
-    let mut allocator: bumpalo::Bump = bumpalo::Bump::new();
-    let mut still_state: still::Opt<<StillState<'static> as still::StillIntoOwned>::Owned> =
-        still::Opt::Absent;
+    let mut still_state: still::Opt<StillState> = still::Opt::Absent;
     'main_loop: loop {
-        let interface = still::interface(
-            &allocator,
-            still::OwnedToStill::into_still(still_state, &allocator),
-        );
+        let interface = still::interface(still_state);
         let maybe_new_state: Option<StillState> = handle_io(&interface);
         match maybe_new_state {
             None => {
                 break 'main_loop;
             }
             Some(new_still_state) => {
-                still_state =
-                    still::Opt::Present(still::StillIntoOwned::into_owned(new_still_state));
+                still_state = still::Opt::Present(new_still_state);
             }
         }
-        allocator.reset();
     }
 }
-/// change this when you introduce a type alias in still or otherwise change its state type
-type StillState<'a> = still::Str<'a>;
 /// returns a new state
-fn handle_io<'a>(interface: &still::Io<'a, still::Str<'a>>) -> Option<still::Str<'a>> {
+fn handle_io(interface: &still::Io<StillState>) -> Option<StillState> {
     match interface {
         still::Io::Standard_out_write(to_write) => {
             print!("{}", to_write);
@@ -45,10 +43,5 @@ fn handle_io<'a>(interface: &still::Io<'a, still::Str<'a>>) -> Option<still::Str
             let _ = std::io::stdin().read_line(&mut read_line);
             Some(on_read_line(still::Str::from_string(read_line)))
         }
-    }
-}
-impl still::Alloc for bumpalo::Bump {
-    fn alloc<A>(&self, value: A) -> &A {
-        self.alloc(value)
     }
 }
