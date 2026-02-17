@@ -8363,7 +8363,12 @@ If you wanted to start a declaration, try one of:
                         .value
                         .starts_with(|c: char| c.is_ascii_uppercase())
                     {
-                        "Maybe you forgot to add its :type: before it? otherwise, it could be that a lowercase letter is expected here. Also, is it indented correctly?"
+                        "Maybe you forgot to add its :type: before it? Otherwise, it could be that a lowercase letter is expected here. Also, is it indented correctly?"
+                    } else if unknown_node
+                        .value
+                        .starts_with('#')
+                    {
+                        "Comments can only be put in front of expressions, patterns, types and project declarations? Is it indented correctly?"
                     } else {
                         "Is it indented correctly?"
                     }).into_boxed_str(),
