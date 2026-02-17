@@ -11684,12 +11684,7 @@ fn still_syntax_expression_to_rust<'a>(
                 });
             } else if maybe_arrow_key_symbol_range.is_none() {
                 errors.push(StillErrorNode {
-                    range: lsp_types::Range {
-                        start: expression_node.range.start,
-                        end: maybe_arrow_key_symbol_range
-                            .map(|r| r.end)
-                            .unwrap_or(expression_node.range.end),
-                    },
+                    range: expression_node.range,
                     message: Box::from(
                         "missing > symbol between \\..patterns.. here ..result... If you think you did put a > there, re-check for syntax errors like a missing :type: before pattern variables, _ or variants",
                     ),
@@ -12644,10 +12639,18 @@ fn still_syntax_expression_to_rust<'a>(
                     let Some(case_pattern_node) = &case.pattern else {
                         errors.push(StillErrorNode {
                             range: case.or_bar_key_symbol_range,
-                            message: Box::from("missing case pattern in | here > ..result.."),
+                            message: Box::from("missing case pattern in | here > ..result... If you think you did put patterns there, re-check for syntax errors like a missing :type: before variables, _ or variants"),
                         });
                         return None;
                     };
+                    if case.arrow_key_symbol_range.is_none() {
+                        errors.push(StillErrorNode {
+                            range: case.or_bar_key_symbol_range,
+                            message: Box::from(
+                                "missing > symbol between \\..patterns.. here ..result... If you think you did put a > there, re-check for syntax errors like a missing :type: before pattern variables, _ or variants",
+                            ),
+                        });
+                    }
                     let mut introduced_str_bindings_to_match: Vec<(lsp_types::Range, &str)> = Vec::new();
                     let mut case_pattern_introduced_bindings: std::collections::HashMap<
                         &str,
@@ -14429,7 +14432,7 @@ fn still_syntax_pattern_to_rust<'a>(
             let Some(untyped_pattern_node) = maybe_in_typed else {
                 errors.push(StillErrorNode {
                     range: (*maybe_closing_colon_range).or_else(|| maybe_type_node.as_ref().map(|n| n.range)).unwrap_or(pattern_node.range),
-                    message: Box::from("missing pattern after type :...: here. To ignore he incoming value, use _, or give it a lowercase name or specify a variant"),
+                    message: Box::from("missing pattern after type :...: here. To ignore he incoming value, use _, otherwise give it a lowercase name or specify a variant. Any other patterns are not allowed"),
                 });
                 return CompiledStillPattern {
                     rust: Some(syn_pat_wild()),
