@@ -12609,7 +12609,9 @@ fn still_syntax_expression_to_rust<'a>(
                                         any_argument_type_conflicts_with_variable_input_type = true;
                                     }
                                 }
-                                if any_argument_type_conflicts_with_variable_input_type {
+                                if any_argument_type_conflicts_with_variable_input_type
+                                    || variable_input_types.len() > arguments.len()
+                                {
                                     return CompiledStillExpression {
                                         rust: syn_expr_todo(),
                                         type_: None,
@@ -12769,7 +12771,9 @@ fn still_syntax_expression_to_rust<'a>(
                                         }
                                     }
                                 }
-                                if any_argument_type_conflicts_with_variable_input_type {
+                                if any_argument_type_conflicts_with_variable_input_type
+                                    || project_variable_input_types.len() > arguments.len()
+                                {
                                     return CompiledStillExpression {
                                         rust: syn_expr_todo(),
                                         type_: None,
