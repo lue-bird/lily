@@ -235,7 +235,6 @@ Then point your editor to the created `???/target/debug/still lsp`.
 
 ## TODO (none are blocking, just additions)
 - improve condition for printing escaped characters. Maybe only do it for control characters?
-- fix bug with completion suggestions only respecting the characters after -
 
 ## considering
 - (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`

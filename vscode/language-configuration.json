@@ -44,6 +44,10 @@
       "'",
       "'"
     ],
+    [
+      ":",
+      ":"
+    ],
   ],
   "autoClosingPairs": [
     [
@@ -72,6 +76,15 @@
         "string",
         "comment"
       ]
-    }
-  ]
+    },
+    {
+      "open": ":",
+      "close": ":",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+  ],
+  "wordPattern": "[a-zA-Z][a-zA-Z\\-0-9]*",
 }
