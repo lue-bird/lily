@@ -11165,7 +11165,9 @@ fn still_type_diff_into(so_far: &mut String, indent: usize, type_diff: &StillTyp
                 let line_span: LineSpan = still_type_diff_line_span(type_diff);
                 still_type_diff_field_into(so_far, indent, field0);
                 for field in field1_up {
-                    space_or_linebreak_indented_into(so_far, line_span, indent);
+                    if line_span == LineSpan::Multiple {
+                        linebreak_indented_into(so_far, indent);
+                    }
                     so_far.push_str(", ");
                     still_type_diff_field_into(so_far, indent, field);
                 }
@@ -11281,7 +11283,9 @@ fn still_type_info_into(so_far: &mut String, indent: usize, type_: &StillType) {
                 let line_span: LineSpan = still_type_info_line_span(type_);
                 still_type_field_into(so_far, indent, field0);
                 for field in field1_up {
-                    space_or_linebreak_indented_into(so_far, line_span, indent);
+                    if line_span == LineSpan::Multiple {
+                        linebreak_indented_into(so_far, indent);
+                    }
                     so_far.push_str(", ");
                     still_type_field_into(so_far, indent, field);
                 }
