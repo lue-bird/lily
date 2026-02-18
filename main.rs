@@ -3436,7 +3436,7 @@ fn still_char_into(so_far: &mut String, maybe_char: Option<char>) {
                 '\\' => so_far.push_str("\\\\"),
                 '\t' => so_far.push_str("\\t"),
                 '\n' => so_far.push_str("\\n"),
-                '\u{000D}' => so_far.push_str("\\u{000D}"),
+                '\r' => so_far.push_str("\\r"),
                 other_character => {
                     if still_char_needs_unicode_escaping(other_character) {
                         still_unicode_char_escape_into(so_far, other_character);
@@ -3450,15 +3450,12 @@ fn still_char_into(so_far: &mut String, maybe_char: Option<char>) {
     }
 }
 fn still_char_needs_unicode_escaping(char: char) -> bool {
-    // I'm aware this isn't the exact criterion that still-format uses
-    // (something something separators, private use, unassigned, ?)
-    (char.len_utf16() >= 2) || char.is_control()
+    char.is_control()
 }
 fn still_unicode_char_escape_into(so_far: &mut String, char: char) {
-    for utf16_code in char.encode_utf16(&mut [0; 2]) {
-        use std::fmt::Write as _;
-        let _ = write!(so_far, "\\u{{{:04X}}}", utf16_code);
-    }
+    let code: u32 = char.into();
+    use std::fmt::Write as _;
+    let _ = write!(so_far, "\\u{{{:X}}}", code);
 }
 fn still_unt_into(so_far: &mut String, representation: &str) {
     match representation.parse::<usize>() {

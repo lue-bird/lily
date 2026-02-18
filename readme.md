@@ -177,7 +177,7 @@ Mutating the underlying owned vector or string if only one instance is still ali
 Massive piggyback: great stdlib, fast output, good ecosystem, much easier to compile to: native enum support, native pattern matching support, extensive compile-time checks, all that is gold.
 
 You might have heard that compilation can be slow for big projects
-but after switching to [the cranelift backend](https://github.com/rust-lang/rustc_codegen_cranelift) I haven't had any complaints (0.7-1.5s, 15k lines).
+but after switching to [the cranelift backend](https://github.com/rust-lang/rustc_codegen_cranelift) I haven't had any complaints (0.7-1.4s, 16k lines).
 
 ### why no direct ffi, calling rust from still
 Inspired by elm, effects originate from a single place in your program,
@@ -232,9 +232,6 @@ Rebuild the project with
 cargo build
 ```
 Then point your editor to the created `???/target/debug/still lsp`.
-
-## TODO (none are blocking, just additions)
-- improve condition for printing escaped characters. Maybe only do it for control characters?
 
 ## considering
 - (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
