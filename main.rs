@@ -9437,7 +9437,7 @@ Notice how a sign (+/-/0) is required, otherwise the number would be of type `un
 ```still
 five
     # . or .0 is mandatory for dec,
-    # otherwise the number is of type :int:
+    # otherwise the number is of type :int: or :unt:
     5.0
 
 dec-div five 2.0
