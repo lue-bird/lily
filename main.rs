@@ -13279,7 +13279,9 @@ fn still_syntax_expression_to_rust<'a>(
                     attrs: vec![],
                     qself: None,
                     path: syn_path_reference([&still_field_names_to_rust_record_struct_name(
-                        fields.iter().map(|field| field.name.value.as_str()),
+                        record_to_update_fields
+                            .iter()
+                            .map(|field| field.name.as_str()),
                     )]),
                     brace_token: syn::token::Brace(syn_span()),
                     fields: rust_fields,
