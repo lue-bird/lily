@@ -9526,35 +9526,39 @@ If necessary you can create order functions for your specific types,
 still does not have "traits"/"type classes" or similar, functions are always passed explicitly.
 "#
                 )),
-                parameters: vec![still_syntax_node_empty(StillName::from("A"))],
+                parameters: vec![],
                 type_variants: vec![
                     StillChoiceTypeVariantInfo{
-                        name:StillName::from("Absent"),
+                        name:StillName::from("Less"),
                         value: None
                     },
                     StillChoiceTypeVariantInfo{
-                        name:StillName::from("Present"),
-                        value: Some(StillChoiceTypeVariantValueInfo {
-                            type_: StillType::Variable(StillName::from("A")),
-                            constructs_recursive_type: false
-                        })
-                    }
+                        name:StillName::from("Equal"),
+                        value: None
+                    },
+                    StillChoiceTypeVariantInfo{
+                        name:StillName::from("Greater"),
+                        value: None
+                    },
                 ],
                 is_copy: true,
                 // should be able to be omitted
                 variants: vec![
                     StillSyntaxChoiceTypeVariant {
                         or_key_symbol_range: lsp_types::Range::default(),
-                        name: Some(still_syntax_node_empty(StillName::from("Absent"))),
+                        name: Some(still_syntax_node_empty(StillName::from("Less"))),
                         value: None,
                     },
                     StillSyntaxChoiceTypeVariant {
                         or_key_symbol_range: lsp_types::Range::default(),
-                        name: Some(still_syntax_node_empty(StillName::from("Present"))),
-                        value: Some(still_syntax_node_empty(StillSyntaxType::Variable(
-                            StillName::from("A"),
-                        ))),
-                    }
+                        name: Some(still_syntax_node_empty(StillName::from("Equal"))),
+                        value: None,
+                    },
+                    StillSyntaxChoiceTypeVariant {
+                        or_key_symbol_range: lsp_types::Range::default(),
+                        name: Some(still_syntax_node_empty(StillName::from("Greater"))),
+                        value: None,
+                    },
                 ],
             },
         ),
@@ -12502,9 +12506,9 @@ fn still_syntax_expression_to_rust<'a>(
                                     value: other_expression,
                                 },
                             );
-                        if let Some(expected_type) = maybe_expected_type
+                        if let Some(expected_type) = &maybe_expected_type
                             && let Some(other_type) = &compiled_other.type_
-                            && let Some(type_diff) = still_type_diff(&expected_type, other_type)
+                            && let Some(type_diff) = still_type_diff(expected_type, other_type)
                         {
                             errors.push(StillErrorNode {
                                 range: untyped_node.range,
@@ -12512,7 +12516,7 @@ fn still_syntax_expression_to_rust<'a>(
                             });
                             return CompiledStillExpression {
                                 rust: syn_expr_todo(),
-                                type_: None,
+                                type_: maybe_expected_type,
                             };
                         }
                         compiled_other

@@ -234,7 +234,10 @@ cargo build
 Then point your editor to the created `???/target/debug/still lsp`.
 
 ## considering
-- remove record access syntax in favor of destructuring
+- provide completions for record field names
+- provide completions for variant names
+- remove record access syntax in favor of destructuring,
+  otherwise provide hover info for record field access
 - (leaning clear yes) add more core float operations like `sin`, `cos`, `pi`, `ln`
 - (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chrs-backwards-from`
