@@ -8441,7 +8441,7 @@ If you wanted to start a declaration, try one of:
 ",
                     if unknown_node.value.starts_with('_') {
                         "Identifiers consist of ascii letters (a-Z), digits (0-9) and -. Otherwise, if you tried to create a _ pattern, add its :type: before it to make it valid syntax."
-                    } else   if unknown_node
+                    } else if unknown_node
                         .value
                         .starts_with(|c: char| c.is_ascii_lowercase())
                     {
@@ -8457,7 +8457,7 @@ If you wanted to start a declaration, try one of:
                     {
                         "Comments can only be put in front of expressions, patterns, types and project declarations? Is it indented correctly?"
                     } else {
-                        "Is it indented correctly?"
+                        "Is it indented correctly? Are brackets/braces/parens or similar closed prematurely?"
                     }).into_boxed_str(),
                 });
             }
