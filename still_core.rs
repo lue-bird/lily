@@ -114,13 +114,38 @@ fn str_to_int(str: Str) -> Opt<Int> {
     }
 }
 
+/// Please sanitize before passing it to still (drop infinities and NaN)
 pub type Dec = f64;
-
+fn dec_pi() -> Dec {
+    std::f64::consts::PI
+}
 fn dec_negate(dec: Dec) -> Dec {
     -dec
 }
-fn dec_absolute(a: Dec) -> Dec {
-    Dec::abs(a)
+fn dec_absolute(dec: Dec) -> Dec {
+    Dec::abs(dec)
+}
+fn dec_ln(dec: Dec) -> Opt<Dec> {
+    if dec <= 0. {
+        Opt::Absent
+    } else {
+        Opt::Present(Dec::ln(dec))
+    }
+}
+fn dec_sin(dec: Dec) -> Dec {
+    Dec::sin(dec)
+}
+fn dec_cos(dec: Dec) -> Dec {
+    Dec::cos(dec)
+}
+fn dec_tan(dec: Dec) -> Dec {
+    Dec::tan(dec)
+}
+fn dec_atan(a: Dec) -> Dec {
+    Dec::atan(a)
+}
+fn dec_atan2(y: Dec, x: Dec) -> Dec {
+    Dec::atan2(y, x)
 }
 fn dec_add(a: Dec, b: Dec) -> Dec {
     a + b

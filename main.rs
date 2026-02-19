@@ -9044,6 +9044,16 @@ static core_variable_declaration_infos: std::sync::LazyLock<
                 "Parse a complete `str` into an `int`, returning :opt int:Absent otherwise",
             ),
             (
+                StillName::from("dec-pi"),
+                 still_type_dec,
+                r"Archimedes' constant (π)
+```still
+turns-to-radians \:dec:turns >
+    dec-mul 2 (dec-mul dec-pi turns)
+```
+",
+            ),
+            (
                 StillName::from("dec-negate"),
                 function([still_type_dec], still_type_dec),
                 "Flip its sign",
@@ -9052,6 +9062,46 @@ static core_variable_declaration_infos: std::sync::LazyLock<
                 StillName::from("dec-absolute"),
                 function([still_type_dec], still_type_dec),
                 "If negative, negate",
+            ),
+            (
+                StillName::from("dec-ln"),
+                function([still_type_dec], still_type_opt(still_type_dec)),
+                r"Its natural logarithm (log base e). If 0 or negative, results in :opt dec:Absent as ln(0) is defined as -infinity and ln(_ < 0) is not defined at all.
+```still
+dec-log \:dec:base, :dec:n >
+    dec-div (dec-ln n) (dec-ln base)
+```
+",
+            ),
+            (
+                StillName::from("dec-sin"),
+                function([still_type_dec], still_type_dec),
+                "Its sine in radians",
+            ),
+            (
+                StillName::from("dec-cos"),
+                function([still_type_dec], still_type_dec),
+                "Its cosine in radians",
+            ),
+            (
+                StillName::from("dec-tan"),
+                function([still_type_dec], still_type_dec),
+                "Its tangent in radians",
+            ),
+            (
+                StillName::from("dec-atan"),
+                function([still_type_dec], still_type_dec),
+                "Its arctangent in radians in range -pi/2 to pi/2",
+            ),
+            (
+                StillName::from("dec-atan2"),
+                function([still_type_dec,still_type_dec], still_type_dec),
+                "The four quadrant arctangent of y (the first argument) and x (the second argument) in radians,
+defined as:
+  - for x >= +0: arctan(y/x)
+  - for x <= -0 and y >= +0: arctan(y/x) + pi
+  - for x <= -0 and y <= -0: arctan(y/x) - pi
+",
             ),
             (
                 StillName::from("dec-add"),
