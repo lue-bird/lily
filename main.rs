@@ -6066,17 +6066,12 @@ fn still_syntax_highlight_project_into(
         .filter_map(|declaration_or_err| declaration_or_err.as_ref().ok())
     {
         if let Some(documentation_node) = &documented_declaration.documentation {
-            highlighted_so_far.extend(
-                still_syntax_highlight_multi_line(
-                    still_syntax_node_unbox(documentation_node),
-                    3,
-                    2,
-                )
-                .map(|range| StillSyntaxNode {
+            highlighted_so_far.extend(still_syntax_lines_ranges(documentation_node.range).map(
+                |range| StillSyntaxNode {
                     range: range,
                     value: StillSyntaxHighlightKind::Comment,
-                }),
-            );
+                },
+            ));
         }
         if let Some(declaration_node) = &documented_declaration.declaration {
             still_syntax_highlight_declaration_into(
@@ -6086,59 +6081,32 @@ fn still_syntax_highlight_project_into(
         }
     }
 }
-fn still_syntax_highlight_multi_line(
-    still_syntax_str_node: StillSyntaxNode<&str>,
-    characters_before_content: usize,
-    characters_after_content: usize,
+fn still_syntax_lines_ranges(
+    comment_lines_range: lsp_types::Range,
 ) -> impl Iterator<Item = lsp_types::Range> {
-    let content_does_not_break_line: bool =
-        still_syntax_str_node.range.start.line == still_syntax_str_node.range.end.line;
-    still_syntax_str_node
-        .value
-        .lines()
-        .chain(
-            // str::lines() eats the last linebreak. Restore it
-            if still_syntax_str_node.value.ends_with("\n") {
-                Some("\n")
-            } else {
-                None
-            },
-        )
-        .enumerate()
-        .map(move |(inner_line, inner_line_str)| {
-            let line: u32 = still_syntax_str_node.range.start.line + (inner_line as u32);
-            let line_length_utf16: usize = inner_line_str.encode_utf16().count();
-            if inner_line == 0 {
-                lsp_types::Range {
-                    start: still_syntax_str_node.range.start,
-                    end: lsp_position_add_characters(
-                        still_syntax_str_node.range.start,
-                        (characters_before_content
-                            + line_length_utf16
-                            + if content_does_not_break_line {
-                                characters_after_content
-                            } else {
-                                0
-                            }) as i32,
-                    ),
-                }
-            } else {
-                lsp_types::Range {
-                    start: lsp_types::Position {
-                        line: line,
-                        character: 0,
-                    },
-                    end: if line == still_syntax_str_node.range.end.line {
-                        still_syntax_str_node.range.end
-                    } else {
-                        lsp_types::Position {
-                            line: line,
-                            character: (line_length_utf16 + characters_after_content) as u32,
-                        }
-                    },
-                }
+    std::iter::once(lsp_types::Range {
+        // hacky: full line
+        start: comment_lines_range.start,
+        end: lsp_types::Position {
+            line: comment_lines_range.start.line,
+            character: 1_000_000_000,
+        },
+    })
+    .chain(
+        ((comment_lines_range.start.line + 1)..comment_lines_range.end.line).map(|line| {
+            // hacky: full line
+            lsp_types::Range {
+                start: lsp_types::Position {
+                    line: line,
+                    character: 0,
+                },
+                end: lsp_types::Position {
+                    line: line,
+                    character: 1_000_000_000,
+                },
             }
-        })
+        }),
+    )
 }
 
 fn still_syntax_highlight_declaration_into(
@@ -6326,10 +6294,12 @@ fn still_syntax_highlight_pattern_into(
             comment: comment_node,
             pattern: maybe_pattern_after_comment,
         } => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: comment_node.range,
-                value: StillSyntaxHighlightKind::Comment,
-            });
+            highlighted_so_far.extend(still_syntax_lines_ranges(comment_node.range).map(|range| {
+                StillSyntaxNode {
+                    range: range,
+                    value: StillSyntaxHighlightKind::Comment,
+                }
+            }));
             if let Some(pattern_node_after_comment) = maybe_pattern_after_comment {
                 still_syntax_highlight_pattern_into(
                     highlighted_so_far,
@@ -6417,10 +6387,12 @@ fn still_syntax_highlight_type_into(
             comment: comment_node,
             type_: maybe_type_after_comment,
         } => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: comment_node.range,
-                value: StillSyntaxHighlightKind::Comment,
-            });
+            highlighted_so_far.extend(still_syntax_lines_ranges(comment_node.range).map(|range| {
+                StillSyntaxNode {
+                    range: range,
+                    value: StillSyntaxHighlightKind::Comment,
+                }
+            }));
             if let Some(type_node_after_comment) = maybe_type_after_comment {
                 still_syntax_highlight_type_into(
                     highlighted_so_far,
@@ -6599,13 +6571,15 @@ fn still_syntax_highlight_expression_into(
             );
         }
         StillSyntaxExpression::WithComment {
-            comment,
+            comment: comment_node,
             expression: maybe_expression_after_comment,
         } => {
-            highlighted_so_far.push(StillSyntaxNode {
-                range: comment.range,
-                value: StillSyntaxHighlightKind::KeySymbol,
-            });
+            highlighted_so_far.extend(still_syntax_lines_ranges(comment_node.range).map(|range| {
+                StillSyntaxNode {
+                    range: range,
+                    value: StillSyntaxHighlightKind::Comment,
+                }
+            }));
             if let Some(expression_node_after_comment) = maybe_expression_after_comment {
                 still_syntax_highlight_expression_into(
                     highlighted_so_far,
@@ -6731,7 +6705,7 @@ fn still_syntax_highlight_expression_into(
             }
         }
         StillSyntaxExpression::String {
-            content,
+            content: _,
             quoting_style,
         } => match quoting_style {
             StillSyntaxStringQuotingStyle::SingleQuoted => {
@@ -6741,34 +6715,10 @@ fn still_syntax_highlight_expression_into(
                 });
             }
             StillSyntaxStringQuotingStyle::TickedLines => {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: lsp_types::Range {
-                        start: expression_node.range.start,
-                        // hacky: full line end
-                        end: lsp_types::Position {
-                            line: expression_node.range.start.line,
-                            character: 1_000_000_000,
-                        },
-                    },
-                    value: StillSyntaxHighlightKind::String,
-                });
-                highlighted_so_far.extend(content.split("\n").enumerate().skip(1).map(
-                    |(inner_index, _)| {
-                        let line: u32 = expression_node.range.start.line + inner_index as u32;
-                        StillSyntaxNode {
-                            // hacky: full line
-                            range: lsp_types::Range {
-                                start: lsp_types::Position {
-                                    line: line,
-                                    character: 0,
-                                },
-                                end: lsp_types::Position {
-                                    line: line,
-                                    character: 1_000_000_000,
-                                },
-                            },
-                            value: StillSyntaxHighlightKind::String,
-                        }
+                highlighted_so_far.extend(still_syntax_lines_ranges(expression_node.range).map(
+                    |line_range| StillSyntaxNode {
+                        range: line_range,
+                        value: StillSyntaxHighlightKind::String,
                     },
                 ));
             }
