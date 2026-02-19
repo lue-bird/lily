@@ -26,15 +26,13 @@ interface \:opt str:state-or-uninitialized >
         state-or-uninitialized
         | :opt str:Absent > ""
         | :opt str:Present :str:initialized > initialized
-    :io str:Batch
-        [ :io str:Standard-out-write
-            strs-flatten [ ansi-clear-screen, state, "\nType a sentence to echo: " ]
-        , :io str:Standard-in-read-line \:str:line > line
-        ]
+    [ :io str:Standard-out-write
+        strs-flatten [ ansi-clear-screen, state, "\nType a sentence to echo: " ]
+    , :io str:Standard-in-read-line \:str:line > line
+    ]
 
 choice io Future
     | Standard-out-write str
-    | Batch vec (io Future)
     | Standard-in-read-line \str > Future
 ```
 → [`example-echo-in-loop/`](https://github.com/lue-bird/still/tree/main/example-echo-in-loop)
@@ -234,6 +232,7 @@ cargo build
 Then point your editor to the created `???/target/debug/still lsp`.
 
 ## considering
+- add `vec-with-length-by-index :\unt, \unt > A > vec A`
 - provide completions for record field names
 - remove record access syntax in favor of destructuring,
   otherwise provide hover info for record field access

@@ -11,7 +11,7 @@ fn main() {
     let mut still_state: still::Opt<StillState> = still::Opt::Absent;
     'main_loop: loop {
         let interface = still::interface(still_state);
-        let maybe_new_state: Option<StillState> = handle_io(&interface);
+        let maybe_new_state: Option<StillState> = interface.iter().find_map(|io| handle_io(io));
         match maybe_new_state {
             None => {
                 break 'main_loop;
@@ -23,19 +23,11 @@ fn main() {
     }
 }
 /// returns a new state
-fn handle_io(interface: &still::Io<StillState>) -> Option<StillState> {
-    match interface {
+fn handle_io(io: &still::Io<StillState>) -> Option<StillState> {
+    match io {
         still::Io::Standard_out_write(to_write) => {
             print!("{}", to_write);
             let _ = std::io::Write::flush(&mut std::io::stdout());
-            None
-        }
-        still::Io::Batch(ios) => {
-            for io in ios.iter() {
-                if let Some(new_state) = handle_io(io) {
-                    return Some(new_state);
-                }
-            }
             None
         }
         still::Io::Standard_in_read_line(on_read_line) => {
