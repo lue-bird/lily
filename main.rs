@@ -29,12 +29,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(())
             }
             "build" => {
-                let maybe_input_file_path = full_command.next();
-                let maybe_output_file_path = full_command.next();
+                let maybe_input_file_path: Option<String> = full_command.next();
+                let maybe_output_file_path: Option<String> = full_command.next();
                 build_main(
                     maybe_input_file_path.as_ref().map(std::path::Path::new),
                     maybe_output_file_path.as_ref().map(std::path::Path::new),
                 );
+                Ok(())
+            }
+            "init" | "initialize" | "new" | "create" | "setup" | "boilerplate" | "template"
+            | "hello" | "hello-world" => {
+                if full_command.next().is_some() {
+                    println!(
+                        "Nothing was created. If you want to initialize a still project in a directory, please create that directory yourself and run still init from inside there."
+                    );
+                    return Ok(());
+                }
+                try_generate_file(
+                    "still.still",
+                    "this is where all your still code goes",
+                    r#"
+
+greet \:str:name >
+    strs-flatten [ "Hello, ", name, "\n" ]
+
+"#,
+                );
+                try_generate_file(
+                    "main.rs",
+                    "the actual program entrypoint, written in rust.",
+                    r#"// enabling deref_patterns is sadly required for matching recursive choice types
+#![feature(deref_patterns)]
+#![allow(incomplete_features)]
+
+mod still;
+
+fn main() {
+    print!("{}", still::greet(still::Str::Slice("insert your name here")));
+}
+"#,
+                );
+                try_generate_file(
+                    "cargo.toml",
+                    "this tells cargo (the rust package manager) how to build the project",
+                    r#"[package]
+name = "example"
+edition = "2024"
+[[bin]]
+name = "example"
+path = "main.rs"
+"#,
+                );
+                try_generate_file(
+                    ".gitignore",
+                    "this tells git to not track the generated rust code",
+                    r"# Generated rust code
+still/
+",
+                );
+                match std::fs::exists("still") {
+                    Ok(true) => {
+                        println!("still/ directory already exists, skipping generating it.");
+                    }
+                    Ok(false) => {
+                        let write_result: Result<(), std::io::Error> = std::fs::create_dir("still");
+                        match write_result {
+                            Ok(()) => {
+                                println!(
+                                    "generated still/ directory, this will contain the generated rust file still/mod.rs."
+                                );
+                            }
+                            Err(error) => {
+                                println!("failed to generate still/ directory: {error}");
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        println!("failed to check if still/ directory already exists: {error}");
+                    }
+                }
                 Ok(())
             }
             _ => {
@@ -47,8 +120,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 const command_help: &str = r"try
   - compile to a rust file: still build [input-file.still [output-file.rs]]
   - start the language server: still lsp
+  - copy the hello-world project setup into the current directory: still init
   - print this command help message: still help";
 
+fn try_generate_file(path: &str, purpose: &str, content: &str) {
+    match std::fs::exists(path) {
+        Ok(true) => {
+            println!("{path} already exists, skipping generating it.");
+        }
+        Ok(false) => {
+            let write_result: Result<(), std::io::Error> = std::fs::write(path, content);
+            match write_result {
+                Ok(()) => {
+                    println!("generated {path}, {purpose}.");
+                }
+                Err(error) => {
+                    println!("failed to generate {path}: {error}");
+                }
+            }
+        }
+        Err(error) => {
+            println!("failed to check if {path} already exists: {error}");
+        }
+    }
+}
 fn default_still_output_file_path_for_input_file_path(
     input_file_path: &std::path::Path,
 ) -> std::path::PathBuf {
