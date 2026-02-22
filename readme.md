@@ -73,7 +73,7 @@ s0me-Name
 `Ow! That's me!
 `Wave to us! "\\\ ` ' \n \r \t \{ \m \u}
 
-# character (of type chr)
+# character (of type char)
 '👀'
 
 # signed integer (each of type int, sign is required)
@@ -244,19 +244,22 @@ cargo build
 ```
 Then point your editor to the created `???/target/debug/still lsp`.
 
+## TODO
+- rename let to =
+- introduce ^variable to explicitly shadow a local (maybe also global?) variable
+
 ## considering
 - provide completions for record field names
 - remove record access syntax in favor of destructuring,
   otherwise provide hover info for record field access
 - (leaning towards yes) add `unts-sum`, `decs-sum`, `ints-sum`, `unts-product`, `ints-product`, `decs-product`
 - (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
-- (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chrs-backwards-from`
-- (leaning towards yes) rename chr to char
-- switch all core numbers to 64 bit
+- (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`
+- switch unt and int to 64 bit
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
+- (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
 - (to make some parts almost infinitely scalable:) for formatting: leave declarations fully outside of "touched ranges" alone; for compilation: if touched only in one declaration and its type ends up the same, only change that declaration's output, (optionally: if type changed, recompile "downstream"); also, when edited range lies exclusively between existing declaration ranges, only compile that one
 - in syntax tree, use separate range type for single-line tokens like keywords, symbols, names etc to save on memory consumption
-- (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
 - add `map` (either tree or index map), `set` core types. currently no idea how to implement in few lines in rust. I'd like order functions to be given for each operation
 - (maybe in the future) add or pattern `( first | second | third )`
 - reimplement [strongly_connected_components](https://docs.rs/strongly-connected-components/latest/strongly_connected_components/) myself

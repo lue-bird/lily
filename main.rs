@@ -2709,7 +2709,7 @@ fn still_syntax_pattern_type(
     pattern_node: StillSyntaxNode<&StillSyntaxPattern>,
 ) -> Option<StillType> {
     match pattern_node.value {
-        StillSyntaxPattern::Char(_) => Some(still_type_chr),
+        StillSyntaxPattern::Char(_) => Some(still_type_char),
         StillSyntaxPattern::Int { .. } => Some(still_type_int),
         StillSyntaxPattern::Unt { .. } => Some(still_type_unt),
         StillSyntaxPattern::String { .. } => Some(still_type_str),
@@ -2918,7 +2918,7 @@ fn still_syntax_expression_type_with<'a>(
         StillSyntaxExpression::Unt(_) => Some(still_type_unt),
         StillSyntaxExpression::Int(_) => Some(still_type_int),
         StillSyntaxExpression::Dec(_) => Some(still_type_dec),
-        StillSyntaxExpression::Char(_) => Some(still_type_chr),
+        StillSyntaxExpression::Char(_) => Some(still_type_char),
         StillSyntaxExpression::String { .. } => Some(still_type_str),
         StillSyntaxExpression::Lambda {
             parameters,
@@ -3079,9 +3079,9 @@ fn still_syntax_expression_type_with<'a>(
         },
     }
 }
-const still_type_chr_name: &str = "chr";
-const still_type_chr: StillType = StillType::ChoiceConstruct {
-    name: StillName::const_new(still_type_chr_name),
+const still_type_char_name: &str = "char";
+const still_type_char: StillType = StillType::ChoiceConstruct {
+    name: StillName::const_new(still_type_char_name),
     arguments: vec![],
 };
 const still_type_dec_name: &str = "dec";
@@ -9207,30 +9207,30 @@ defined as:
                 "Parse a complete `str` into an `dec`, returning :opt dec:Absent otherwise",
             ),
             (
-                StillName::from("chr-byte-count"),
-                function([still_type_chr], still_type_unt),
-                "Encoded as UTF-8, how many bytes the `chr` spans, between 1 and 4",
+                StillName::from("char-byte-count"),
+                function([still_type_char], still_type_unt),
+                "Encoded as UTF-8, how many bytes the `char` spans, between 1 and 4",
             ),
             (
-                StillName::from("chr-to-code-point"),
-                function([still_type_chr], still_type_unt),
+                StillName::from("char-to-code-point"),
+                function([still_type_char], still_type_unt),
                 "Convert to its 4-byte unicode code point",
             ),
             (
-                StillName::from("code-point-to-chr"),
-                function([still_type_unt],  still_type_opt(still_type_chr)),
-                "Convert a 4-byte unicode code point to a `chr`, or :opt chr:Absent if the `unt` has too many bytes or the code point has no associated character (for example hex 110000).
-Note that the inverse never fails: `chr-to-code-point`",
+                StillName::from("code-point-to-char"),
+                function([still_type_unt],  still_type_opt(still_type_char)),
+                "Convert a 4-byte unicode code point to a `char`, or :opt char:Absent if the `unt` has too many bytes or the code point has no associated character (for example hex 110000).
+Note that the inverse never fails: `char-to-code-point`",
             ),
             (
-                StillName::from("chr-order"),
-                function([still_type_chr,still_type_chr], still_type_order),
-                "Compare `chr` values by their unicode code point",
+                StillName::from("char-order"),
+                function([still_type_char,still_type_char], still_type_order),
+                "Compare `char` values by their unicode code point",
             ),
             (
-                StillName::from("chr-to-str"),
-                function([still_type_chr], still_type_str),
-                "Convert `chr` to `str`",
+                StillName::from("char-to-str"),
+                function([still_type_char], still_type_str),
+                "Convert `char` to `str`",
             ),
             (
                 StillName::from("str-byte-count"),
@@ -9238,12 +9238,12 @@ Note that the inverse never fails: `chr-to-code-point`",
                 "Encoded as UTF-8, how many bytes the `str` spans",
             ),
             (
-                StillName::from("str-chr-at-byte-index"),
+                StillName::from("str-char-at-byte-index"),
                 function(
                     [still_type_str, still_type_unt],
-                    still_type_opt(still_type_chr),
+                    still_type_opt(still_type_char),
                 ),
-                "The `chr` at the nearest lower character boundary of a given UTF-8 index. If it lands out of bounds, results in :option Element:Absent",
+                "The `char` at the nearest lower character boundary of a given UTF-8 index. If it lands out of bounds, results in :option Element:Absent",
             ),
             (
                 StillName::from("str-slice-from-byte-index-with-byte-length"),
@@ -9254,40 +9254,40 @@ Note that the inverse never fails: `chr-to-code-point`",
                 "Create a sub-slice starting at the floor character boundary of a given UTF-8 index, spanning for a given count of UTF-8 bytes until before the nearest higher character boundary",
             ),
             (
-                StillName::from("str-to-chrs"),
-                function([still_type_str], still_type_vec(still_type_chr)),
-                "Split the `str` into a `vec` of `chr`s",
+                StillName::from("str-to-chars"),
+                function([still_type_str], still_type_vec(still_type_char)),
+                "Split the `str` into a `vec` of `char`s",
             ),
             (
-                StillName::from("chrs-to-str"),
-                function([still_type_vec(still_type_chr)], still_type_str),
-                "Concatenate a `vec` of `chr`s into one `str`",
+                StillName::from("chars-to-str"),
+                function([still_type_vec(still_type_char)], still_type_str),
+                "Concatenate a `vec` of `char`s into one `str`",
             ),
             (
                 StillName::from("str-order"),
                 function([still_type_str,still_type_str], still_type_order),
-                "Compare `str` values lexicographically (chr-wise comparison, then longer is greater). A detailed definition: https://doc.rust-lang.org/std/cmp/trait.Ord.html#lexicographical-comparison",
+                "Compare `str` values lexicographically (char-wise comparison, then longer is greater). A detailed definition: https://doc.rust-lang.org/std/cmp/trait.Ord.html#lexicographical-comparison",
             ),
             (
-                StillName::from("str-walk-chrs-from"),
+                StillName::from("str-walk-chars-from"),
                 function(
                  [still_type_str,
-                  function([variable("State"), still_type_chr], still_type_continue_or_exit(variable("State"), variable("Exit")))
+                  function([variable("State"), still_type_char], still_type_continue_or_exit(variable("State"), variable("Exit")))
                  ],
                  still_type_continue_or_exit(variable("State"), variable("Exit"))
                 ),
-                r"Loop through all of its `chr`s first to last, collecting state or exiting early
+                r"Loop through all of its `char`s first to last, collecting state or exiting early
 ```still
 str-find-spaces-in-first-line \:str:str >
-    str-walk-chrs-from str
+    str-walk-chars-from str
         0
-        (\:int:space-count-so-far, :chr:chr >
-            chr
+        (\:int:space-count-so-far, :char:char >
+            char
             | '\n' > :continue-or-exit int int:Exit space-count-so-far
             | ' ' > 
                 :continue-or-exit int int:
                 Continue int-add space-count-so-far 1
-            | :chr:_ >
+            | :char:_ >
                 :continue-or-exit int int:Continue space-count-so-far
         )
     | :continue-or-exit int int:Continue :int:result > result
@@ -9302,12 +9302,12 @@ I recommend creating helpers for common cases like splitting into lines.
                 StillName::from("str-attach"),
                 function([still_type_str,still_type_str], still_type_str),
                 "Append the chars of the second given string at the end of the first.
-See also `str-attach-chr`, `str-attach-unt`, `str-attach-int, `str-attach-dec`.",
+See also `str-attach-char`, `str-attach-unt`, `str-attach-int, `str-attach-dec`.",
             ),
             (
-                StillName::from("str-attach-chr"),
-                function([still_type_str,still_type_chr], still_type_str),
-                "Push a given `chr` to the end of the `str`",
+                StillName::from("str-attach-char"),
+                function([still_type_str,still_type_char], still_type_str),
+                "Push a given `char` to the end of the `str`",
             ),
             (
                 StillName::from("str-attach-unt"),
@@ -9328,7 +9328,7 @@ See also `str-attach-chr`, `str-attach-unt`, `str-attach-int, `str-attach-dec`."
                 StillName::from("strs-flatten"),
                 function([still_type_vec(still_type_str)], still_type_str),
                 r"Concatenate all the string elements.
-When building large strings, prefer `str-attach`, `str-attach-chr`, `str-attach-unt`, ...
+When building large strings, prefer `str-attach`, `str-attach-char`, `str-attach-unt`, ...
 ",
             ),
             (
@@ -9595,14 +9595,14 @@ dec-div five 2.0
             },
         ),
         (
-            StillName::from(still_type_chr_name),
+            StillName::from(still_type_char_name),
             ChoiceTypeInfo {
                 name_range: None,
                 documentation: Some(Box::from(
                     r#"A unicode scalar like `'a'` or `'👀'` or `\u{2665}` (hex code for ♥).
 Keep in mind that a human-readable visual symbol can be composed of multiple such unicode scalars (forming a grapheme cluster), For example:
 ```still
-str-to-chrs "🇺🇸"
+str-to-chars "🇺🇸"
 # = [ '\u{1F1FA}', '\u{1F1F8}' ]
 #     Indicator U  Indicator S
 ```
@@ -9626,7 +9626,7 @@ Internally, a string is compactly represented as UTF-8 bytes and can be accessed
 strs-flatten [ "My name is ", "Jenna", " and I'm ", int-to-str 60, " years old." ]
 # = "My name is Jenna and I'm 60 years old."
 ```
-When building large strings, prefer `str-attach` and `str-attach-chr`.
+When building large strings, prefer `str-attach` and `str-attach-char`.
 "#
                 )),
                 parameters: vec![],
@@ -9648,7 +9648,7 @@ int-cmp 1 2
 dec-cmp 0.0 0.0
 # = :order:Equal
 
-chr-cmp 'b' 'a'
+char-cmp 'b' 'a'
 # = :order:Greater
 
 # typically used with pattern matching
@@ -11922,7 +11922,7 @@ fn still_syntax_expression_to_rust<'a>(
             type_: Some(still_type_str),
         },
         StillSyntaxExpression::Char(maybe_char) => CompiledStillExpression {
-            type_: Some(still_type_chr),
+            type_: Some(still_type_char),
             rust: match *maybe_char {
                 None => {
                     errors.push(StillErrorNode {
@@ -13889,7 +13889,7 @@ fn still_pattern_catch_to_case_patterns_catch(
         StillPatternCatch::Exhaustive => StilCasePatternsCatch::Exhaustive,
         StillPatternCatch::Unt(unt) => StilCasePatternsCatch::Unts(vec![unt]),
         StillPatternCatch::Int(int) => StilCasePatternsCatch::Ints(vec![int]),
-        StillPatternCatch::Char(chr) => StilCasePatternsCatch::Chars(vec![chr]),
+        StillPatternCatch::Char(char) => StilCasePatternsCatch::Chars(vec![char]),
         StillPatternCatch::String(string) => StilCasePatternsCatch::Strings(vec![string]),
         StillPatternCatch::Variant(variants) => StilCasePatternsCatch::Variants(
             variants
@@ -14079,7 +14079,7 @@ fn still_pattern_catch_catches_all_of_still_pattern_catch(
         StillPatternCatch::Exhaustive => true,
         StillPatternCatch::Unt(unt) => to_check == &StillPatternCatch::Unt(*unt),
         StillPatternCatch::Int(int) => to_check == &StillPatternCatch::Int(*int),
-        StillPatternCatch::Char(chr) => to_check == &StillPatternCatch::Char(*chr),
+        StillPatternCatch::Char(char) => to_check == &StillPatternCatch::Char(*char),
         StillPatternCatch::String(string) => {
             if let StillPatternCatch::String(string_to_check) = to_check {
                 string_to_check == string
@@ -14641,7 +14641,7 @@ fn still_syntax_pattern_to_rust<'a>(
 ) -> CompiledStillPattern {
     match &pattern_node.value {
         StillSyntaxPattern::Char(maybe_char) => CompiledStillPattern {
-            type_: Some(still_type_chr),
+            type_: Some(still_type_char),
             rust: match *maybe_char {
                 None => {
                     errors.push(StillErrorNode {

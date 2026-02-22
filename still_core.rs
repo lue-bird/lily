@@ -232,26 +232,26 @@ impl<C, E> Continue_or_exit<C, E> {
     }
 }
 
-pub type Chr = char;
+pub type Char = char;
 
-fn chr_byte_count(chr: Chr) -> Unt {
-    chr.len_utf8()
+fn char_byte_count(char: Char) -> Unt {
+    char.len_utf8()
 }
-fn chr_order(left: Chr, right: Chr) -> Order {
+fn char_order(left: Char, right: Char) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn code_point_to_chr(code_point: Unt) -> Opt<Chr> {
+fn code_point_to_char(code_point: Unt) -> Opt<Char> {
     Opt::from_option(
         std::convert::TryFrom::try_from(code_point)
             .ok()
             .and_then(char::from_u32),
     )
 }
-fn chr_to_code_point(chr: Chr) -> Unt {
-    chr as Unt
+fn char_to_code_point(char: Char) -> Unt {
+    char as Unt
 }
-fn chr_to_str(chr: Chr) -> Str {
-    Str::from_string(std::format!("{}", chr))
+fn char_to_str(char: Char) -> Str {
+    Str::from_string(std::format!("{}", char))
 }
 /// prefer Str::into_string over Str::to_string
 #[derive(Clone)]
@@ -324,11 +324,13 @@ impl PartialOrd<str> for Str {
 fn str_byte_count(str: Str) -> Unt {
     str.as_str().len()
 }
-fn str_chr_at_byte_index(str: Str, byte_index: Unt) -> Opt<Chr> {
+fn str_char_at_byte_index(str: Str, byte_index: Unt) -> Opt<Char> {
     Opt::from_option(
         str.as_str()
-            .get(str.as_str().ceil_char_boundary(byte_index)..)
-            .and_then(|chr_sub| std::iter::Iterator::next(&mut chr_sub.chars())),
+            .get(str.as_str().floor_char_boundary(byte_index)..)
+            .and_then(|str_from_byte_index| {
+                std::iter::Iterator::next(&mut str_from_byte_index.chars())
+            }),
     )
 }
 fn str_slice_from_byte_index_with_byte_length(
@@ -354,10 +356,10 @@ fn str_slice_from_byte_index_with_byte_length(
             .unwrap_or(Str::Slice("")),
     }
 }
-fn str_to_chrs(str: Str) -> Vec<Chr> {
+fn str_to_chars(str: Str) -> Vec<Char> {
     Vec::from_vec(std::iter::Iterator::collect(str.as_str().chars()))
 }
-fn chrs_to_str(chars: Vec<Chr>) -> Str {
+fn chars_to_str(chars: Vec<Char>) -> Str {
     let string: std::string::String =
         std::iter::Iterator::collect(std::iter::Iterator::copied(chars.iter()));
     Str::from_string(string)
@@ -365,10 +367,10 @@ fn chrs_to_str(chars: Vec<Chr>) -> Str {
 fn str_order(left: Str, right: Str) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn str_walk_chrs_from<C, E>(
+fn str_walk_chars_from<C, E>(
     str: Str,
     initial_state: C,
-    on_element: impl Fn(C, Chr) -> Continue_or_exit<C, E>,
+    on_element: impl Fn(C, Char) -> Continue_or_exit<C, E>,
 ) -> Continue_or_exit<C, E> {
     Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
         &mut str.as_str().chars(),
@@ -376,7 +378,7 @@ fn str_walk_chrs_from<C, E>(
         |state, element| on_element(state, element).to_control_flow(),
     ))
 }
-fn str_attach_chr(left: Str, right: Chr) -> Str {
+fn str_attach_char(left: Str, right: Char) -> Str {
     let mut string: std::string::String = left.into_string();
     string.push(right);
     Str::from_string(string)
