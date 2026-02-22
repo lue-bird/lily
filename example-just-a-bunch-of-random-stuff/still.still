@@ -131,3 +131,17 @@ using-function-taking-function \:\unt > unt:f >
 
 function-taking-function-taking-function-taking-function \:\\\unt > unt > unt > unt:f >
     f (\:\unt > unt:g > g 0)
+
+build \:str:your-builder-string >
+    # I know this is unacceptable but I couldn't come up with a fix so far.
+    # Preferably without allowing shadowing.
+    # Making the expression before | left-binding is probably unintuitive
+    # and also doesn't fix it being seen as a match expression with multiple cases
+    (((your-builder-string
+       | :str:s > str-attach-chr s ' '
+      )
+      | :str:s > str-attach-unt s 10
+     )
+     | :str:s > str-attach s " > "
+    )
+    | :str:s > str-attach-dec s 10.2

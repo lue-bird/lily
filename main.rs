@@ -9302,18 +9302,34 @@ I recommend creating helpers for common cases like splitting into lines.
                 StillName::from("str-attach"),
                 function([still_type_str,still_type_str], still_type_str),
                 "Append the chars of the second given string at the end of the first.
-To push a single char, use `str-attach-chr`.",
+See also `str-attach-chr`, `str-attach-unt`, `str-attach-int, `str-attach-dec`.",
             ),
             (
                 StillName::from("str-attach-chr"),
                 function([still_type_str,still_type_chr], still_type_str),
-                "Push a given `chr` to the end of the first.",
+                "Push a given `chr` to the end of the `str`",
+            ),
+            (
+                StillName::from("str-attach-unt"),
+                function([still_type_str,still_type_unt], still_type_str),
+                "Push a given `unt` to the end of the `str`, equivalent to but faster than `str-attach str (unt-to-str unt)`",
+            ),
+            (
+                StillName::from("str-attach-int"),
+                function([still_type_str,still_type_int], still_type_str),
+                "Push a given `int` to the end of the `str`, equivalent to but faster than `str-attach str (int-to-str int)`",
+            ),
+            (
+                StillName::from("str-attach-dec"),
+                function([still_type_str,still_type_dec], still_type_str),
+                "Push a given `dec` to the end of the `str`, equivalent to but faster than `str-attach str (dec-to-str dec)`",
             ),
             (
                 StillName::from("strs-flatten"),
                 function([still_type_vec(still_type_str)], still_type_str),
-                "Concatenate all the string elements.
-When building large strings, prefer `str-attach` and `str-attach-chr`.",
+                r"Concatenate all the string elements.
+When building large strings, prefer `str-attach`, `str-attach-chr`, `str-attach-unt`, ...
+",
             ),
             (
                 StillName::from("vec-repeat"),
@@ -12370,7 +12386,6 @@ fn still_syntax_expression_to_rust<'a>(
                     type_: compiled_after_comment.type_,
                     rust: syn::Expr::Paren(syn::ExprParen {
                         attrs: vec![syn_attribute_doc(&comment_node.value)],
-
                         paren_token: syn::token::Paren(syn_span()),
                         expr: Box::new(compiled_after_comment.rust),
                     }),
