@@ -12426,54 +12426,29 @@ fn still_syntax_expression_to_rust<'a>(
         }
         StillSyntaxExpression::WithComment {
             comment: comment_node,
-            expression: maybe_after_comment,
-        } => match maybe_after_comment {
-            None => {
-                errors.push(StillErrorNode {
-                    range: expression_node.range,
-                    message: Box::from(
-                        "missing expression after linebreak after comment # ...\\n here",
-                    ),
-                });
-                CompiledStillExpression {
-                    type_: None,
-                    rust: syn::Expr::Macro(syn::ExprMacro {
-                        attrs: vec![],
-                        mac: syn::Macro {
-                            path: syn_path_reference(["std", "todo"]),
-                            bang_token: syn::token::Not(syn_span()),
-                            delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(syn_span())),
-                            tokens: proc_macro2::TokenStream::from(
-                                proc_macro2::TokenTree::Literal(proc_macro2::Literal::string(
-                                    &comment_node.value,
-                                )),
-                            ),
-                        },
-                    }),
-                }
+            expression: _,
+        } => {
+            errors.push(StillErrorNode {
+                range: expression_node.range,
+                message: Box::from(
+                    "missing expression after linebreak after comment # ...\\n here",
+                ),
+            });
+            CompiledStillExpression {
+                type_: None,
+                rust: syn::Expr::Macro(syn::ExprMacro {
+                    attrs: vec![],
+                    mac: syn::Macro {
+                        path: syn_path_reference(["std", "todo"]),
+                        bang_token: syn::token::Not(syn_span()),
+                        delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(syn_span())),
+                        tokens: proc_macro2::TokenStream::from(proc_macro2::TokenTree::Literal(
+                            proc_macro2::Literal::string(&comment_node.value),
+                        )),
+                    },
+                }),
             }
-            Some(after_comment_node) => {
-                let compiled_after_comment: CompiledStillExpression =
-                    still_syntax_expression_to_rust(
-                        errors,
-                        records_used,
-                        type_aliases,
-                        choice_types,
-                        project_variable_declarations,
-                        local_bindings.clone(),
-                        closure_representation,
-                        still_syntax_node_unbox(after_comment_node),
-                    );
-                CompiledStillExpression {
-                    type_: compiled_after_comment.type_,
-                    rust: syn::Expr::Paren(syn::ExprParen {
-                        attrs: vec![syn_attribute_doc(&comment_node.value)],
-                        paren_token: syn::token::Paren(syn_span()),
-                        expr: Box::new(compiled_after_comment.rust),
-                    }),
-                }
-            }
-        },
+        }
         StillSyntaxExpression::Typed {
             type_: maybe_type_node,
             closing_colon_range: maybe_closing_colon_range,
