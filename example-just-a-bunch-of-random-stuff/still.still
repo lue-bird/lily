@@ -19,9 +19,9 @@ choice int-cons-list
 # can span multiple lines
 #
 greet \{ name :str:name } >
-    let list
+    = list
         [ "1", "2", "3" ]
-    let another
+    = another
         vec-attach list
             list
     name
@@ -70,7 +70,7 @@ ansi-clear-screen
     "\u{001B}c"
 
 run \:opt str:state-or-uninitialized >
-    let state
+    = state
         state-or-uninitialized
         | :opt str:Absent > ""
         | :opt str:Present :str:initialized > initialized
@@ -120,7 +120,7 @@ rope-into \:str:builder :rope:rope >
         rope-into builder left
 
 temporary-function
-    let function \:int:_ > 0
+    = function \:int:_ > 0
     2
 
 function-taking-function \:\unt > unt:f >

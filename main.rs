@@ -885,7 +885,7 @@ fn let_declaration_info_markdown(maybe_type_type: Option<&StillType>) -> String 
             let mut type_string: String = String::new();
             still_type_info_into(&mut type_string, 1, hovered_local_binding_type);
             format!(
-                "let variable
+                "local variable
 ```still
 :{}{}:
 ```
@@ -2559,7 +2559,7 @@ enum StillSyntaxExpression {
         arrow_key_symbol_range: Option<lsp_types::Range>,
         result: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
-    Let {
+    AfterLocalVariable {
         declaration: Option<StillSyntaxNode<StillSyntaxLetDeclaration>>,
         result: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
@@ -2952,7 +2952,7 @@ fn still_syntax_expression_type_with<'a>(
                 )?),
             })
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
@@ -3749,11 +3749,11 @@ fn still_syntax_expression_not_parenthesized_into(
                 );
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
-            so_far.push_str("let ");
+            so_far.push_str("= ");
             if let Some(declaration_node) = maybe_declaration {
                 still_syntax_let_declaration_into(
                     so_far,
@@ -4149,7 +4149,7 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
         still_syntax_expression_to_unparenthesized(expression_node);
     let is_space_separated: bool = match unparenthesized.value {
         StillSyntaxExpression::Lambda { .. } => true,
-        StillSyntaxExpression::Let { .. } => true,
+        StillSyntaxExpression::AfterLocalVariable { .. } => true,
         StillSyntaxExpression::VariableOrCall {
             variable: _,
             arguments,
@@ -4956,7 +4956,7 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
                 None => std::ops::ControlFlow::Continue(local_bindings),
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: declarations,
             result: maybe_result,
         } => {
@@ -5588,7 +5588,7 @@ fn still_syntax_expression_uses_of_symbol_into(
                 );
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
@@ -6629,14 +6629,14 @@ fn still_syntax_highlight_expression_into(
                 );
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
             highlighted_so_far.push(StillSyntaxNode {
                 range: lsp_types::Range {
                     start: expression_node.range.start,
-                    end: lsp_position_add_characters(expression_node.range.start, 3),
+                    end: lsp_position_add_characters(expression_node.range.start, 1),
                 },
                 value: StillSyntaxHighlightKind::KeySymbol,
             });
@@ -7585,7 +7585,7 @@ fn parse_still_syntax_expression_space_separated(
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
     let start_expression_node: StillSyntaxNode<StillSyntaxExpression> =
         parse_still_syntax_expression_typed(state)
-            .or_else(|| parse_still_syntax_expression_let_in(state))
+            .or_else(|| parse_still_syntax_expression_after_local_variable(state))
             .or_else(|| parse_still_syntax_expression_lambda(state))
             .or_else(|| parse_still_syntax_expression_variable_or_call(state))
             .or_else(|| parse_still_syntax_expression_with_comment_node(state))
@@ -8036,23 +8036,23 @@ fn parse_still_syntax_expression_case(state: &mut ParseState) -> Option<ParsedSt
     }
 }
 
-fn parse_still_syntax_expression_let_in(
+fn parse_still_syntax_expression_after_local_variable(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxExpression>> {
-    let let_keyword_range: lsp_types::Range = parse_still_keyword_as_range(state, "let")?;
+    let equals_key_symbol_range: lsp_types::Range = parse_symbol_as_range(state, "=")?;
     parse_still_whitespace(state);
     Some(if state.position.character <= u32::from(state.indent) {
         StillSyntaxNode {
-            range: let_keyword_range,
-            value: StillSyntaxExpression::Let {
+            range: equals_key_symbol_range,
+            value: StillSyntaxExpression::AfterLocalVariable {
                 declaration: None,
                 result: None,
             },
         }
     } else {
-        parse_state_push_indent(state, let_keyword_range.start.character as u16);
+        parse_state_push_indent(state, equals_key_symbol_range.start.character as u16);
         let mut syntax_before_in_key_symbol_end_position: lsp_types::Position =
-            let_keyword_range.end;
+            equals_key_symbol_range.end;
         let maybe_declaration: Option<StillSyntaxNode<StillSyntaxLetDeclaration>> =
             parse_still_syntax_let_declaration(state);
         if let Some(declaration_node) = &maybe_declaration {
@@ -8065,13 +8065,13 @@ fn parse_still_syntax_expression_let_in(
             parse_still_syntax_expression_space_separated(state);
         StillSyntaxNode {
             range: lsp_types::Range {
-                start: let_keyword_range.start,
+                start: equals_key_symbol_range.start,
                 end: match &maybe_result {
                     None => syntax_before_in_key_symbol_end_position,
                     Some(result_node) => result_node.range.end,
                 },
             },
-            value: StillSyntaxExpression::Let {
+            value: StillSyntaxExpression::AfterLocalVariable {
                 declaration: maybe_declaration,
                 result: maybe_result.map(still_syntax_node_box),
             },
@@ -8085,8 +8085,6 @@ fn parse_still_syntax_let_declaration(
         return None;
     }
     let name_node: StillSyntaxNode<StillName> = parse_still_lowercase_name_node(state)?;
-    parse_still_whitespace(state);
-    let _: bool = parse_symbol(state, "=");
     parse_still_whitespace(state);
     let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
         if state.position.character <= u32::from(state.indent) {
@@ -8246,7 +8244,6 @@ fn parse_still_syntax_declaration_choice_type_node(
     }
     let maybe_equals_key_symbol_range: Option<lsp_types::Range> = parse_symbol_as_range(state, "=");
     parse_still_whitespace(state);
-
     let mut variants: Vec<StillSyntaxChoiceTypeVariant> = Vec::with_capacity(2);
     while let Some(variant) = parse_still_syntax_choice_type_declaration_variant(state) {
         variants.push(variant);
@@ -8304,8 +8301,6 @@ fn parse_still_syntax_declaration_variable_node(
     state: &mut ParseState,
 ) -> Option<StillSyntaxNode<StillSyntaxDeclaration>> {
     let name_node: StillSyntaxNode<StillName> = parse_still_lowercase_name_node(state)?;
-    parse_still_whitespace(state);
-    let _: bool = parse_symbol(state, "=");
     parse_still_whitespace(state);
     let maybe_result: Option<StillSyntaxNode<StillSyntaxExpression>> =
         if state.position.character <= u32::from(state.indent) {
@@ -9342,7 +9337,7 @@ When building large strings, prefer `str-attach`, `str-attach-char`, `str-attach
                 r"Build a `vec` with a given length and for each index the element derived from the given function
 ```still
 vec-unt-range-inclusive \:unt:start, :unt:end >
-    let length-int
+    = length-int
         int-add (unt-to-int end) (int-negate (unt-to-int (unt-add start 1)))
     int-to-unt length-int
     | :opt unt:Absent > :vec A:[]
@@ -9391,7 +9386,7 @@ vec-last-element \:vec A:vec >
                 r"Exchange the element at the first given index with the element at the second given index. If either index is greater than the last existing index (or the indexes are equal), nothing is changed
 ```still
 vec-remove-by-swapping-with-last \:vec A:vec, :unt:index >
-    let len
+    = len
         vec-length vec
     unt-to-int (int-add (unt-to-int len) -1)
     | :opt unt:Absent >
@@ -10114,7 +10109,7 @@ fn still_syntax_expression_connect_variables_in_graph_from(
                 );
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
@@ -12222,7 +12217,7 @@ fn still_syntax_expression_to_rust<'a>(
                 rust: full_rust,
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => match maybe_declaration {
@@ -13604,7 +13599,7 @@ fn still_syntax_expression_uses_of_local_bindings_into<'a>(
                 );
             }
         }
-        StillSyntaxExpression::Let {
+        StillSyntaxExpression::AfterLocalVariable {
             declaration: maybe_declaration,
             result: maybe_result,
         } => {

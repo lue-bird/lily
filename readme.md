@@ -245,7 +245,6 @@ cargo build
 Then point your editor to the created `???/target/debug/still lsp`.
 
 ## TODO
-- rename let to =
 - introduce ^variable to explicitly shadow a local (maybe also global?) variable
 
 ## considering

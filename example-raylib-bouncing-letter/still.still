@@ -24,9 +24,9 @@ initial-state \{ window-width :dec:window-width, window-height :dec:window-heigh
 
 interface \:state:state >
     [ :io state:Display
-        [ let explainer-text
+        [ = explainer-text
             "arrow keys"
-          let explainer-text-height
+          = explainer-text-height
             0.1
           { str explainer-text
           , x
@@ -58,11 +58,11 @@ interface \:state:state >
                 state
     , :io state:Frame-passed
         \:dec:seconds-since-last-frame >
-            let new-velocity-y
+            = new-velocity-y
                 dec-add state.velocity-y (dec-mul -0.8 seconds-since-last-frame)
-            let future-x
+            = future-x
                 dec-add state.x (dec-mul state.velocity-x seconds-since-last-frame)
-            let future-y
+            = future-y
                 dec-add state.y (dec-mul new-velocity-y seconds-since-last-frame)
             { ..state
             , velocity-y
