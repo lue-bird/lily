@@ -236,8 +236,8 @@ choice modifier Event
 
 choice json
     | Null
-    | False
     | True
+    | False
     | Number dec
     | String str
     | Array vec json
