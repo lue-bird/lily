@@ -9891,14 +9891,16 @@ numbers0-9
                 variants: vec![
                     StillSyntaxChoiceTypeVariant {
                         or_key_symbol_range: lsp_types::Range::default(),
-                        name: Some(still_syntax_node_empty(StillName::from("Absent"))),
-                        value: None,
+                        name: Some(still_syntax_node_empty(StillName::from("Continue"))),
+                        value: Some(still_syntax_node_empty(StillSyntaxType::Variable(
+                            StillName::from("Continue"),
+                        ))),
                     },
                     StillSyntaxChoiceTypeVariant {
                         or_key_symbol_range: lsp_types::Range::default(),
-                        name: Some(still_syntax_node_empty(StillName::from("Present"))),
+                        name: Some(still_syntax_node_empty(StillName::from("Exit"))),
                         value: Some(still_syntax_node_empty(StillSyntaxType::Variable(
-                            StillName::from("A"),
+                            StillName::from("Exit"),
                         ))),
                     }
                 ],
