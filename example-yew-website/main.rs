@@ -246,87 +246,62 @@ fn web_sys_js_value_to_still_json(
 ) -> still::Json {
     // shows that still::JsonValue should probably be lazy internally for full array and object
     if web_sys_js_value.is_null() {
-        still::Json::Null
-    } else {
-        match web_sys_js_value.as_bool() {
-            Option::Some(false) => still::Json::False,
-            Option::Some(true) => still::Json::True,
-            Option::None => {
-                match web_sys_js_value.as_f64() {
-                    Option::Some(number) => still::Json::Number(number),
-                    Option::None => {
-                        match web_sys_js_value.as_string() {
-                            Option::Some(string) => {
-                                still::Json::String(still::Str::from_string(string))
-                            }
-                            Option::None => {
-                                if web_sys_js_value.is_array() {
-                                    still::Json::Array(std::rc::Rc::new(still::Vec::from_vec(
-                                        web_sys::js_sys::Array::from(web_sys_js_value)
-                                            .iter()
-                                            .map(|element| web_sys_js_value_to_still_json(&element))
-                                            .collect::<Vec<_>>(),
-                                    )))
-                                } else {
-                                    match web_sys::js_sys::Object::try_from(web_sys_js_value) {
-                                        Option::Some(js_object) => {
-                                            still::Json::Object(std::rc::Rc::new(
-                                                still::Vec::from_vec(
-                                                    web_sys::js_sys::Object::keys(
-                                                        &web_sys::js_sys::Object::get_prototype_of(
-                                                            js_object,
-                                                        ),
-                                                    )
-                                                    // sanity check: all these do _not_ work:
-                                                    // Object::entries or
-                                                    // Object::keys or
-                                                    // Reflect::own_keys or
-                                                    // Reflect::apply(
-                                                    //     &Function::from(eval("(function(o) { return Object.keys(o); })")?,
-                                                    //     &global(),
-                                                    //     &Array::from_iter(std::iter::once(js_object))
-                                                    // ) or
-                                                    // JSON::stringify
-                                                    // and even when trying to remove proxies with
-                                                    // Object.assign({}, _)
-                                                    // They return a weird
-                                                    // { __yew_subtree_cache_key, __yew_subtree_id, trusted }
-                                                    // I tried a whole bunch of stuff but couldn't work out
-                                                    // why this happens (it only doesn't with console.log and getPrototypeOf ??).
-                                                    // If you know more, PLEASE tell me :)
-                                                    .into_iter()
-                                                    .filter_map(|key| {
-                                                        let maybe_key = key.as_string();
-                                                        let maybe_value =
-                                                            web_sys::js_sys::Reflect::get(
-                                                                js_object, &key,
-                                                            )
-                                                            .ok();
-                                                        maybe_key.zip(maybe_value).map(
-                                                            |(key, value)| still::Key·value {
-                                                                key: still::Str::from_string(key),
-                                                                value:
-                                                                    web_sys_js_value_to_still_json(
-                                                                        &value,
-                                                                    ),
-                                                            },
-                                                        )
-                                                    })
-                                                    .collect::<Vec<_>>(),
-                                                ),
-                                            ))
-                                        }
-                                        Option::None => {
-                                            // maybe cleaner to return Option::None
-                                            still::Json::Null
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        return still::Json::Null;
     }
+    if let Option::Some(bool) = web_sys_js_value.as_bool() {
+        return match bool {
+            true => still::Json::True,
+            false => still::Json::False,
+        };
+    }
+    if let Option::Some(number) = web_sys_js_value.as_f64() {
+        return still::Json::Number(number);
+    }
+    if let Option::Some(string) = web_sys_js_value.as_string() {
+        return still::Json::String(still::Str::from_string(string));
+    }
+    if web_sys_js_value.is_array() {
+        return still::Json::Array(std::rc::Rc::new(still::Vec::from_vec(
+            web_sys::js_sys::Array::from(web_sys_js_value)
+                .iter()
+                .map(|element| web_sys_js_value_to_still_json(&element))
+                .collect::<Vec<_>>(),
+        )));
+    }
+    if let Option::Some(js_object) = web_sys::js_sys::Object::try_from(web_sys_js_value) {
+        return still::Json::Object(std::rc::Rc::new(still::Vec::from_vec(
+            web_sys::js_sys::Object::keys(&web_sys::js_sys::Object::get_prototype_of(js_object))
+                // sanity check: all these do _not_ work:
+                // Object::entries or
+                // Object::keys or
+                // Reflect::own_keys or
+                // Reflect::apply(
+                //     &Function::from(eval("(function(o) { return Object.keys(o); })")?,
+                //     &global(),
+                //     &Array::from_iter(std::iter::once(js_object))
+                // ) or
+                // JSON::stringify
+                // and even when trying to remove proxies with
+                // Object.assign({}, _)
+                // They return a weird
+                // { __yew_subtree_cache_key, __yew_subtree_id, trusted }
+                // I tried a whole bunch of stuff but couldn't work out
+                // why this happens (it only doesn't with console.log and getPrototypeOf ??).
+                // If you know more, PLEASE tell me :)
+                .into_iter()
+                .filter_map(|key| {
+                    let maybe_key: Option<String> = key.as_string();
+                    let maybe_value: Option<web_sys::wasm_bindgen::JsValue> =
+                        web_sys::js_sys::Reflect::get(js_object, &key).ok();
+                    maybe_key
+                        .zip(maybe_value)
+                        .map(|(key, value)| still::Key·value {
+                            key: still::Str::from_string(key),
+                            value: web_sys_js_value_to_still_json(&value),
+                        })
+                })
+                .collect::<Vec<_>>(),
+        )));
+    }
+    still::Json::Null
 }
