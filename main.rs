@@ -1946,13 +1946,14 @@ fn respond_to_completion(
         StillSyntaxSymbol::LetDeclarationName { .. } => None,
         StillSyntaxSymbol::ProjectDeclarationName { .. } => None,
         StillSyntaxSymbol::Field {
-            name: _,
+            name: name_to_complete,
             value_type: _,
             fields_sorted,
         } => Some(
             fields_sorted
                 .iter()
                 .flatten()
+                .filter(|field_name| field_name != name_to_complete)
                 .map(|field_name| lsp_types::CompletionItem {
                     label: field_name.to_string(),
                     kind: Some(lsp_types::CompletionItemKind::VARIABLE),
@@ -4616,6 +4617,8 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                             } else {
                                 variant.value.iter().find_map(|variant_value| {
                                     still_syntax_type_find_symbol_at_position(
+                                        type_aliases,
+                                        choice_types,
                                         still_syntax_declaration_node.value,
                                         still_syntax_node_as_ref(variant_value),
                                         position,
@@ -4663,6 +4666,8 @@ fn still_syntax_declaration_find_symbol_at_position<'a>(
                     .or_else(|| {
                         maybe_type.as_ref().and_then(|type_node| {
                             still_syntax_type_find_symbol_at_position(
+                                type_aliases,
+                                choice_types,
                                 still_syntax_declaration_node.value,
                                 still_syntax_node_as_ref(type_node),
                                 position,
@@ -4713,9 +4718,10 @@ fn still_syntax_pattern_find_symbol_at_position<'a>(
         return None;
     }
     match still_syntax_pattern_node.value {
-        StillSyntaxPattern::Char(_) => None,
         StillSyntaxPattern::Unt { .. } => None,
         StillSyntaxPattern::Int { .. } => None,
+        StillSyntaxPattern::Char(_) => None,
+        StillSyntaxPattern::String { .. } => None,
         StillSyntaxPattern::Typed {
             type_: maybe_type_node,
             closing_colon_range: _,
@@ -4724,6 +4730,8 @@ fn still_syntax_pattern_find_symbol_at_position<'a>(
             .as_ref()
             .and_then(|type_node| {
                 still_syntax_type_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
                     scope_declaration,
                     still_syntax_node_as_ref(type_node),
                     position,
@@ -4809,6 +4817,24 @@ fn still_syntax_pattern_find_symbol_at_position<'a>(
                 )
             }),
         StillSyntaxPattern::Record(fields) => fields.iter().find_map(|field| {
+            if lsp_range_includes_position(field.name.range, position) {
+                return Some(StillSyntaxNode {
+                    value: StillSyntaxSymbol::Field {
+                        name: &field.name.value,
+                        value_type: field.value.as_ref().and_then(|field_value_node| {
+                            still_syntax_pattern_type(
+                                type_aliases,
+                                choice_types,
+                                still_syntax_node_as_ref(field_value_node),
+                            )
+                        }),
+                        fields_sorted: Some(sorted_field_names(
+                            fields.iter().map(|record_field| &record_field.name.value),
+                        )),
+                    },
+                    range: field.name.range,
+                });
+            }
             field.value.as_ref().and_then(|field_value_node| {
                 still_syntax_pattern_find_symbol_at_position(
                     type_aliases,
@@ -4820,97 +4846,127 @@ fn still_syntax_pattern_find_symbol_at_position<'a>(
                 )
             })
         }),
-        StillSyntaxPattern::String { .. } => None,
     }
 }
 
 fn still_syntax_type_find_symbol_at_position<'a>(
+    type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     scope_declaration: &'a StillSyntaxDeclaration,
     still_syntax_type_node: StillSyntaxNode<&'a StillSyntaxType>,
     position: lsp_types::Position,
 ) -> Option<StillSyntaxNode<StillSyntaxSymbol<'a>>> {
     if !lsp_range_includes_position(still_syntax_type_node.range, position) {
-        None
-    } else {
-        match still_syntax_type_node.value {
-            StillSyntaxType::Construct {
-                name: variable,
-                arguments,
-            } => {
-                if lsp_range_includes_position(variable.range, position) {
-                    Some(StillSyntaxNode {
-                        value: StillSyntaxSymbol::Type(&variable.value),
-                        range: variable.range,
-                    })
-                } else {
-                    arguments.iter().find_map(|argument| {
-                        still_syntax_type_find_symbol_at_position(
-                            scope_declaration,
-                            still_syntax_node_as_ref(argument),
-                            position,
-                        )
-                    })
-                }
+        return None;
+    }
+    match still_syntax_type_node.value {
+        StillSyntaxType::Construct {
+            name: variable,
+            arguments,
+        } => {
+            if lsp_range_includes_position(variable.range, position) {
+                return Some(StillSyntaxNode {
+                    value: StillSyntaxSymbol::Type(&variable.value),
+                    range: variable.range,
+                });
             }
-            StillSyntaxType::Function {
-                inputs,
-                arrow_key_symbol_range: _,
-                output: maybe_output,
-            } => inputs
-                .iter()
-                .find_map(|input_node| {
-                    still_syntax_type_find_symbol_at_position(
-                        scope_declaration,
-                        still_syntax_node_as_ref(input_node),
-                        position,
-                    )
-                })
-                .or_else(|| {
-                    maybe_output.as_ref().and_then(|output_node| {
-                        still_syntax_type_find_symbol_at_position(
-                            scope_declaration,
-                            still_syntax_node_unbox(output_node),
-                            position,
-                        )
-                    })
-                }),
-            StillSyntaxType::Parenthesized(None) => None,
-            StillSyntaxType::Parenthesized(Some(in_parens)) => {
+            arguments.iter().find_map(|argument| {
                 still_syntax_type_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
                     scope_declaration,
-                    still_syntax_node_unbox(in_parens),
+                    still_syntax_node_as_ref(argument),
                     position,
                 )
-            }
-            StillSyntaxType::WithComment {
-                comment: _,
-                type_: maybe_type_after_comment,
-            } => maybe_type_after_comment
-                .as_ref()
-                .and_then(|type_node_after_comment| {
+            })
+        }
+        StillSyntaxType::Function {
+            inputs,
+            arrow_key_symbol_range: _,
+            output: maybe_output,
+        } => inputs
+            .iter()
+            .find_map(|input_node| {
+                still_syntax_type_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
+                    scope_declaration,
+                    still_syntax_node_as_ref(input_node),
+                    position,
+                )
+            })
+            .or_else(|| {
+                maybe_output.as_ref().and_then(|output_node| {
                     still_syntax_type_find_symbol_at_position(
+                        type_aliases,
+                        choice_types,
                         scope_declaration,
-                        still_syntax_node_unbox(type_node_after_comment),
-                        position,
-                    )
-                }),
-            StillSyntaxType::Record(fields) => fields.iter().find_map(|field| {
-                field.value.as_ref().and_then(|field_value_node| {
-                    still_syntax_type_find_symbol_at_position(
-                        scope_declaration,
-                        still_syntax_node_as_ref(field_value_node),
+                        still_syntax_node_unbox(output_node),
                         position,
                     )
                 })
             }),
-            StillSyntaxType::Variable(type_variable_value) => Some(StillSyntaxNode {
-                range: still_syntax_type_node.range,
-                value: StillSyntaxSymbol::TypeVariable {
-                    scope_declaration: scope_declaration,
-                    name: type_variable_value,
-                },
-            }),
+        StillSyntaxType::Parenthesized(None) => None,
+        StillSyntaxType::Parenthesized(Some(in_parens)) => {
+            still_syntax_type_find_symbol_at_position(
+                type_aliases,
+                choice_types,
+                scope_declaration,
+                still_syntax_node_unbox(in_parens),
+                position,
+            )
         }
+        StillSyntaxType::WithComment {
+            comment: _,
+            type_: maybe_type_after_comment,
+        } => maybe_type_after_comment
+            .as_ref()
+            .and_then(|type_node_after_comment| {
+                still_syntax_type_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
+                    scope_declaration,
+                    still_syntax_node_unbox(type_node_after_comment),
+                    position,
+                )
+            }),
+        StillSyntaxType::Record(fields) => fields.iter().find_map(|field| {
+            if lsp_range_includes_position(field.name.range, position) {
+                return Some(StillSyntaxNode {
+                    value: StillSyntaxSymbol::Field {
+                        name: &field.name.value,
+                        value_type: field.value.as_ref().and_then(|field_value_node| {
+                            still_syntax_type_to_type(
+                                &mut Vec::new(),
+                                type_aliases,
+                                choice_types,
+                                still_syntax_node_as_ref(field_value_node),
+                            )
+                        }),
+                        fields_sorted: Some(sorted_field_names(
+                            fields.iter().map(|record_field| &record_field.name.value),
+                        )),
+                    },
+                    range: field.name.range,
+                });
+            }
+            field.value.as_ref().and_then(|field_value_node| {
+                still_syntax_type_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
+                    scope_declaration,
+                    still_syntax_node_as_ref(field_value_node),
+                    position,
+                )
+            })
+        }),
+        StillSyntaxType::Variable(type_variable_value) => Some(StillSyntaxNode {
+            range: still_syntax_type_node.range,
+            value: StillSyntaxSymbol::TypeVariable {
+                scope_declaration: scope_declaration,
+                name: type_variable_value,
+            },
+        }),
     }
 }
 
@@ -5168,6 +5224,8 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
         } => {
             if let Some(found) = maybe_type.as_ref().and_then(|type_node| {
                 still_syntax_type_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
                     scope_declaration,
                     still_syntax_node_as_ref(type_node),
                     position,
@@ -5277,46 +5335,16 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
             fields
                 .iter()
                 .try_fold(local_bindings, |local_bindings, field| {
-                    if lsp_range_includes_position(field.name.range, position) {
-                        return std::ops::ControlFlow::Break(StillSyntaxNode {
-                            value: StillSyntaxSymbol::Field {
-                                name: &field.name.value,
-                                value_type: field.value.as_ref().and_then(|field_value_node| {
-                                    still_syntax_expression_type_with(
-                                        type_aliases,
-                                        choice_types,
-                                        variable_declarations,
-                                        std::rc::Rc::new(
-                                            local_bindings
-                                                .iter()
-                                                .flat_map(|(_, scope_bindings)| scope_bindings)
-                                                .map(|binding| {
-                                                    (binding.name, binding.type_.clone())
-                                                })
-                                                .collect::<std::collections::HashMap<_, _>>(),
-                                        ),
-                                        still_syntax_node_as_ref(field_value_node),
-                                    )
-                                }),
-                                fields_sorted: Some(sorted_field_names(
-                                    fields.iter().map(|record_field| &record_field.name.value),
-                                )),
-                            },
-                            range: field.name.range,
-                        });
-                    }
-                    match &field.value {
-                        Some(field_value_node) => still_syntax_expression_find_symbol_at_position(
-                            type_aliases,
-                            choice_types,
-                            variable_declarations,
-                            scope_declaration,
-                            local_bindings,
-                            still_syntax_node_as_ref(field_value_node),
-                            position,
-                        ),
-                        None => std::ops::ControlFlow::Continue(local_bindings),
-                    }
+                    still_syntax_expression_field_find_symbol_at_position(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        scope_declaration,
+                        local_bindings,
+                        fields,
+                        field,
+                        position,
+                    )
                 })
         }
         StillSyntaxExpression::RecordUpdate {
@@ -5324,7 +5352,6 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
             spread_key_symbol_range: _,
             fields,
         } => {
-            // TODO check field names
             if let Some(record_node) = maybe_record
                 && lsp_range_includes_position(record_node.range, position)
             {
@@ -5340,19 +5367,68 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
             }
             fields
                 .iter()
-                .try_fold(local_bindings, |local_bindings, field| match &field.value {
-                    Some(field_value_node) => still_syntax_expression_find_symbol_at_position(
+                .try_fold(local_bindings, |local_bindings, field| {
+                    still_syntax_expression_field_find_symbol_at_position(
                         type_aliases,
                         choice_types,
                         variable_declarations,
                         scope_declaration,
                         local_bindings,
-                        still_syntax_node_as_ref(field_value_node),
+                        fields,
+                        field,
                         position,
-                    ),
-                    None => std::ops::ControlFlow::Continue(local_bindings),
+                    )
                 })
         }
+    }
+}
+fn still_syntax_expression_field_find_symbol_at_position<'a>(
+    type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
+    variable_declarations: &std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
+    scope_declaration: &'a StillSyntaxDeclaration,
+    local_bindings: StillLocalBindings<'a>,
+    fields: &[StillSyntaxExpressionField],
+    field: &'a StillSyntaxExpressionField,
+    position: lsp_types::Position,
+) -> std::ops::ControlFlow<StillSyntaxNode<StillSyntaxSymbol<'a>>, StillLocalBindings<'a>> {
+    if lsp_range_includes_position(field.name.range, position) {
+        return std::ops::ControlFlow::Break(StillSyntaxNode {
+            value: StillSyntaxSymbol::Field {
+                name: &field.name.value,
+                value_type: field.value.as_ref().and_then(|field_value_node| {
+                    still_syntax_expression_type_with(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        std::rc::Rc::new(
+                            local_bindings
+                                .iter()
+                                .flat_map(|(_, scope_bindings)| scope_bindings)
+                                .map(|binding| (binding.name, binding.type_.clone()))
+                                .collect::<std::collections::HashMap<_, _>>(),
+                        ),
+                        still_syntax_node_as_ref(field_value_node),
+                    )
+                }),
+                fields_sorted: Some(sorted_field_names(
+                    fields.iter().map(|record_field| &record_field.name.value),
+                )),
+            },
+            range: field.name.range,
+        });
+    }
+    match &field.value {
+        Some(field_value_node) => still_syntax_expression_find_symbol_at_position(
+            type_aliases,
+            choice_types,
+            variable_declarations,
+            scope_declaration,
+            local_bindings,
+            still_syntax_node_as_ref(field_value_node),
+            position,
+        ),
+        None => std::ops::ControlFlow::Continue(local_bindings),
     }
 }
 
