@@ -67,7 +67,7 @@ interface \:state:state >
     }
 
 ansi-clear-screen
-    "\u{001B}c"
+    "\u{1B}c"
 
 run \:opt str:state-or-uninitialized >
     = state
@@ -108,7 +108,7 @@ choice rope
     | One str
     | Append { left rope, right rope }
 
-rope-into \:str:builder :rope:rope >
+rope-into \:str:builder, :rope:rope >
     rope
     | :rope:One "" >
         rope
@@ -120,7 +120,7 @@ rope-into \:str:builder :rope:rope >
         rope-into builder left
 
 temporary-function
-    = function \:int:_ > 0
+    = unused-function \:int:_ > 0
     2
 
 function-taking-function \:\unt > unt:f >
@@ -146,3 +146,4 @@ build-single-matches \:str:your-builder-string >
     str-attach s " > "
     | :str:s^ >
     str-attach-dec s 10.2
+

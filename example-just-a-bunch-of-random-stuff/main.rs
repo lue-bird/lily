@@ -4,7 +4,6 @@
 mod still;
 
 fn main() {
-    let mut still_state = still::initial_state();
     println!(
         "{}",
         still::book()
@@ -13,6 +12,7 @@ fn main() {
             .collect::<Vec<&str>>()
             .join("\n")
     );
+    let mut still_state = still::initial_state();
     for _ in std::iter::repeat_n((), 10) {
         let updated_state_still = still::interface(still_state);
         still_state = updated_state_still.new_state;
