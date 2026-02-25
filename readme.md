@@ -255,7 +255,6 @@ cargo build
 Then point your editor to the created `???/target/debug/still lsp`.
 
 ## considering
-- do not format declarations followed by Err
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
 - (leaning towards yes) add `unts-sum`, `decs-sum`, `ints-sum`, `unts-product`, `ints-product`, `decs-product`
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`

@@ -4351,7 +4351,16 @@ fn still_syntax_project_format(project_state: &ProjectState) -> String {
         // to make it easy to insert above
         builder.push_str("\n\n");
     }
-    for documented_declaration_or_err in &still_syntax_project.declarations {
+    for (documented_declaration_or_err, maybe_next_declaration_or_err) in
+        still_syntax_project.declarations.iter().zip(
+            still_syntax_project
+                .declarations
+                .iter()
+                .skip(1)
+                .map(Some)
+                .chain(std::iter::once(None)),
+        )
+    {
         match documented_declaration_or_err {
             Err(unknown_node) => {
                 builder.push_str(&unknown_node.value);
@@ -4364,13 +4373,27 @@ fn still_syntax_project_format(project_state: &ProjectState) -> String {
                         &project_documentation_node.value,
                     );
                 }
-                if let Some(declaration_node) = &documented_declaration.declaration {
-                    still_syntax_declaration_into(
-                        &mut builder,
-                        still_syntax_node_as_ref(declaration_node),
-                    );
+                match &documented_declaration.declaration {
+                    Some(declaration_node) => {
+                        if let Some(Err(_)) = maybe_next_declaration_or_err
+                            && let Some(unchanged_declaration_source) = str_slice_in_lsp_range(
+                                &project_state.source,
+                                declaration_node.range,
+                            )
+                        {
+                            builder.push_str(unchanged_declaration_source);
+                        } else {
+                            still_syntax_declaration_into(
+                                &mut builder,
+                                still_syntax_node_as_ref(declaration_node),
+                            );
+                            builder.push_str("\n\n");
+                        }
+                    }
+                    None => {
+                        builder.push_str("\n\n");
+                    }
                 }
-                builder.push_str("\n\n");
             }
         }
     }
@@ -15859,6 +15882,23 @@ fn syn_expr_reference<const N: usize>(segments: [&str; N]) -> syn::Expr {
     })
 }
 
+fn str_slice_in_lsp_range(str: &str, range: lsp_types::Range) -> Option<&str> {
+    let start_line_offset: usize =
+        str_offset_after_n_lsp_linebreaks(str, range.start.line as usize);
+    let start_offset: usize = start_line_offset
+        + str_starting_utf8_length_for_utf16_length(
+            &str[start_line_offset..],
+            range.start.character as usize,
+        );
+    // can be optimized by only ounting after the start line
+    let end_line_offset: usize = str_offset_after_n_lsp_linebreaks(str, range.end.line as usize);
+    let end_offset: usize = end_line_offset
+        + str_starting_utf8_length_for_utf16_length(
+            &str[end_line_offset..],
+            range.end.character as usize,
+        );
+    str.get(start_offset..end_offset)
+}
 fn string_replace_lsp_range(
     string: &mut String,
     range: lsp_types::Range,
