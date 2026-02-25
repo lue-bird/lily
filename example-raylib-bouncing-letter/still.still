@@ -23,6 +23,15 @@ initial-state \{ window-width :dec:window-width, window-height :dec:window-heigh
     }
 
 interface \:state:state >
+    state
+    | { window-width :dec:window-width
+      , window-height :dec:window-height
+      , x :dec:x
+      , y :dec:y
+      , velocity-x :dec:velocity-x
+      , velocity-y :dec:velocity-y
+      }
+    >
     [ :io state:Display
         [ = explainer-text
             "arrow keys"
@@ -30,17 +39,17 @@ interface \:state:state >
             0.1
           { str explainer-text
           , x
-                dec-mul state.window-width
+                dec-mul window-width
                     (dec-add 0.5
                         (dec-mul -0.5 (text-width explainer-text explainer-text-height))
                     )
-          , y dec-mul state.window-height 0.2
-          , size dec-mul state.window-height explainer-text-height
+          , y dec-mul window-height 0.2
+          , size dec-mul window-height explainer-text-height
           }
         , { str "Ö"
-          , x dec-mul state.window-width (dec-add 0.5 (dec-add state.x (dec-mul -0.5 player-width)))
-          , y dec-mul state.window-height (dec-add 0.5 (dec-negate (dec-add state.y (dec-mul 0.5 player-width))))
-          , size dec-mul state.window-height player-height
+          , x dec-mul window-width (dec-add 0.5 (dec-add x (dec-mul -0.5 player-width)))
+          , y dec-mul window-height (dec-add 0.5 (dec-negate (dec-add y (dec-mul 0.5 player-width))))
+          , size dec-mul window-height player-height
           }
         ]
     , :io state:Key-pressed
@@ -49,21 +58,21 @@ interface \:state:state >
             | # right arrow
               262
             >
-                { ..state, velocity-x dec-add state.x 0.8 }
+                { ..state, velocity-x dec-add x 0.8 }
             | # left arrow
               263
             >
-                { ..state, velocity-x dec-add state.x -0.8 }
+                { ..state, velocity-x dec-add x -0.8 }
             | :unt:_ >
                 state
     , :io state:Frame-passed
         \:dec:seconds-since-last-frame >
             = new-velocity-y
-                dec-add state.velocity-y (dec-mul -0.8 seconds-since-last-frame)
+                dec-add velocity-y (dec-mul -0.8 seconds-since-last-frame)
             = future-x
-                dec-add state.x (dec-mul state.velocity-x seconds-since-last-frame)
+                dec-add x (dec-mul velocity-x seconds-since-last-frame)
             = future-y
-                dec-add state.y (dec-mul new-velocity-y seconds-since-last-frame)
+                dec-add y (dec-mul new-velocity-y seconds-since-last-frame)
             { ..state
             , velocity-y
                 dec-order future-y (dec-add 0.5 (dec-mul -0.5 player-height))
@@ -75,12 +84,12 @@ interface \:state:state >
                 new-velocity-y
             , velocity-x
                 dec-order future-x (dec-add 0.5 (dec-mul -0.5 player-width))
-                | :order:Greater > dec-negate (dec-absolute state.velocity-x)
+                | :order:Greater > dec-negate (dec-absolute velocity-x)
                 | :order:_ >
                 dec-order future-x (dec-add -0.5 (dec-mul 0.5 player-width))
-                | :order:Less > dec-absolute state.velocity-x
+                | :order:Less > dec-absolute velocity-x
                 | :order:_ >
-                state.velocity-x
+                velocity-x
             , x future-x
             , y future-y
             }

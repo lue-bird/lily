@@ -2681,10 +2681,6 @@ enum StillSyntaxExpression {
         expression: Option<StillSyntaxNode<StillSyntaxExpressionUntyped>>,
     },
     Record(Vec<StillSyntaxExpressionField>),
-    RecordAccess {
-        record: StillSyntaxNode<Box<StillSyntaxExpression>>,
-        field: Option<StillSyntaxNode<StillName>>,
-    },
     RecordUpdate {
         record: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
         spread_key_symbol_range: lsp_types::Range,
@@ -3146,28 +3142,6 @@ fn still_syntax_expression_type_with<'a>(
                 });
             }
             Some(StillType::Record(field_types))
-        }
-        StillSyntaxExpression::RecordAccess {
-            record: record_node,
-            field: maybe_field_name,
-        } => {
-            let record_type: StillType = still_syntax_expression_type_with(
-                type_aliases,
-                choice_types,
-                variable_declarations,
-                local_bindings,
-                still_syntax_node_unbox(record_node),
-            )?;
-            let Some(field_name_node) = maybe_field_name else {
-                return Some(record_type);
-            };
-            let StillType::Record(record_type_fields) = &record_type else {
-                return None;
-            };
-            record_type_fields
-                .iter()
-                .find(|field| field.name == field_name_node.value)
-                .map(|accessed_field| accessed_field.value.clone())
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
@@ -4011,20 +3985,6 @@ fn still_syntax_expression_not_parenthesized_into(
                 so_far.push('}');
             }
         },
-        StillSyntaxExpression::RecordAccess {
-            record,
-            field: maybe_field,
-        } => {
-            still_syntax_expression_parenthesized_if_space_separated_into(
-                so_far,
-                indent,
-                still_syntax_node_unbox(record),
-            );
-            so_far.push('.');
-            if let Some(field_name_node) = maybe_field {
-                so_far.push_str(&field_name_node.value);
-            }
-        }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
             spread_key_symbol_range: _,
@@ -4283,7 +4243,6 @@ fn still_syntax_expression_parenthesized_if_space_separated_into(
         StillSyntaxExpression::Vec(_) => false,
         StillSyntaxExpression::Parenthesized(_) => false,
         StillSyntaxExpression::Record(_) => false,
-        StillSyntaxExpression::RecordAccess { .. } => false,
         StillSyntaxExpression::RecordUpdate { .. } => false,
         StillSyntaxExpression::String { .. } => false,
     };
@@ -5303,58 +5262,6 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
                 },
             }
         }
-        StillSyntaxExpression::RecordAccess {
-            record: record_node,
-            field: maybe_field_name,
-        } => {
-            if let Some(field_name_node) = maybe_field_name
-                && lsp_range_includes_position(field_name_node.range, position)
-            {
-                let maybe_type_fields = still_syntax_expression_type_with(
-                    type_aliases,
-                    choice_types,
-                    variable_declarations,
-                    std::rc::Rc::new(
-                        local_bindings
-                            .iter()
-                            .flat_map(|(_, scope_bindings)| scope_bindings)
-                            .map(|binding| (binding.name, binding.type_.clone()))
-                            .collect::<std::collections::HashMap<_, _>>(),
-                    ),
-                    still_syntax_node_unbox(record_node),
-                )
-                .and_then(|record_type| match record_type {
-                    StillType::Record(fields) => Some(fields),
-                    _ => None,
-                });
-                return std::ops::ControlFlow::Break(StillSyntaxNode {
-                    value: StillSyntaxSymbol::Field {
-                        name: &field_name_node.value,
-                        fields_sorted: maybe_type_fields.as_ref().map(|type_fields| {
-                            sorted_field_names(
-                                type_fields.iter().map(|record_field| &record_field.name),
-                            )
-                        }),
-                        value_type: maybe_type_fields.and_then(|type_fields| {
-                            type_fields
-                                .into_iter()
-                                .find(|type_field| type_field.name == field_name_node.value)
-                                .map(|field| field.value)
-                        }),
-                    },
-                    range: field_name_node.range,
-                });
-            }
-            still_syntax_expression_find_symbol_at_position(
-                type_aliases,
-                choice_types,
-                variable_declarations,
-                scope_declaration,
-                local_bindings,
-                still_syntax_node_unbox(record_node),
-                position,
-            )
-        }
         StillSyntaxExpression::Record(fields) => {
             fields
                 .iter()
@@ -6030,15 +5937,6 @@ fn still_syntax_expression_uses_of_symbol_into(
                     );
                 }
             }
-        }
-        StillSyntaxExpression::RecordAccess { record, field: _ } => {
-            still_syntax_expression_uses_of_symbol_into(
-                uses_so_far,
-                type_aliases,
-                local_bindings,
-                still_syntax_node_unbox(record),
-                symbol_to_collect_uses_of,
-            );
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
@@ -6811,9 +6709,9 @@ fn still_syntax_highlight_pattern_into(
 }
 fn still_syntax_highlight_type_into(
     highlighted_so_far: &mut Vec<StillSyntaxNode<StillSyntaxHighlightKind>>,
-    still_syntax_type_node: StillSyntaxNode<&StillSyntaxType>,
+    type_node: StillSyntaxNode<&StillSyntaxType>,
 ) {
-    match still_syntax_type_node.value {
+    match type_node.value {
         StillSyntaxType::Construct {
             name: name_node,
             arguments,
@@ -6834,6 +6732,13 @@ fn still_syntax_highlight_type_into(
             arrow_key_symbol_range: maybe_arrow_key_symbol_range,
             output: maybe_output,
         } => {
+            highlighted_so_far.push(StillSyntaxNode {
+                range: lsp_types::Range {
+                    start: type_node.range.start,
+                    end: lsp_position_add_characters(type_node.range.start, 1),
+                },
+                value: StillSyntaxHighlightKind::KeySymbol,
+            });
             for input in inputs {
                 still_syntax_highlight_type_into(
                     highlighted_so_far,
@@ -6893,7 +6798,7 @@ fn still_syntax_highlight_type_into(
         }
         StillSyntaxType::Variable(_) => {
             highlighted_so_far.push(StillSyntaxNode {
-                range: still_syntax_type_node.range,
+                range: type_node.range,
                 value: StillSyntaxHighlightKind::TypeVariable,
             });
         }
@@ -7129,28 +7034,6 @@ fn still_syntax_highlight_expression_into(
                         still_syntax_node_as_ref(value_node),
                     );
                 }
-            }
-        }
-        StillSyntaxExpression::RecordAccess {
-            record: record_node,
-            field: maybe_field_name,
-        } => {
-            still_syntax_highlight_expression_into(
-                highlighted_so_far,
-                still_syntax_node_unbox(record_node),
-            );
-            highlighted_so_far.push(StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: record_node.range.end,
-                    end: lsp_position_add_characters(record_node.range.end, 1),
-                },
-                value: StillSyntaxHighlightKind::KeySymbol,
-            });
-            if let Some(field_name_node) = maybe_field_name {
-                highlighted_so_far.push(StillSyntaxNode {
-                    range: field_name_node.range,
-                    value: StillSyntaxHighlightKind::Field,
-                });
             }
         }
         StillSyntaxExpression::RecordUpdate {
@@ -8029,17 +7912,12 @@ fn parse_still_syntax_expression_space_separated(
                 parse_still_syntax_expression_parenthesized(state)
                     .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
                     .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))
-                    .map(|start_expression| {
-                        parse_still_syntax_expression_maybe_with_record_accesses(
-                            state,
-                            StillSyntaxNode {
-                                range: lsp_types::Range {
-                                    start: start_position,
-                                    end: state.position,
-                                },
-                                value: start_expression,
-                            },
-                        )
+                    .map(|start_expression| StillSyntaxNode {
+                        range: lsp_types::Range {
+                            start: start_position,
+                            end: state.position,
+                        },
+                        value: start_expression,
                     })
                     .or_else(|| {
                         parse_still_syntax_expression_list(state).map(|node| StillSyntaxNode {
@@ -8161,32 +8039,16 @@ fn parse_still_syntax_expression_variable_or_call(
             }
         }
     }
-    if arguments.is_empty() {
-        Some(parse_still_syntax_expression_maybe_with_record_accesses(
-            state,
-            StillSyntaxNode {
-                range: lsp_types::Range {
-                    start: variable_node.range.start,
-                    end: call_end_position,
-                },
-                value: StillSyntaxExpression::VariableOrCall {
-                    variable: variable_node,
-                    arguments: arguments,
-                },
-            },
-        ))
-    } else {
-        Some(StillSyntaxNode {
-            range: lsp_types::Range {
-                start: variable_node.range.start,
-                end: call_end_position,
-            },
-            value: StillSyntaxExpression::VariableOrCall {
-                variable: variable_node,
-                arguments: arguments,
-            },
-        })
-    }
+    Some(StillSyntaxNode {
+        range: lsp_types::Range {
+            start: variable_node.range.start,
+            end: call_end_position,
+        },
+        value: StillSyntaxExpression::VariableOrCall {
+            variable: variable_node,
+            arguments: arguments,
+        },
+    })
 }
 fn parse_still_syntax_expression_variant_node(
     state: &mut ParseState,
@@ -8243,17 +8105,12 @@ fn parse_still_syntax_expression_not_space_separated(
             .or_else(|| parse_still_syntax_expression_variable(state))
             .or_else(|| parse_still_syntax_expression_record_or_record_update(state))
             .or_else(|| parse_still_char(state).map(StillSyntaxExpression::Char))
-            .map(|start_expression| {
-                parse_still_syntax_expression_maybe_with_record_accesses(
-                    state,
-                    StillSyntaxNode {
-                        range: lsp_types::Range {
-                            start: start_position,
-                            end: state.position,
-                        },
-                        value: start_expression,
-                    },
-                )
+            .map(|start_expression| StillSyntaxNode {
+                range: lsp_types::Range {
+                    start: start_position,
+                    end: state.position,
+                },
+                value: start_expression,
             })
             .or_else(|| {
                 parse_still_syntax_expression_list(state).map(|node| StillSyntaxNode {
@@ -8274,26 +8131,6 @@ fn parse_still_syntax_expression_not_space_separated(
                 })
             })
     })
-}
-fn parse_still_syntax_expression_maybe_with_record_accesses(
-    state: &mut ParseState,
-    mut result_node: StillSyntaxNode<StillSyntaxExpression>,
-) -> StillSyntaxNode<StillSyntaxExpression> {
-    while parse_symbol(state, ".") {
-        let maybe_field_name: Option<StillSyntaxNode<StillName>> =
-            parse_still_lowercase_name_node(state);
-        result_node = StillSyntaxNode {
-            range: lsp_types::Range {
-                start: result_node.range.start,
-                end: state.position,
-            },
-            value: StillSyntaxExpression::RecordAccess {
-                record: still_syntax_node_box(result_node),
-                field: maybe_field_name,
-            },
-        }
-    }
-    result_node
 }
 fn parse_still_syntax_expression_variable_standalone(
     state: &mut ParseState,
@@ -8936,11 +8773,20 @@ If you wanted to start a declaration, try one of:
                         .starts_with('#')
                     {
                         "Comments can only be put in front of expressions, patterns, types and project declarations? Is it indented correctly?"
+                    } else if unknown_node.value.starts_with("//")
+                        || unknown_node.value.starts_with("--")
+                    {
+                        "Comments start with #"
                     } else if unknown_node
                         .value
                         .starts_with('>')
                     {
                         "Function types and lambda expressions always start with a backslash (\\). Did you put one? Is everything indented correctly?"
+                    } else if unknown_node
+                        .value
+                        .starts_with('.')
+                    {
+                        "Record access is not a feature in still. Instead, use pattern matching, like value | { field :field-value:variable } > result? Otherwise, is everything indented correctly?"
                     } else {
                         "Is it indented correctly? Are brackets/braces/parens or similar closed prematurely?"
                     }).into_boxed_str(),
@@ -10639,17 +10485,6 @@ fn still_syntax_expression_connect_variables_in_graph_from(
                     );
                 }
             }
-        }
-        StillSyntaxExpression::RecordAccess {
-            record: record_node,
-            field: _,
-        } => {
-            still_syntax_expression_connect_variables_in_graph_from(
-                variable_graph,
-                origin_variable_declaration_graph_node,
-                variable_graph_node_by_name,
-                still_syntax_node_unbox(record_node),
-            );
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_updated_record,
@@ -13652,70 +13487,6 @@ fn still_syntax_expression_to_rust<'a>(
                     .map(StillType::Record),
             }
         }
-        StillSyntaxExpression::RecordAccess {
-            record: record_node,
-            field: maybe_field_name,
-        } => {
-            let compiled_record: CompiledStillExpression = still_syntax_expression_to_rust(
-                errors,
-                records_used,
-                type_aliases,
-                choice_types,
-                project_variable_declarations,
-                local_bindings,
-                FnRepresentation::RcDyn,
-                still_syntax_node_unbox(record_node),
-            );
-            let Some(field_name_node) = maybe_field_name else {
-                errors.push(StillErrorNode { range: expression_node.range, message: Box::from("missing field name in record access (..record..).here. Field names start with a lowercase letter a-z") });
-                return compiled_record;
-            };
-            let Some(record_type) = compiled_record.type_ else {
-                return CompiledStillExpression {
-                    rust: syn_expr_todo(),
-                    type_: None,
-                };
-            };
-            let StillType::Record(record_type_fields) = record_type else {
-                errors.push(StillErrorNode {
-                    range: field_name_node.range,
-                    message: Box::from(
-                        "cannot access record field on expression whose type is not a record",
-                    ),
-                });
-                return CompiledStillExpression {
-                    rust: syn_expr_todo(),
-                    type_: None,
-                };
-            };
-            let Some(accessed_record_type_field) = record_type_fields
-                .iter()
-                .find(|record_type_field| record_type_field.name == field_name_node.value)
-            else {
-                errors.push(StillErrorNode {
-                    range: field_name_node.range,
-                    message: format!(
-                        "cannot access record field on expression whose type is a record without that field. Available fields are {}",
-                        record_type_fields.iter().map(|field| field.name.as_str()).collect::<Vec<&str>>().join(", "),
-                    ).into_boxed_str(),
-                });
-                return CompiledStillExpression {
-                    rust: syn_expr_todo(),
-                    type_: None,
-                };
-            };
-            CompiledStillExpression {
-                rust: syn::Expr::Field(syn::ExprField {
-                    attrs: vec![],
-                    base: Box::new(compiled_record.rust),
-                    dot_token: syn::token::Dot(syn_span()),
-                    member: syn::Member::Named(syn_ident(&still_name_to_lowercase_rust(
-                        &field_name_node.value,
-                    ))),
-                }),
-                type_: Some(accessed_record_type_field.value.clone()),
-            }
-        }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record_to_update,
             spread_key_symbol_range: _,
@@ -14055,16 +13826,6 @@ fn still_syntax_expression_uses_of_local_bindings_into<'a>(
                     still_syntax_node_as_ref(field_vale_node),
                 );
             }
-        }
-        StillSyntaxExpression::RecordAccess {
-            record: record_node,
-            field: _,
-        } => {
-            still_syntax_expression_uses_of_local_bindings_into(
-                local_binding_infos,
-                maybe_in_closure,
-                still_syntax_node_unbox(record_node),
-            );
         }
         StillSyntaxExpression::RecordUpdate {
             record: maybe_record,
