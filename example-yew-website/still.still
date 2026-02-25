@@ -116,9 +116,7 @@ view
                                     , value "the elm logo"
                                     }
                                 ]
-                            , subs
-                                [ :html event:Text "the elm logo"
-                                ]
+                            , subs [ :html event:Text "the elm logo" ]
                             }
                         ]
                     }

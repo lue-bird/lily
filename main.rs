@@ -13,6 +13,7 @@ struct ProjectState {
     type_aliases: std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: std::collections::HashMap<StillName, ChoiceTypeInfo>,
     variable_declarations: std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
+    records: std::collections::HashSet<Vec<StillName>>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -619,6 +620,7 @@ fn initialize_project_state_from_source(
         type_aliases: compiled_project.type_aliases,
         choice_types: compiled_project.choice_types,
         variable_declarations: compiled_project.variable_declarations,
+        records: compiled_project.records,
     }
 }
 
@@ -1980,16 +1982,24 @@ fn respond_to_completion(
         StillSyntaxSymbol::LocalVariableDeclarationName { .. } => None,
         StillSyntaxSymbol::ProjectDeclarationName { .. } => None,
         StillSyntaxSymbol::Field {
-            name: name_to_complete,
+            name: field_name_to_complete,
             value_type: _,
             fields_sorted,
         } => Some(
-            fields_sorted
+            completion_project
+                .records
                 .iter()
-                .filter(|field_name| field_name != name_to_complete)
+                .filter(|project_record_fields| {
+                    fields_sorted.iter().all(|field_name| {
+                        field_name == field_name_to_complete
+                            || project_record_fields.contains(field_name)
+                    })
+                })
+                .flatten()
+                .filter(|field_name| !fields_sorted.contains(field_name))
                 .map(|field_name| lsp_types::CompletionItem {
                     label: field_name.to_string(),
-                    kind: Some(lsp_types::CompletionItemKind::VARIABLE),
+                    kind: Some(lsp_types::CompletionItemKind::PROPERTY),
                     documentation: None,
                     ..lsp_types::CompletionItem::default()
                 })
@@ -9055,6 +9065,7 @@ struct CompiledProject {
     type_aliases: std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: std::collections::HashMap<StillName, ChoiceTypeInfo>,
     variable_declarations: std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
+    records: std::collections::HashSet<Vec<StillName>>,
 }
 fn still_project_info_to_rust(
     errors: &mut Vec<StillErrorNode>,
@@ -9298,7 +9309,7 @@ fn still_project_info_to_rust(
             })
             .copied()
             .collect();
-        // optimization: skip pre-compile-type-info computation when variable_declarations_in_strongly_connected_component is single, self-referencing node
+        // optimization: skip pre-compile-type-info computation when variable_declarations_in_strongly_connected_component is single, non-self-referencing node
         for variable_declaration in &variable_declarations_in_strongly_connected_component {
             match variable_declaration.result {
                 None => {
@@ -9353,10 +9364,12 @@ fn still_project_info_to_rust(
             }
         }
     }
-    rust_items.reserve(records_used.len());
-    for used_still_record_fields in records_used.into_iter().filter(|fields| !fields.is_empty()) {
-        rust_items.push(still_syntax_record_to_rust(&used_still_record_fields));
-    }
+    rust_items.extend(
+        records_used
+            .iter()
+            .filter(|fields| !fields.is_empty())
+            .map(|used_record_fields| still_syntax_record_to_rust(used_record_fields)),
+    );
     CompiledProject {
         rust: syn::File {
             shebang: None,
@@ -9366,6 +9379,7 @@ fn still_project_info_to_rust(
         type_aliases: compiled_type_alias_infos,
         choice_types: compiled_choice_type_infos,
         variable_declarations: compiled_variable_declaration_infos,
+        records: records_used,
     }
 }
 #[derive(Clone)]
