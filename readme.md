@@ -257,9 +257,9 @@ Then point your editor to the created `???/target/debug/still lsp`.
 ## TODO
 - do not use "other field names" to provide completions, instead look up
   all used records for records containing all fields except the current one
-- provide rename and references for record field names
 
 ## considering
+- do not format declarations followed by Err
 - (leaning towards yes) add `unts-sum`, `decs-sum`, `ints-sum`, `unts-product`, `ints-product`, `decs-product`
 - (leaning towards yes) add core bitwise and, or, xor, shifts, complement for the integer number types
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`

@@ -706,14 +706,14 @@ fn respond_to_hover(
                 range: Some(hovered_symbol_node.range),
             })
         }
-        StillSyntaxSymbol::LetDeclarationName {
+        StillSyntaxSymbol::LocalVariableDeclarationName {
             name: _,
             type_: maybe_type_type,
             scope_expression: _,
         } => Some(lsp_types::Hover {
             contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                 kind: lsp_types::MarkupKind::Markdown,
-                value: let_declaration_info_markdown(maybe_type_type.as_ref()),
+                value: local_variable_declaration_info_markdown(maybe_type_type.as_ref()),
             }),
             range: Some(hovered_symbol_node.range),
         }),
@@ -760,7 +760,7 @@ fn respond_to_hover(
         } => Some(lsp_types::Hover {
             contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                 kind: lsp_types::MarkupKind::Markdown,
-                value: field_info_markdown(maybe_value_type.as_ref(), fields_sorted.as_deref()),
+                value: field_info_markdown(maybe_value_type.as_ref(), &fields_sorted),
             }),
             range: Some(hovered_symbol_node.range),
         }),
@@ -884,23 +884,16 @@ fn local_binding_info_markdown(
                 )
             }
         },
-        LocalBindingOrigin::LetDeclaredVariable { name_range: _ } => {
-            let_declaration_info_markdown(maybe_type)
+        LocalBindingOrigin::LocalDeclaredVariable { name_range: _ } => {
+            local_variable_declaration_info_markdown(maybe_type)
         }
     }
 }
-fn field_info_markdown(
-    maybe_type: Option<&StillType>,
-    maybe_fields_sorted: Option<&[StillName]>,
-) -> String {
+fn field_info_markdown(maybe_type: Option<&StillType>, fields_sorted: &[StillName]) -> String {
     match maybe_type {
         None => format!(
-            "record field{}",
-            match maybe_fields_sorted {
-                None => "".to_string(),
-                Some(fields_sorted) =>
-                    format!(". available fields are: {}", fields_sorted.join(", ")),
-            }
+            "record field. existing fields are: {}",
+            fields_sorted.join(", ")
         ),
         Some(type_) => {
             let mut type_string: String = String::new();
@@ -910,20 +903,16 @@ fn field_info_markdown(
 ```still
 :{}{}:
 ```
-{}
+existing fields are: {}
 ",
                 type_string,
                 if type_string.contains('\n') { "\n" } else { "" },
-                match maybe_fields_sorted {
-                    None => "".to_string(),
-                    Some(fields_sorted) =>
-                        format!("available fields are: {}", fields_sorted.join(", ")),
-                }
+                fields_sorted.join(", ")
             )
         }
     }
 }
-fn let_declaration_info_markdown(maybe_type_type: Option<&StillType>) -> String {
+fn local_variable_declaration_info_markdown(maybe_type_type: Option<&StillType>) -> String {
     match maybe_type_type {
         None => "let variable".to_string(),
         Some(hovered_local_binding_type) => {
@@ -963,7 +952,7 @@ fn respond_to_goto_definition(
                 .position,
         )?;
     match goto_symbol_node.value {
-        StillSyntaxSymbol::LetDeclarationName { .. }
+        StillSyntaxSymbol::LocalVariableDeclarationName { .. }
         | StillSyntaxSymbol::ProjectDeclarationName { .. }
         | StillSyntaxSymbol::Field { .. } => {
             // already at definition
@@ -1034,7 +1023,7 @@ fn respond_to_goto_definition(
                             .uri,
                         range: match goto_local_binding_info.origin {
                             LocalBindingOrigin::PatternVariable(range) => range,
-                            LocalBindingOrigin::LetDeclaredVariable { name_range } => name_range,
+                            LocalBindingOrigin::LocalDeclaredVariable { name_range } => name_range,
                         },
                     },
                 ));
@@ -1177,19 +1166,16 @@ fn respond_to_prepare_rename(
         )?;
     match prepare_rename_symbol_node.value {
         StillSyntaxSymbol::Field {
-            name: _,
+            name,
             value_type: _,
             fields_sorted: _,
-        } => {
-            // TODO?
-            None
         }
-        StillSyntaxSymbol::ProjectDeclarationName {
+        | StillSyntaxSymbol::ProjectDeclarationName {
             name,
             declaration: _,
             documentation: _,
         }
-        | StillSyntaxSymbol::LetDeclarationName {
+        | StillSyntaxSymbol::LocalVariableDeclarationName {
             name,
             type_: _,
             scope_expression: _,
@@ -1228,14 +1214,6 @@ fn respond_to_rename(
             rename_arguments.text_document_position.position,
         )?;
     match symbol_to_rename_node.value {
-        StillSyntaxSymbol::Field {
-            name: _,
-            value_type: _,
-            fields_sorted: _,
-        } => {
-            // TODO?
-            None
-        }
         StillSyntaxSymbol::TypeVariable {
             scope_declaration,
             name: type_variable_to_rename,
@@ -1254,6 +1232,39 @@ fn respond_to_rename(
                     version: None,
                 },
                 edits: all_uses_of_renamed_type_variable
+                    .into_iter()
+                    .map(|use_range_of_renamed_project| {
+                        lsp_types::OneOf::Left(lsp_types::TextEdit {
+                            range: use_range_of_renamed_project,
+                            new_text: rename_arguments.new_name.clone(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }])
+        }
+        StillSyntaxSymbol::Field {
+            name: to_rename_field_name,
+            value_type: _,
+            fields_sorted: to_rename_fields_sorted,
+        } => {
+            let still_declared_symbol_to_rename: StillSymbolToReference =
+                StillSymbolToReference::Field {
+                    name: to_rename_field_name,
+                    fields_sorted: &to_rename_fields_sorted,
+                };
+            let mut all_uses_of_project_member: Vec<lsp_types::Range> = Vec::with_capacity(4);
+            still_syntax_project_uses_of_symbol_into(
+                &mut all_uses_of_project_member,
+                &to_prepare_for_rename_project_state.type_aliases,
+                &to_prepare_for_rename_project_state.syntax,
+                still_declared_symbol_to_rename,
+            );
+            Some(vec![lsp_types::TextDocumentEdit {
+                text_document: lsp_types::OptionalVersionedTextDocumentIdentifier {
+                    uri: rename_arguments.text_document_position.text_document.uri,
+                    version: None,
+                },
+                edits: all_uses_of_project_member
                     .into_iter()
                     .map(|use_range_of_renamed_project| {
                         lsp_types::OneOf::Left(lsp_types::TextEdit {
@@ -1325,21 +1336,21 @@ fn respond_to_rename(
                     .collect::<Vec<_>>(),
             }])
         }
-        StillSyntaxSymbol::LetDeclarationName {
+        StillSyntaxSymbol::LocalVariableDeclarationName {
             name: to_rename_name,
             type_: _,
             scope_expression,
         } => {
-            let mut all_uses_of_let_declaration_to_rename: Vec<lsp_types::Range> =
+            let mut all_uses_of_local_variable_declaration_to_rename: Vec<lsp_types::Range> =
                 Vec::with_capacity(2);
             still_syntax_expression_uses_of_symbol_into(
-                &mut all_uses_of_let_declaration_to_rename,
+                &mut all_uses_of_local_variable_declaration_to_rename,
                 &to_prepare_for_rename_project_state.type_aliases,
                 &[to_rename_name],
                 scope_expression,
                 StillSymbolToReference::LocalBinding {
                     name: to_rename_name,
-                    including_let_declaration_name: true,
+                    including_local_declaration_name: true,
                 },
             );
             Some(vec![lsp_types::TextDocumentEdit {
@@ -1347,7 +1358,7 @@ fn respond_to_rename(
                     uri: rename_arguments.text_document_position.text_document.uri,
                     version: None,
                 },
-                edits: all_uses_of_let_declaration_to_rename
+                edits: all_uses_of_local_variable_declaration_to_rename
                     .into_iter()
                     .map(|use_range_of_renamed_project| {
                         lsp_types::OneOf::Left(lsp_types::TextEdit {
@@ -1371,7 +1382,7 @@ fn respond_to_rename(
                     LocalBindingOrigin::PatternVariable(range) => {
                         all_uses_of_local_binding_to_rename.push(range);
                     }
-                    LocalBindingOrigin::LetDeclaredVariable { .. } => {
+                    LocalBindingOrigin::LocalDeclaredVariable { .. } => {
                         // already included in scope expression
                     }
                 }
@@ -1382,7 +1393,7 @@ fn respond_to_rename(
                     to_rename_local_binding_info.scope_expression,
                     StillSymbolToReference::LocalBinding {
                         name: to_rename_name,
-                        including_let_declaration_name: true,
+                        including_local_declaration_name: true,
                     },
                 );
                 Some(vec![lsp_types::TextDocumentEdit {
@@ -1519,14 +1530,6 @@ fn respond_to_references(
             references_arguments.text_document_position.position,
         )?;
     match symbol_to_find_node.value {
-        StillSyntaxSymbol::Field {
-            name: _,
-            value_type: _,
-            fields_sorted: _,
-        } => {
-            // TODO?
-            None
-        }
         StillSyntaxSymbol::TypeVariable {
             scope_declaration,
             name: type_variable_to_find,
@@ -1540,6 +1543,37 @@ fn respond_to_references(
             );
             Some(
                 all_uses_of_found_type_variable
+                    .into_iter()
+                    .map(|use_range_of_found_project| lsp_types::Location {
+                        uri: references_arguments
+                            .text_document_position
+                            .text_document
+                            .uri
+                            .clone(),
+                        range: use_range_of_found_project,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        }
+        StillSyntaxSymbol::Field {
+            name: to_find_field_name,
+            value_type: _,
+            fields_sorted: to_find_fields_sorted,
+        } => {
+            let still_declared_symbol_to_find: StillSymbolToReference =
+                StillSymbolToReference::Field {
+                    name: to_find_field_name,
+                    fields_sorted: &to_find_fields_sorted,
+                };
+            let mut all_uses_of_found_project_member: Vec<lsp_types::Range> = Vec::with_capacity(4);
+            still_syntax_project_uses_of_symbol_into(
+                &mut all_uses_of_found_project_member,
+                &to_find_project_state.type_aliases,
+                &to_find_project_state.syntax,
+                still_declared_symbol_to_find,
+            );
+            Some(
+                all_uses_of_found_project_member
                     .into_iter()
                     .map(|use_range_of_found_project| lsp_types::Location {
                         uri: references_arguments
@@ -1591,27 +1625,27 @@ fn respond_to_references(
                     .collect::<Vec<_>>(),
             )
         }
-        StillSyntaxSymbol::LetDeclarationName {
+        StillSyntaxSymbol::LocalVariableDeclarationName {
             name: to_find_name,
             type_: _,
             scope_expression,
         } => {
-            let mut all_uses_of_found_let_declaration: Vec<lsp_types::Range> =
+            let mut all_uses_of_found_local_variable_declaration: Vec<lsp_types::Range> =
                 Vec::with_capacity(2);
             still_syntax_expression_uses_of_symbol_into(
-                &mut all_uses_of_found_let_declaration,
+                &mut all_uses_of_found_local_variable_declaration,
                 &to_find_project_state.type_aliases,
                 &[to_find_name],
                 scope_expression,
                 StillSymbolToReference::LocalBinding {
                     name: to_find_name,
-                    including_let_declaration_name: references_arguments
+                    including_local_declaration_name: references_arguments
                         .context
                         .include_declaration,
                 },
             );
             Some(
-                all_uses_of_found_let_declaration
+                all_uses_of_found_local_variable_declaration
                     .into_iter()
                     .map(|use_range_of_found_project| lsp_types::Location {
                         uri: references_arguments
@@ -1638,7 +1672,7 @@ fn respond_to_references(
                         LocalBindingOrigin::PatternVariable(range) => {
                             all_uses_of_found_local_binding.push(range);
                         }
-                        LocalBindingOrigin::LetDeclaredVariable { .. } => {
+                        LocalBindingOrigin::LocalDeclaredVariable { .. } => {
                             // already included in scope
                         }
                     }
@@ -1650,7 +1684,7 @@ fn respond_to_references(
                     to_find_local_binding_info.scope_expression,
                     StillSymbolToReference::LocalBinding {
                         name: to_find_name,
-                        including_let_declaration_name: references_arguments
+                        including_local_declaration_name: references_arguments
                             .context
                             .include_declaration,
                     },
@@ -1943,7 +1977,7 @@ fn respond_to_completion(
     let maybe_completion_items: Option<Vec<lsp_types::CompletionItem>> = match symbol_to_complete
         .value
     {
-        StillSyntaxSymbol::LetDeclarationName { .. } => None,
+        StillSyntaxSymbol::LocalVariableDeclarationName { .. } => None,
         StillSyntaxSymbol::ProjectDeclarationName { .. } => None,
         StillSyntaxSymbol::Field {
             name: name_to_complete,
@@ -1952,7 +1986,6 @@ fn respond_to_completion(
         } => Some(
             fields_sorted
                 .iter()
-                .flatten()
                 .filter(|field_name| field_name != name_to_complete)
                 .map(|field_name| lsp_types::CompletionItem {
                     label: field_name.to_string(),
@@ -2635,7 +2668,7 @@ enum StillSyntaxStringQuotingStyle {
 }
 
 #[derive(Clone, Debug)]
-struct StillSyntaxLetDeclaration {
+struct StillSyntaxLocalVariableDeclaration {
     name: StillSyntaxNode<StillName>,
     overwriting: Option<lsp_types::Position>,
     result: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
@@ -2666,7 +2699,7 @@ enum StillSyntaxExpression {
         result: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
     AfterLocalVariable {
-        declaration: Option<StillSyntaxNode<StillSyntaxLetDeclaration>>,
+        declaration: Option<StillSyntaxNode<StillSyntaxLocalVariableDeclaration>>,
         result: Option<StillSyntaxNode<Box<StillSyntaxExpression>>>,
     },
     Vec(Vec<StillSyntaxNode<StillSyntaxExpression>>),
@@ -3518,10 +3551,10 @@ fn still_syntax_pattern_into(
                         so_far.push('_');
                     }
                     StillSyntaxPatternUntyped::Variable { overwriting, name } => {
+                        so_far.push_str(name);
                         if *overwriting {
                             so_far.push('^');
                         }
-                        so_far.push_str(name);
                     }
                     StillSyntaxPatternUntyped::Variant {
                         name: variable,
@@ -3848,7 +3881,7 @@ fn still_syntax_expression_not_parenthesized_into(
         } => {
             so_far.push_str("= ");
             if let Some(declaration_node) = maybe_declaration {
-                still_syntax_let_declaration_into(
+                still_syntax_local_variable_declaration_into(
                     so_far,
                     indent,
                     still_syntax_node_as_ref(declaration_node),
@@ -4122,21 +4155,62 @@ fn still_syntax_expression_fields_into_string<'a>(
         }
     }
 }
-fn still_syntax_let_declaration_into(
+fn still_syntax_local_variable_declaration_into(
     so_far: &mut String,
     indent: usize,
-    let_declaration_node: StillSyntaxNode<&StillSyntaxLetDeclaration>,
+    local_declaration_node: StillSyntaxNode<&StillSyntaxLocalVariableDeclaration>,
 ) {
-    still_syntax_variable_declaration_into(
-        so_far,
-        indent,
-        still_syntax_node_as_ref_map(&let_declaration_node.value.name, StillName::as_str),
-        let_declaration_node
-            .value
-            .result
-            .as_ref()
-            .map(still_syntax_node_unbox),
-    );
+    so_far.push_str(&local_declaration_node.value.name.value);
+    if local_declaration_node.value.overwriting.is_some() {
+        so_far.push('^');
+    }
+    match &local_declaration_node.value.result {
+        None => {
+            so_far.push(' ');
+        }
+        Some(result_node) => {
+            let result_node: StillSyntaxNode<&StillSyntaxExpression> =
+                still_syntax_expression_to_unparenthesized(still_syntax_node_unbox(result_node));
+            let result_start_on_same_line_then_indent: Option<usize> = match &result_node.value {
+                StillSyntaxExpression::Lambda { parameters, .. } => match parameters.first() {
+                    Some(first_parameter_node) => {
+                        match still_syntax_range_line_span(lsp_types::Range {
+                            start: first_parameter_node.range.start,
+                            end: parameters.last().unwrap_or(first_parameter_node).range.end,
+                        }) {
+                            LineSpan::Multiple => None,
+                            LineSpan::Single => Some(indent),
+                        }
+                    }
+                    None => Some(indent),
+                },
+                StillSyntaxExpression::Typed { .. } => Some(next_indent(indent)),
+                _ => None,
+            };
+            match result_start_on_same_line_then_indent {
+                Some(result_indent) => {
+                    so_far.push(' ');
+                    still_syntax_expression_not_parenthesized_into(
+                        so_far,
+                        result_indent,
+                        result_node,
+                    );
+                }
+                None => {
+                    space_or_linebreak_indented_into(
+                        so_far,
+                        still_syntax_range_line_span(local_declaration_node.range),
+                        next_indent(indent),
+                    );
+                    still_syntax_expression_not_parenthesized_into(
+                        so_far,
+                        next_indent(indent),
+                        result_node,
+                    );
+                }
+            }
+        }
+    }
 }
 fn still_syntax_variable_declaration_into(
     so_far: &mut String,
@@ -4438,7 +4512,7 @@ enum StillSyntaxSymbol<'a> {
         documentation: Option<&'a str>,
         declaration: StillSyntaxNode<&'a StillSyntaxDeclaration>,
     },
-    LetDeclarationName {
+    LocalVariableDeclarationName {
         name: &'a StillName,
         type_: Option<StillType>,
         scope_expression: StillSyntaxNode<&'a StillSyntaxExpression>,
@@ -4460,7 +4534,7 @@ enum StillSyntaxSymbol<'a> {
     Field {
         name: &'a StillName,
         value_type: Option<StillType>,
-        fields_sorted: Option<Vec<StillName>>,
+        fields_sorted: Vec<StillName>,
     },
 }
 type StillLocalBindings<'a> = Vec<(
@@ -4811,9 +4885,9 @@ fn still_syntax_pattern_find_symbol_at_position<'a>(
                                 still_syntax_node_as_ref(field_value_node),
                             )
                         }),
-                        fields_sorted: Some(sorted_field_names(
+                        fields_sorted: sorted_field_names(
                             fields.iter().map(|record_field| &record_field.name.value),
-                        )),
+                        ),
                     },
                     range: field.name.range,
                 });
@@ -4926,9 +5000,9 @@ fn still_syntax_type_find_symbol_at_position<'a>(
                                 still_syntax_node_as_ref(field_value_node),
                             )
                         }),
-                        fields_sorted: Some(sorted_field_names(
+                        fields_sorted: sorted_field_names(
                             fields.iter().map(|record_field| &record_field.name.value),
-                        )),
+                        ),
                     },
                     range: field.name.range,
                 });
@@ -4956,7 +5030,7 @@ fn still_syntax_type_find_symbol_at_position<'a>(
 #[derive(Clone, Debug, Copy)]
 enum LocalBindingOrigin {
     PatternVariable(lsp_types::Range),
-    LetDeclaredVariable { name_range: lsp_types::Range },
+    LocalDeclaredVariable { name_range: lsp_types::Range },
 }
 #[derive(Clone, Debug)]
 struct StillLocalBinding<'a> {
@@ -5118,13 +5192,13 @@ fn still_syntax_expression_find_symbol_at_position<'a>(
             result: maybe_result,
         } => {
             let mut introduced_bindings: Vec<StillLocalBinding> = Vec::with_capacity(1);
-            if let Some(let_declaration_node) = declarations {
-                introduced_bindings.push(still_syntax_let_declaration_introduced_bindings_into(
+            if let Some(local_declaration_node) = declarations {
+                introduced_bindings.push(still_syntax_local_declaration_introduced_bindings_into(
                     &introduced_bindings,
                     type_aliases,
                     choice_types,
                     variable_declarations,
-                    &let_declaration_node.value,
+                    &local_declaration_node.value,
                 ));
             }
             local_bindings.push((expression_node, introduced_bindings));
@@ -5342,9 +5416,9 @@ fn still_syntax_expression_field_find_symbol_at_position<'a>(
                         still_syntax_node_as_ref(field_value_node),
                     )
                 }),
-                fields_sorted: Some(sorted_field_names(
+                fields_sorted: sorted_field_names(
                     fields.iter().map(|record_field| &record_field.name.value),
-                )),
+                ),
             },
             range: field.name.range,
         });
@@ -5370,17 +5444,20 @@ fn still_syntax_local_declaration_find_symbol_at_position<'a>(
     local_bindings: StillLocalBindings<'a>,
     scope_declaration: &'a StillSyntaxDeclaration,
     scope_expression: StillSyntaxNode<&'a StillSyntaxExpression>,
-    still_syntax_let_declaration_node: StillSyntaxNode<&'a StillSyntaxLetDeclaration>,
+    still_syntax_local_declaration_node: StillSyntaxNode<&'a StillSyntaxLocalVariableDeclaration>,
     position: lsp_types::Position,
 ) -> std::ops::ControlFlow<StillSyntaxNode<StillSyntaxSymbol<'a>>, StillLocalBindings<'a>> {
-    if !lsp_range_includes_position(still_syntax_let_declaration_node.range, position) {
+    if !lsp_range_includes_position(still_syntax_local_declaration_node.range, position) {
         return std::ops::ControlFlow::Continue(local_bindings);
     }
-    if lsp_range_includes_position(still_syntax_let_declaration_node.value.name.range, position) {
+    if lsp_range_includes_position(
+        still_syntax_local_declaration_node.value.name.range,
+        position,
+    ) {
         return std::ops::ControlFlow::Break(StillSyntaxNode {
-            value: StillSyntaxSymbol::LetDeclarationName {
-                name: &still_syntax_let_declaration_node.value.name.value,
-                type_: still_syntax_let_declaration_node
+            value: StillSyntaxSymbol::LocalVariableDeclarationName {
+                name: &still_syntax_local_declaration_node.value.name.value,
+                type_: still_syntax_local_declaration_node
                     .value
                     .result
                     .as_ref()
@@ -5401,10 +5478,10 @@ fn still_syntax_local_declaration_find_symbol_at_position<'a>(
                     }),
                 scope_expression: scope_expression,
             },
-            range: still_syntax_let_declaration_node.value.name.range,
+            range: still_syntax_local_declaration_node.value.name.range,
         });
     }
-    match &still_syntax_let_declaration_node.value.result {
+    match &still_syntax_local_declaration_node.value.result {
         Some(result_node) => still_syntax_expression_find_symbol_at_position(
             type_aliases,
             choice_types,
@@ -5439,7 +5516,11 @@ enum StillSymbolToReference<'a> {
     },
     LocalBinding {
         name: &'a StillName,
-        including_let_declaration_name: bool,
+        including_local_declaration_name: bool,
+    },
+    Field {
+        name: &'a StillName,
+        fields_sorted: &'a [StillName],
     },
 }
 
@@ -5656,6 +5737,20 @@ fn still_syntax_type_uses_of_symbol_into(
             }
         }
         StillSyntaxType::Record(fields) => {
+            if let StillSymbolToReference::Field {
+                name: field_symbol_name,
+                fields_sorted: symbol_fields_sorted,
+            } = symbol_to_collect_uses_of
+                && fields.len() == symbol_fields_sorted.len()
+                && fields
+                    .iter()
+                    .all(|field| symbol_fields_sorted.contains(&field.name.value))
+                && let Some(field_symbol_use) = fields
+                    .iter()
+                    .find(|field| field.name.value == field_symbol_name)
+            {
+                uses_so_far.push(field_symbol_use.name.range);
+            }
             for field in fields {
                 if let Some(field_value_node) = &field.value {
                     still_syntax_type_uses_of_symbol_into(
@@ -5682,6 +5777,11 @@ fn still_syntax_expression_uses_of_symbol_into(
     symbol_to_collect_uses_of: StillSymbolToReference,
 ) {
     match still_syntax_expression_node.value {
+        StillSyntaxExpression::Unt(_) => {}
+        StillSyntaxExpression::Int(_) => {}
+        StillSyntaxExpression::Dec(_) => {}
+        StillSyntaxExpression::Char(_) => {}
+        StillSyntaxExpression::String { .. } => {}
         StillSyntaxExpression::VariableOrCall {
             variable: variable_node,
             arguments,
@@ -5690,7 +5790,7 @@ fn still_syntax_expression_uses_of_symbol_into(
             let name_is_symbol_use: bool = match symbol_to_collect_uses_of {
                 StillSymbolToReference::LocalBinding {
                     name: symbol_name,
-                    including_let_declaration_name: _,
+                    including_local_declaration_name: _,
                 } => {
                     // fairly certain we can skip the local_bindings check and collection
                     // since ::LocalBinding is only passed
@@ -5756,10 +5856,6 @@ fn still_syntax_expression_uses_of_symbol_into(
                 }
             }
         }
-        StillSyntaxExpression::Char(_) => {}
-        StillSyntaxExpression::Dec(_) => {}
-        StillSyntaxExpression::Unt(_) => {}
-        StillSyntaxExpression::Int(_) => {}
         StillSyntaxExpression::Lambda {
             parameters,
             arrow_key_symbol_range: _,
@@ -5795,18 +5891,18 @@ fn still_syntax_expression_uses_of_symbol_into(
             declaration: maybe_declaration,
             result: maybe_result,
         } => {
-            let mut local_bindings_including_let_declaration_introduced: Vec<&str> =
+            let mut local_bindings_including_local_declaration_introduced: Vec<&str> =
                 local_bindings.to_vec();
-            if let Some(let_declaration_node) = maybe_declaration {
-                local_bindings_including_let_declaration_introduced
-                    .push(&let_declaration_node.value.name.value);
+            if let Some(local_declaration_node) = maybe_declaration {
+                local_bindings_including_local_declaration_introduced
+                    .push(&local_declaration_node.value.name.value);
             }
-            if let Some(let_declaration_node) = maybe_declaration {
-                still_syntax_let_declaration_uses_of_symbol_into(
+            if let Some(local_declaration_node) = maybe_declaration {
+                still_syntax_local_variable_declaration_uses_of_symbol_into(
                     uses_so_far,
                     type_aliases,
-                    &local_bindings_including_let_declaration_introduced,
-                    &let_declaration_node.value,
+                    &local_bindings_including_local_declaration_introduced,
+                    &local_declaration_node.value,
                     symbol_to_collect_uses_of,
                 );
             }
@@ -5814,7 +5910,7 @@ fn still_syntax_expression_uses_of_symbol_into(
                 still_syntax_expression_uses_of_symbol_into(
                     uses_so_far,
                     type_aliases,
-                    &local_bindings_including_let_declaration_introduced,
+                    &local_bindings_including_local_declaration_introduced,
                     still_syntax_node_unbox(result),
                     symbol_to_collect_uses_of,
                 );
@@ -5926,6 +6022,20 @@ fn still_syntax_expression_uses_of_symbol_into(
             }
         }
         StillSyntaxExpression::Record(fields) => {
+            if let StillSymbolToReference::Field {
+                name: field_symbol_name,
+                fields_sorted: symbol_fields_sorted,
+            } = symbol_to_collect_uses_of
+                && fields.len() == symbol_fields_sorted.len()
+                && fields
+                    .iter()
+                    .all(|field| symbol_fields_sorted.contains(&field.name.value))
+                && let Some(field_symbol_use) = fields
+                    .iter()
+                    .find(|field| field.name.value == field_symbol_name)
+            {
+                uses_so_far.push(field_symbol_use.name.range);
+            }
             for field in fields {
                 if let Some(field_value_node) = &field.value {
                     still_syntax_expression_uses_of_symbol_into(
@@ -5964,27 +6074,26 @@ fn still_syntax_expression_uses_of_symbol_into(
                 }
             }
         }
-        StillSyntaxExpression::String { .. } => {}
     }
 }
 
-fn still_syntax_let_declaration_uses_of_symbol_into(
+fn still_syntax_local_variable_declaration_uses_of_symbol_into(
     uses_so_far: &mut Vec<lsp_types::Range>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     local_bindings: &[&str],
-    still_syntax_let_declaration: &StillSyntaxLetDeclaration,
+    local_declaration: &StillSyntaxLocalVariableDeclaration,
     symbol_to_collect_uses_of: StillSymbolToReference,
 ) {
     if symbol_to_collect_uses_of
         == (StillSymbolToReference::LocalBinding {
-            name: &still_syntax_let_declaration.name.value,
-            including_let_declaration_name: true,
+            name: &local_declaration.name.value,
+            including_local_declaration_name: true,
         })
     {
-        uses_so_far.push(still_syntax_let_declaration.name.range);
+        uses_so_far.push(local_declaration.name.range);
         return;
     }
-    if let Some(result_node) = &still_syntax_let_declaration.result {
+    if let Some(result_node) = &local_declaration.result {
         still_syntax_expression_uses_of_symbol_into(
             uses_so_far,
             type_aliases,
@@ -6002,9 +6111,10 @@ fn still_syntax_pattern_uses_of_symbol_into(
     symbol_to_collect_uses_of: StillSymbolToReference,
 ) {
     match still_syntax_pattern_node.value {
-        StillSyntaxPattern::Char(_) => {}
         StillSyntaxPattern::Unt(_) => {}
         StillSyntaxPattern::Int(_) => {}
+        StillSyntaxPattern::Char(_) => {}
+        StillSyntaxPattern::String { .. } => {}
         StillSyntaxPattern::Typed {
             type_: maybe_type,
             closing_colon_range: _,
@@ -6089,6 +6199,20 @@ fn still_syntax_pattern_uses_of_symbol_into(
             }
         }
         StillSyntaxPattern::Record(fields) => {
+            if let StillSymbolToReference::Field {
+                name: field_symbol_name,
+                fields_sorted: symbol_fields_sorted,
+            } = symbol_to_collect_uses_of
+                && fields.len() == symbol_fields_sorted.len()
+                && fields
+                    .iter()
+                    .all(|field| symbol_fields_sorted.contains(&field.name.value))
+                && let Some(field_symbol_use) = fields
+                    .iter()
+                    .find(|field| field.name.value == field_symbol_name)
+            {
+                uses_so_far.push(field_symbol_use.name.range);
+            }
             for value in fields.iter().filter_map(|field| field.value.as_ref()) {
                 still_syntax_pattern_uses_of_symbol_into(
                     uses_so_far,
@@ -6098,40 +6222,36 @@ fn still_syntax_pattern_uses_of_symbol_into(
                 );
             }
         }
-        StillSyntaxPattern::String { .. } => {}
     }
 }
 
-fn still_syntax_let_declaration_introduced_bindings_into<'a>(
+fn still_syntax_local_declaration_introduced_bindings_into<'a>(
     bindings_so_far: &Vec<StillLocalBinding<'a>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<StillName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<StillName, CompiledVariableDeclarationInfo>,
-    still_syntax_let_declaration: &'a StillSyntaxLetDeclaration,
+    local_declaration: &'a StillSyntaxLocalVariableDeclaration,
 ) -> StillLocalBinding<'a> {
     StillLocalBinding {
-        name: &still_syntax_let_declaration.name.value,
-        origin: LocalBindingOrigin::LetDeclaredVariable {
-            name_range: still_syntax_let_declaration.name.range,
+        name: &local_declaration.name.value,
+        origin: LocalBindingOrigin::LocalDeclaredVariable {
+            name_range: local_declaration.name.range,
         },
-        type_: still_syntax_let_declaration
-            .result
-            .as_ref()
-            .and_then(|result_node| {
-                still_syntax_expression_type_with(
-                    type_aliases,
-                    choice_types,
-                    variable_declarations,
-                    // this is inefficient to do for every let variable
-                    std::rc::Rc::new(
-                        bindings_so_far
-                            .iter()
-                            .map(|binding| (binding.name, binding.type_.clone()))
-                            .collect::<std::collections::HashMap<_, _>>(),
-                    ),
-                    still_syntax_node_unbox(result_node),
-                )
-            }),
+        type_: local_declaration.result.as_ref().and_then(|result_node| {
+            still_syntax_expression_type_with(
+                type_aliases,
+                choice_types,
+                variable_declarations,
+                // this is inefficient to do for every let variable
+                std::rc::Rc::new(
+                    bindings_so_far
+                        .iter()
+                        .map(|binding| (binding.name, binding.type_.clone()))
+                        .collect::<std::collections::HashMap<_, _>>(),
+                ),
+                still_syntax_node_unbox(result_node),
+            )
+        }),
     }
 }
 
@@ -6924,10 +7044,10 @@ fn still_syntax_highlight_expression_into(
                 },
                 value: StillSyntaxHighlightKind::KeySymbol,
             });
-            if let Some(let_declaration_node) = maybe_declaration {
+            if let Some(local_declaration_node) = maybe_declaration {
                 still_syntax_highlight_local_variable_declaration_into(
                     highlighted_so_far,
-                    still_syntax_node_as_ref(let_declaration_node),
+                    still_syntax_node_as_ref(local_declaration_node),
                 );
             }
             if let Some(result_node) = maybe_result {
@@ -7088,15 +7208,13 @@ fn still_syntax_highlight_expression_into(
 
 fn still_syntax_highlight_local_variable_declaration_into(
     highlighted_so_far: &mut Vec<StillSyntaxNode<StillSyntaxHighlightKind>>,
-    still_syntax_let_declaration_node: StillSyntaxNode<&StillSyntaxLetDeclaration>,
+    local_declaration_node: StillSyntaxNode<&StillSyntaxLocalVariableDeclaration>,
 ) {
     highlighted_so_far.push(StillSyntaxNode {
-        range: still_syntax_let_declaration_node.value.name.range,
+        range: local_declaration_node.value.name.range,
         value: StillSyntaxHighlightKind::DeclaredVariable,
     });
-    if let Some(caret_key_symbol_start_position) =
-        still_syntax_let_declaration_node.value.overwriting
-    {
+    if let Some(caret_key_symbol_start_position) = local_declaration_node.value.overwriting {
         highlighted_so_far.push(StillSyntaxNode {
             range: lsp_types::Range {
                 start: caret_key_symbol_start_position,
@@ -7105,7 +7223,7 @@ fn still_syntax_highlight_local_variable_declaration_into(
             value: StillSyntaxHighlightKind::DeclaredVariable,
         });
     }
-    if let Some(result_node) = &still_syntax_let_declaration_node.value.result {
+    if let Some(result_node) = &local_declaration_node.value.result {
         still_syntax_highlight_expression_into(
             highlighted_so_far,
             still_syntax_node_unbox(result_node),
@@ -8314,8 +8432,8 @@ fn parse_still_syntax_expression_after_local_variable(
     parse_still_whitespace(state);
 
     parse_state_push_indent(state, equals_key_symbol_range.start.character as u16);
-    let maybe_declaration: Option<StillSyntaxNode<StillSyntaxLetDeclaration>> =
-        parse_still_syntax_let_declaration(state);
+    let maybe_declaration: Option<StillSyntaxNode<StillSyntaxLocalVariableDeclaration>> =
+        parse_still_syntax_local_variable_declaration(state);
     parse_state_pop_indent(state);
 
     parse_still_whitespace(state);
@@ -8338,9 +8456,9 @@ fn parse_still_syntax_expression_after_local_variable(
         },
     })
 }
-fn parse_still_syntax_let_declaration(
+fn parse_still_syntax_local_variable_declaration(
     state: &mut ParseState,
-) -> Option<StillSyntaxNode<StillSyntaxLetDeclaration>> {
+) -> Option<StillSyntaxNode<StillSyntaxLocalVariableDeclaration>> {
     if state.position.character < u32::from(state.indent) {
         return None;
     }
@@ -8361,7 +8479,7 @@ fn parse_still_syntax_let_declaration(
                 })
                 .unwrap_or(variable.name.range.end),
         },
-        value: StillSyntaxLetDeclaration {
+        value: StillSyntaxLocalVariableDeclaration {
             name: variable.name,
             overwriting: variable.overwriting,
             result: maybe_result.map(still_syntax_node_box),
@@ -12502,7 +12620,7 @@ fn still_syntax_expression_to_rust<'a>(
                 closure_representation,
                 maybe_result.as_ref().map(still_syntax_node_unbox),
             ),
-            Some(declaration_node) => still_syntax_let_declaration_to_rust_into(
+            Some(declaration_node) => still_syntax_local_variable_declaration_to_rust_into(
                 errors,
                 records_used,
                 type_aliases,
@@ -13893,7 +14011,7 @@ fn push_error_if_introduced_local_binding_collides_or_is_unused(
         });
     }
 }
-fn still_syntax_let_declaration_to_rust_into(
+fn still_syntax_local_variable_declaration_to_rust_into(
     errors: &mut Vec<StillErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<StillName>>,
     type_aliases: &std::collections::HashMap<StillName, TypeAliasInfo>,
@@ -13904,7 +14022,7 @@ fn still_syntax_let_declaration_to_rust_into(
     >,
     local_bindings: std::rc::Rc<std::collections::HashMap<&str, StillLocalBindingCompileInfo>>,
     closure_representation: FnRepresentation,
-    declaration_node: StillSyntaxNode<&StillSyntaxLetDeclaration>,
+    declaration_node: StillSyntaxNode<&StillSyntaxLocalVariableDeclaration>,
     maybe_result: Option<StillSyntaxNode<&StillSyntaxExpression>>,
 ) -> CompiledStillExpression {
     let compiled_declaration_result: CompiledStillExpression =
@@ -13913,7 +14031,7 @@ fn still_syntax_let_declaration_to_rust_into(
             || StillErrorNode {
                 range: declaration_node.range,
                 message: Box::from(
-                    "missing assigned local variable declaration expression in = ..name.. here",
+                    "missing assigned local variable declaration expression in = ..name.. here. The assigned expression might not be indented enough; it must be indented as least as much as the =",
                 ),
             },
             records_used,
