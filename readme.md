@@ -76,10 +76,10 @@ s0me-Name
 # character (of type char)
 '👀'
 
-# signed integer (each of type int, sign is required)
+# signed integer (of type int, sign is required)
 +2012
 
-# unsigned integers (of type unt, no sign)
+# unsigned integers (each of type unt, no sign)
 2012
 0
 
