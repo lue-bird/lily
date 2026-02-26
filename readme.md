@@ -103,7 +103,7 @@ int-add -2 +3
 { likes 1, dislikes unt-add 1 2, boosts 3 }
 
 # local variable declaration (must be in order and not recursive)
-let local-variable-name "Anissa"
+= local-variable-name "Anissa"
 strs-flatten [ "Hello, ", local-variable-name, "\n" ]
 
 # an abbreviation for a commonly used type
