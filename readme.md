@@ -1,7 +1,6 @@
 very small, explicitly boring, purely functional programming language that compiles to rust, inspired by [elm](https://elm-lang.org/).
 > ready for small projects, not for production
 
-### hello world
 ```lily
 greet \:str:name >
     strs-flatten [ "Hello, ", name, "\n" ]
@@ -16,7 +15,7 @@ fn main() {
 ```
 → complete setup: [`example-hello-world/`](https://github.com/lue-bird/lily/tree/main/example-hello-world)
 
-### echo in loop
+### bigger example: echo in loop
 ```lily
 ansi-clear-screen
     "\u{001B}c"
@@ -35,7 +34,7 @@ choice io Future
     | Standard-out-write str
     | Standard-in-read-line \str > Future
 ```
-→ [`example-echo-in-loop/`](https://github.com/lue-bird/lily/tree/main/example-echo-in-loop)
+→ [`example-echo-in-loop/`](https://github.com/lue-bird/lily/tree/main/example-echo-in-loop), for syntax questions see [the syntax overview](#syntax-overview)
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
 ```bash
