@@ -1977,8 +1977,12 @@ fn respond_to_completion(
     let maybe_completion_items: Option<Vec<lsp_types::CompletionItem>> = match symbol_to_complete
         .value
     {
-        LilySyntaxSymbol::LocalVariableDeclarationName { .. } => None,
         LilySyntaxSymbol::ProjectDeclarationName { .. } => None,
+        LilySyntaxSymbol::LocalVariableDeclarationName { .. } => {
+            // we could suggest existing local bindings^
+            // but that seems more annoying than useful
+            None
+        }
         LilySyntaxSymbol::Field {
             name: field_name_to_complete,
             value_type: _,
@@ -1999,6 +2003,10 @@ fn respond_to_completion(
                     label: field_name.to_string(),
                     kind: Some(lsp_types::CompletionItemKind::PROPERTY),
                     documentation: None,
+                    text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                        range: symbol_to_complete.range,
+                        new_text: field_name.to_string(),
+                    })),
                     ..lsp_types::CompletionItem::default()
                 })
                 .collect(),
@@ -2023,6 +2031,10 @@ fn respond_to_completion(
                             ),
                         },
                     )),
+                    text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                        range: symbol_to_complete.range,
+                        new_text: local_binding.name.to_string(),
+                    })),
                     ..lsp_types::CompletionItem::default()
                 });
             completion_items.extend(local_binding_completions);
@@ -2030,6 +2042,7 @@ fn respond_to_completion(
                 &mut completion_items,
                 &completion_project.choice_types,
                 &completion_project.variable_declarations,
+                symbol_to_complete.range,
             );
             Some(completion_items)
         }
@@ -2042,6 +2055,7 @@ fn respond_to_completion(
                 &mut completion_items,
                 &completion_project.choice_types,
                 &completion_project.type_aliases,
+                symbol_to_complete.range,
                 maybe_type,
             );
             Some(completion_items)
@@ -2052,6 +2066,7 @@ fn respond_to_completion(
                 &completion_project.type_aliases,
                 &completion_project.choice_types,
                 &mut completion_items,
+                symbol_to_complete.range,
             );
             Some(completion_items)
         }
@@ -2069,6 +2084,7 @@ fn variable_declaration_or_variant_completions_into(
     completion_items: &mut Vec<lsp_types::CompletionItem>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
+    symbol_to_complete_range: lsp_types::Range,
 ) {
     completion_items.extend(variable_declarations.iter().map(
         |(variable_declaration_name, variable_declaration_info)| lsp_types::CompletionItem {
@@ -2083,6 +2099,10 @@ fn variable_declaration_or_variant_completions_into(
                     ),
                 },
             )),
+            text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                range: symbol_to_complete_range,
+                new_text: variable_declaration_name.to_string(),
+            })),
             ..lsp_types::CompletionItem::default()
         },
     ));
@@ -2101,9 +2121,9 @@ fn variable_declaration_or_variant_completions_into(
                 .variants
                 .iter()
                 .filter_map(|variant| variant.name.as_ref().map(|node| node.value.to_string()))
-                .map(move |variant_name: String| lsp_types::CompletionItem {
+                .map(move |variant_name| lsp_types::CompletionItem {
                     insert_text: Some(format!(":{origin_project_choice_type_name}:{variant_name}")),
-                    label: variant_name,
+                    label: variant_name.clone(),
                     kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
                     documentation: Some(lsp_types::Documentation::MarkupContent(
                         lsp_types::MarkupContent {
@@ -2111,6 +2131,10 @@ fn variable_declaration_or_variant_completions_into(
                             value: info_markdown.clone(),
                         },
                     )),
+                    text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                        range: symbol_to_complete_range,
+                        new_text: variant_name,
+                    })),
                     ..lsp_types::CompletionItem::default()
                 })
         },
@@ -2120,6 +2144,7 @@ fn variant_completions_into(
     completion_items: &mut Vec<lsp_types::CompletionItem>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
+    symbol_to_complete_range: lsp_types::Range,
     maybe_type: Option<&LilySyntaxType>,
 ) {
     let maybe_origin_choice_type: Option<(LilyName, &ChoiceTypeInfo)> =
@@ -2148,8 +2173,8 @@ fn variant_completions_into(
                     .variants
                     .iter()
                     .filter_map(|variant| variant.name.as_ref().map(|node| node.value.to_string()))
-                    .map(move |variant_name: String| lsp_types::CompletionItem {
-                        label: variant_name,
+                    .map(move |variant_name| lsp_types::CompletionItem {
+                        label: variant_name.clone(),
                         kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
                         documentation: Some(lsp_types::Documentation::MarkupContent(
                             lsp_types::MarkupContent {
@@ -2157,6 +2182,10 @@ fn variant_completions_into(
                                 value: info_markdown.clone(),
                             },
                         )),
+                        text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                            range: symbol_to_complete_range,
+                            new_text: variant_name,
+                        })),
                         ..lsp_types::CompletionItem::default()
                     }),
             );
@@ -2179,13 +2208,19 @@ fn variant_completions_into(
                         .filter_map(|variant| {
                             variant.name.as_ref().map(|node| node.value.to_string())
                         })
-                        .map(move |variant_name: String| lsp_types::CompletionItem {
-                            label: variant_name,
+                        .map(move |variant_name| lsp_types::CompletionItem {
+                            label: variant_name.clone(),
                             kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
                             documentation: Some(lsp_types::Documentation::MarkupContent(
                                 lsp_types::MarkupContent {
                                     kind: lsp_types::MarkupKind::Markdown,
                                     value: info_markdown.clone(),
+                                },
+                            )),
+                            text_edit: Some(lsp_types::CompletionTextEdit::Edit(
+                                lsp_types::TextEdit {
+                                    range: symbol_to_complete_range,
+                                    new_text: variant_name,
                                 },
                             )),
                             ..lsp_types::CompletionItem::default()
@@ -2199,6 +2234,7 @@ fn type_declaration_completions_into(
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     completion_items: &mut Vec<lsp_types::CompletionItem>,
+    symbol_to_complete_range: lsp_types::Range,
 ) {
     completion_items.extend(choice_types.iter().map(
         |(origin_project_choice_type_name, origin_project_choice_type_info)| {
@@ -2216,6 +2252,10 @@ fn type_declaration_completions_into(
                         ),
                     },
                 )),
+                text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                    range: symbol_to_complete_range,
+                    new_text: origin_project_choice_type_name.to_string(),
+                })),
                 ..lsp_types::CompletionItem::default()
             }
         },
@@ -2239,6 +2279,10 @@ fn type_declaration_completions_into(
                         ),
                     },
                 )),
+                text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                    range: symbol_to_complete_range,
+                    new_text: type_alias_name.to_string(),
+                })),
                 ..lsp_types::CompletionItem::default()
             },
         ),
@@ -14923,7 +14967,7 @@ struct BindingToClone<'a> {
     name: &'a str,
     is_copy: bool,
 }
-/// TODO should be `Option<{ type_: LilySype, catch: LilyPatternCatch, rust: Option<syn::Pat> (or not option) }>`
+/// TODO should be `Option<{ type_: LilyType, catch: LilyPatternCatch, rust: Option<syn::Pat> (or not option) }>`
 /// as an untyped pattern should never exist
 struct CompiledLilyPattern {
     // None means it should be ignored (e.g. in a case of that case should be removed)
@@ -14997,11 +15041,11 @@ fn lily_syntax_pattern_to_rust<'a>(
                         })),
                         Err(parse_error) => {
                             errors.push(LilyErrorNode {
-                        range: pattern_node.range,
-                        message: format!(
-                            "invalid int format. Expected base 10 whole number like -123 or 0: {parse_error}"
-                        ).into_boxed_str(),
-                    });
+                                range: pattern_node.range,
+                                message: format!(
+                                    "invalid int format. Expected base 10 whole number like -123 or 0: {parse_error}"
+                                ).into_boxed_str(),
+                            });
                             None
                         }
                     }
