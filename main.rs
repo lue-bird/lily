@@ -723,13 +723,13 @@ fn respond_to_hover(
             local_bindings,
         } => {
             if let Some(hovered_local_binding_info) =
-                find_local_binding_info(&local_bindings, hovered_name)
+                local_bindings.get(hovered_name.as_str())
             {
                 return Some(lsp_types::Hover {
                     contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                         kind: lsp_types::MarkupKind::Markdown,
                         value: local_binding_info_markdown(
-                            hovered_local_binding_info.type_,
+                            hovered_local_binding_info.type_.as_ref(),
                             hovered_local_binding_info.origin,
                         ),
                     }),
@@ -1014,7 +1014,7 @@ fn respond_to_goto_definition(
             local_bindings,
         } => {
             if let Some(goto_local_binding_info) =
-                find_local_binding_info(&local_bindings, goto_name)
+                local_bindings.get(goto_name.as_str())
             {
                 return Some(lsp_types::GotoDefinitionResponse::Scalar(
                     lsp_types::Location {
@@ -1375,7 +1375,7 @@ fn respond_to_rename(
             local_bindings,
         } => {
             if let Some(to_rename_local_binding_info) =
-                find_local_binding_info(&local_bindings, to_rename_name)
+                local_bindings.get(to_rename_name.as_str())
             {
                 let mut all_uses_of_local_binding_to_rename: Vec<lsp_types::Range> =
                     Vec::with_capacity(3);
@@ -1664,7 +1664,7 @@ fn respond_to_references(
             local_bindings,
         } => {
             if let Some(to_find_local_binding_info) =
-                find_local_binding_info(&local_bindings, to_find_name)
+                local_bindings.get(to_find_name.as_str())
             {
                 let mut all_uses_of_found_local_binding: Vec<lsp_types::Range> =
                     Vec::with_capacity(2);
@@ -1974,109 +1974,112 @@ fn respond_to_completion(
             &completion_project.variable_declarations,
             completion_arguments.text_document_position.position,
         )?;
-    let maybe_completion_items: Option<Vec<lsp_types::CompletionItem>> = match symbol_to_complete
-        .value
-    {
-        LilySyntaxSymbol::ProjectDeclarationName { .. } => None,
-        LilySyntaxSymbol::LocalVariableDeclarationName { .. } => {
-            // we could suggest existing local bindings^
-            // but that seems more annoying than useful
-            None
-        }
-        LilySyntaxSymbol::Field {
-            name: field_name_to_complete,
-            value_type: _,
-            fields_sorted,
-        } => Some(
-            completion_project
-                .records
-                .iter()
-                .filter(|project_record_fields| {
-                    fields_sorted.iter().all(|field_name| {
-                        field_name == field_name_to_complete
-                            || project_record_fields.contains(field_name)
+    let maybe_completion_items: Option<Vec<lsp_types::CompletionItem>> =
+        match symbol_to_complete.value {
+            LilySyntaxSymbol::ProjectDeclarationName { .. } => None,
+            LilySyntaxSymbol::LocalVariableDeclarationName { .. } => {
+                // we could suggest existing local bindings^
+                // but that seems more annoying than useful
+                None
+            }
+            LilySyntaxSymbol::Field {
+                name: field_name_to_complete,
+                value_type: _,
+                fields_sorted,
+            } => Some(
+                completion_project
+                    .records
+                    .iter()
+                    .filter(|project_record_fields| {
+                        fields_sorted.iter().all(|field_name| {
+                            field_name == field_name_to_complete
+                                || project_record_fields.contains(field_name)
+                        })
                     })
-                })
-                .flatten()
-                .filter(|field_name| !fields_sorted.contains(field_name))
-                .map(|field_name| lsp_types::CompletionItem {
-                    label: field_name.to_string(),
-                    kind: Some(lsp_types::CompletionItemKind::PROPERTY),
-                    documentation: None,
-                    text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
-                        range: symbol_to_complete.range,
-                        new_text: field_name.to_string(),
-                    })),
-                    ..lsp_types::CompletionItem::default()
-                })
-                .collect(),
-        ),
-        LilySyntaxSymbol::Variable {
-            name: _,
-            local_bindings,
-        } => {
-            let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
-            let local_binding_completions = local_bindings
-                .into_iter()
-                .flat_map(|(_, scope_introduced_bindings)| scope_introduced_bindings.into_iter())
-                .map(|local_binding| lsp_types::CompletionItem {
-                    label: local_binding.name.to_string(),
-                    kind: Some(lsp_types::CompletionItemKind::VARIABLE),
-                    documentation: Some(lsp_types::Documentation::MarkupContent(
-                        lsp_types::MarkupContent {
-                            kind: lsp_types::MarkupKind::Markdown,
-                            value: local_binding_info_markdown(
-                                local_binding.type_.as_ref(),
-                                local_binding.origin,
-                            ),
-                        },
-                    )),
-                    text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
-                        range: symbol_to_complete.range,
-                        new_text: local_binding.name.to_string(),
-                    })),
-                    ..lsp_types::CompletionItem::default()
-                });
-            completion_items.extend(local_binding_completions);
-            variable_declaration_or_variant_completions_into(
-                &mut completion_items,
-                &completion_project.choice_types,
-                &completion_project.variable_declarations,
-                symbol_to_complete.range,
-            );
-            Some(completion_items)
-        }
-        LilySyntaxSymbol::Variant {
-            name: _,
-            type_: maybe_type,
-        } => {
-            let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
-            variant_completions_into(
-                &mut completion_items,
-                &completion_project.choice_types,
-                &completion_project.type_aliases,
-                symbol_to_complete.range,
-                maybe_type,
-            );
-            Some(completion_items)
-        }
-        LilySyntaxSymbol::Type(_) => {
-            let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
-            type_declaration_completions_into(
-                &completion_project.type_aliases,
-                &completion_project.choice_types,
-                &mut completion_items,
-                symbol_to_complete.range,
-            );
-            Some(completion_items)
-        }
-        LilySyntaxSymbol::TypeVariable { .. } => {
-            // is this ever useful to add? lily tends to use single-letter names anyway most of the time
-            // (or ones where the first letters don't match in the first place).
-            // suggesting completions can get annoying and isn't free computationally so...
-            None
-        }
-    };
+                    .flatten()
+                    .filter(|field_name| !fields_sorted.contains(field_name))
+                    .map(|field_name| lsp_types::CompletionItem {
+                        label: field_name.to_string(),
+                        kind: Some(lsp_types::CompletionItemKind::PROPERTY),
+                        documentation: None,
+                        text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                            range: symbol_to_complete.range,
+                            new_text: field_name.to_string(),
+                        })),
+                        ..lsp_types::CompletionItem::default()
+                    })
+                    .collect(),
+            ),
+            LilySyntaxSymbol::Variable {
+                name: _,
+                local_bindings,
+            } => {
+                let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
+                let local_binding_completions =
+                    local_bindings
+                        .iter()
+                        .map(|(local_binding_name, local_binding_info)| {
+                            lsp_types::CompletionItem {
+                                label: local_binding_name.to_string(),
+                                kind: Some(lsp_types::CompletionItemKind::VARIABLE),
+                                documentation: Some(lsp_types::Documentation::MarkupContent(
+                                    lsp_types::MarkupContent {
+                                        kind: lsp_types::MarkupKind::Markdown,
+                                        value: local_binding_info_markdown(
+                                            local_binding_info.type_.as_ref(),
+                                            local_binding_info.origin,
+                                        ),
+                                    },
+                                )),
+                                text_edit: Some(lsp_types::CompletionTextEdit::Edit(
+                                    lsp_types::TextEdit {
+                                        range: symbol_to_complete.range,
+                                        new_text: local_binding_name.to_string(),
+                                    },
+                                )),
+                                ..lsp_types::CompletionItem::default()
+                            }
+                        });
+                completion_items.extend(local_binding_completions);
+                variable_declaration_or_variant_completions_into(
+                    &mut completion_items,
+                    &completion_project.choice_types,
+                    &completion_project.variable_declarations,
+                    symbol_to_complete.range,
+                );
+                Some(completion_items)
+            }
+            LilySyntaxSymbol::Variant {
+                name: _,
+                type_: maybe_type,
+            } => {
+                let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
+                variant_completions_into(
+                    &mut completion_items,
+                    &completion_project.choice_types,
+                    &completion_project.type_aliases,
+                    symbol_to_complete.range,
+                    maybe_type,
+                );
+                Some(completion_items)
+            }
+            LilySyntaxSymbol::Type(_) => {
+                let mut completion_items: Vec<lsp_types::CompletionItem> = Vec::new();
+                type_declaration_completions_into(
+                    &completion_project.type_aliases,
+                    &completion_project.choice_types,
+                    &mut completion_items,
+                    symbol_to_complete.range,
+                );
+                Some(completion_items)
+            }
+            LilySyntaxSymbol::TypeVariable { .. } => {
+                // is this ever useful to add? lily tends to use single-letter names anyway most of the time
+                // (or ones where the first letters don't match in the first place).
+                // suggesting completions can get annoying and isn't free computationally so...
+                None
+            }
+        };
     maybe_completion_items.map(lsp_types::CompletionResponse::Array)
 }
 
@@ -4593,7 +4596,7 @@ enum LilySyntaxSymbol<'a> {
     Variable {
         name: &'a LilyName,
         // consider wrapping in Option
-        local_bindings: LilyLocalBindings<'a>,
+        local_bindings: std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     },
     Variant {
         name: &'a LilyName,
@@ -4610,35 +4613,11 @@ enum LilySyntaxSymbol<'a> {
         fields_sorted: Vec<LilyName>,
     },
 }
-type LilyLocalBindings<'a> = Vec<(
-    LilySyntaxNode<&'a LilySyntaxExpression>,
-    Vec<LilyLocalBinding<'a>>,
-)>;
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug)]
 struct LilyLocalBindingInfo<'a> {
-    type_: Option<&'a LilyType>,
+    type_: Option<LilyType>,
     origin: LocalBindingOrigin,
     scope_expression: LilySyntaxNode<&'a LilySyntaxExpression>,
-}
-fn find_local_binding_info<'a>(
-    local_bindings: &'a LilyLocalBindings<'a>,
-    to_find: &str,
-) -> Option<LilyLocalBindingInfo<'a>> {
-    local_bindings
-        .iter()
-        .find_map(|(scope_expression, local_bindings)| {
-            local_bindings.iter().find_map(|local_binding| {
-                if local_binding.name == to_find {
-                    Some(LilyLocalBindingInfo {
-                        origin: local_binding.origin,
-                        type_: local_binding.type_.as_ref(),
-                        scope_expression: *scope_expression,
-                    })
-                } else {
-                    None
-                }
-            })
-        })
 }
 
 fn lily_syntax_project_find_symbol_at_position<'a>(
@@ -4812,7 +4791,7 @@ fn lily_syntax_declaration_find_symbol_at_position<'a>(
                         choice_types,
                         variable_declarations,
                         lily_syntax_declaration_node.value,
-                        vec![],
+                        std::collections::HashMap::new(),
                         lily_syntax_node_as_ref(result_node),
                         position,
                     )
@@ -4866,28 +4845,31 @@ fn lily_syntax_pattern_find_symbol_at_position<'a>(
                             range: pattern_node_in_typed.range,
                             value: LilySyntaxSymbol::Variable {
                                 name: name,
-                                local_bindings: vec![(
-                                    // this is a bit silly but works for now
-                                    scope_expression.unwrap_or_else(|| {
-                                        lily_syntax_node_empty(
-                                            &LilySyntaxExpression::Parenthesized(None),
-                                        )
-                                    }),
-                                    vec![LilyLocalBinding {
-                                        name: name,
-                                        type_: maybe_type_node.as_ref().and_then(|type_node| {
-                                            lily_syntax_type_to_type(
-                                                &mut Vec::new(),
-                                                type_aliases,
-                                                choice_types,
-                                                lily_syntax_node_as_ref(type_node),
-                                            )
-                                        }),
-                                        origin: LocalBindingOrigin::PatternVariable(
-                                            pattern_node_in_typed.range,
-                                        ),
-                                    }],
-                                )],
+                                local_bindings: std::collections::HashMap::from(
+                                    [(
+                                        name.as_str(),
+                                        LilyLocalBindingInfo {
+                                            type_: maybe_type_node.as_ref().and_then(|type_node| {
+                                                lily_syntax_type_to_type(
+                                                    &mut Vec::new(),
+                                                    type_aliases,
+                                                    choice_types,
+                                                    lily_syntax_node_as_ref(type_node),
+                                                )
+                                            }),
+                                            origin: LocalBindingOrigin::PatternVariable(
+                                                pattern_node_in_typed.range,
+                                            ),
+                                            scope_expression: 
+                                                // this is a bit silly but works for now
+                                                scope_expression.unwrap_or_else(|| {
+                                                    lily_syntax_node_empty(
+                                                        &LilySyntaxExpression::Parenthesized(None),
+                                                    )
+                                                })
+                                        }
+                                    )],
+                                ),
                             },
                         })
                     }
@@ -5103,22 +5085,16 @@ enum LocalBindingOrigin {
     PatternVariable(lsp_types::Range),
     LocalDeclaredVariable { name_range: lsp_types::Range },
 }
-#[derive(Clone, Debug)]
-struct LilyLocalBinding<'a> {
-    name: &'a str,
-    type_: Option<LilyType>,
-    origin: LocalBindingOrigin,
-}
 
 fn lily_syntax_expression_find_symbol_at_position<'a>(
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
     scope_declaration: &'a LilySyntaxDeclaration,
-    mut local_bindings: LilyLocalBindings<'a>,
+    mut local_bindings: std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     expression_node: LilySyntaxNode<&'a LilySyntaxExpression>,
     position: lsp_types::Position,
-) -> std::ops::ControlFlow<LilySyntaxNode<LilySyntaxSymbol<'a>>, LilyLocalBindings<'a>> {
+) -> std::ops::ControlFlow<LilySyntaxNode<LilySyntaxSymbol<'a>>, std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>> {
     if !lsp_range_includes_position(expression_node.range, position) {
         return std::ops::ControlFlow::Continue(local_bindings);
     }
@@ -5188,18 +5164,13 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
                     lsp_range_includes_position(case_result_node.range, position)
                     {
                         if let Some(case_pattern_node) = &case.pattern {
-                            let mut introduced_bindings: Vec<LilyLocalBinding> =
-                                Vec::with_capacity(1);
                             lily_syntax_pattern_bindings_into(
-                                &mut introduced_bindings,
+                                &mut local_bindings,
                                 type_aliases,
                                 choice_types,
+                                lily_syntax_node_as_ref(case_result_node),
                                 lily_syntax_node_as_ref(case_pattern_node),
                             );
-                            local_bindings.push((
-                                lily_syntax_node_as_ref(case_result_node),
-                                introduced_bindings,
-                            ));
                         }
                         lily_syntax_expression_find_symbol_at_position(
                             type_aliases,
@@ -5234,16 +5205,15 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
             }
             match maybe_result {
                 Some(result_node) => {
-                    let mut introduced_bindings: Vec<LilyLocalBinding> = Vec::with_capacity(1);
                     for parameter_node in parameters {
                         lily_syntax_pattern_bindings_into(
-                            &mut introduced_bindings,
+                            &mut local_bindings,
                             type_aliases,
                             choice_types,
+                            lily_syntax_node_unbox(result_node),
                             lily_syntax_node_as_ref(parameter_node),
                         );
                     }
-                    local_bindings.push((lily_syntax_node_unbox(result_node), introduced_bindings));
                     lily_syntax_expression_find_symbol_at_position(
                         type_aliases,
                         choice_types,
@@ -5258,35 +5228,34 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
             }
         }
         LilySyntaxExpression::AfterLocalVariable {
-            declaration: declarations,
+            declaration: maybe_declaration,
             result: maybe_result,
         } => {
-            let mut introduced_bindings: Vec<LilyLocalBinding> = Vec::with_capacity(1);
-            if let Some(local_declaration_node) = declarations {
-                introduced_bindings.push(lily_syntax_local_declaration_introduced_bindings_into(
-                    &introduced_bindings,
-                    type_aliases,
-                    choice_types,
-                    variable_declarations,
-                    &local_declaration_node.value,
-                ));
+            if let Some(local_declaration_node) = maybe_declaration {
+                local_bindings =
+                    lily_syntax_local_declaration_find_symbol_at_position(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        local_bindings,
+                        scope_declaration,
+                        expression_node,
+                        lily_syntax_node_as_ref(local_declaration_node),
+                        position,
+                    )?;
+                local_bindings.insert(
+                    &local_declaration_node.value.name.value,
+                    lily_syntax_local_declaration_introduced_bindings_into(
+                        &local_bindings,
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        // TODO change to only result and change at use site accordingly
+                        expression_node,
+                        &local_declaration_node.value,
+                    )
+                );
             }
-            local_bindings.push((expression_node, introduced_bindings));
-            local_bindings =
-                declarations
-                    .iter()
-                    .try_fold(local_bindings, |local_bindings, declaration| {
-                        lily_syntax_local_declaration_find_symbol_at_position(
-                            type_aliases,
-                            choice_types,
-                            variable_declarations,
-                            local_bindings,
-                            scope_declaration,
-                            expression_node,
-                            lily_syntax_node_as_ref(declaration),
-                            position,
-                        )
-                    })?;
             match maybe_result {
                 Some(result_node) => lily_syntax_expression_find_symbol_at_position(
                     type_aliases,
@@ -5462,11 +5431,11 @@ fn lily_syntax_expression_field_find_symbol_at_position<'a>(
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
     scope_declaration: &'a LilySyntaxDeclaration,
-    local_bindings: LilyLocalBindings<'a>,
+    local_bindings: std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     fields: &[LilySyntaxExpressionField],
     field: &'a LilySyntaxExpressionField,
     position: lsp_types::Position,
-) -> std::ops::ControlFlow<LilySyntaxNode<LilySyntaxSymbol<'a>>, LilyLocalBindings<'a>> {
+) -> std::ops::ControlFlow<LilySyntaxNode<LilySyntaxSymbol<'a>>, std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>> {
     if lsp_range_includes_position(field.name.range, position) {
         return std::ops::ControlFlow::Break(LilySyntaxNode {
             value: LilySyntaxSymbol::Field {
@@ -5479,8 +5448,7 @@ fn lily_syntax_expression_field_find_symbol_at_position<'a>(
                         std::rc::Rc::new(
                             local_bindings
                                 .iter()
-                                .flat_map(|(_, scope_bindings)| scope_bindings)
-                                .map(|binding| (binding.name, binding.type_.clone()))
+                                .map(|(&binding_name, binding_info)| (binding_name, binding_info.type_.clone()))
                                 .collect::<std::collections::HashMap<_, _>>(),
                         ),
                         lily_syntax_node_as_ref(field_value_node),
@@ -5511,12 +5479,12 @@ fn lily_syntax_local_declaration_find_symbol_at_position<'a>(
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
-    local_bindings: LilyLocalBindings<'a>,
+    local_bindings: std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     scope_declaration: &'a LilySyntaxDeclaration,
     scope_expression: LilySyntaxNode<&'a LilySyntaxExpression>,
     lily_syntax_local_declaration_node: LilySyntaxNode<&'a LilySyntaxLocalVariableDeclaration>,
     position: lsp_types::Position,
-) -> std::ops::ControlFlow<LilySyntaxNode<LilySyntaxSymbol<'a>>, LilyLocalBindings<'a>> {
+) -> std::ops::ControlFlow<LilySyntaxNode<LilySyntaxSymbol<'a>>, std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>> {
     if !lsp_range_includes_position(lily_syntax_local_declaration_node.range, position) {
         return std::ops::ControlFlow::Continue(local_bindings);
     }
@@ -5539,8 +5507,7 @@ fn lily_syntax_local_declaration_find_symbol_at_position<'a>(
                             std::rc::Rc::new(
                                 local_bindings
                                     .iter()
-                                    .flat_map(|(_, scope_bindings)| scope_bindings)
-                                    .map(|binding| (binding.name, binding.type_.clone()))
+                                    .map(|(&binding_name, binding_info)| (binding_name, binding_info.type_.clone()))
                                     .collect::<std::collections::HashMap<_, _>>(),
                             ),
                             lily_syntax_node_unbox(result_node),
@@ -6296,14 +6263,15 @@ fn lily_syntax_pattern_uses_of_symbol_into(
 }
 
 fn lily_syntax_local_declaration_introduced_bindings_into<'a>(
-    bindings_so_far: &Vec<LilyLocalBinding<'a>>,
+    bindings_so_far: &std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
+    scope_expression: LilySyntaxNode<&'a LilySyntaxExpression>,
     local_declaration: &'a LilySyntaxLocalVariableDeclaration,
-) -> LilyLocalBinding<'a> {
-    LilyLocalBinding {
-        name: &local_declaration.name.value,
+) -> LilyLocalBindingInfo<'a> {
+    LilyLocalBindingInfo {
+        scope_expression: scope_expression,
         origin: LocalBindingOrigin::LocalDeclaredVariable {
             name_range: local_declaration.name.range,
         },
@@ -6312,11 +6280,11 @@ fn lily_syntax_local_declaration_introduced_bindings_into<'a>(
                 type_aliases,
                 choice_types,
                 variable_declarations,
-                // this is inefficient to do for every let variable
+                // this is inefficient to do for every local variable declaration
                 std::rc::Rc::new(
                     bindings_so_far
                         .iter()
-                        .map(|binding| (binding.name, binding.type_.clone()))
+                        .map(|(&binding_name, binding_info)| (binding_name, binding_info.type_.clone()))
                         .collect::<std::collections::HashMap<_, _>>(),
                 ),
                 lily_syntax_node_unbox(result_node),
@@ -6326,9 +6294,10 @@ fn lily_syntax_local_declaration_introduced_bindings_into<'a>(
 }
 
 fn lily_syntax_pattern_bindings_into<'a>(
-    bindings_so_far: &mut Vec<LilyLocalBinding<'a>>,
+    bindings_so_far: &mut std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
+    scope_expression: LilySyntaxNode<&'a LilySyntaxExpression>,
     lily_syntax_pattern_node: LilySyntaxNode<&'a LilySyntaxPattern>,
 ) {
     match lily_syntax_pattern_node.value {
@@ -6348,11 +6317,11 @@ fn lily_syntax_pattern_bindings_into<'a>(
                         overwriting: _,
                         name: variable_name,
                     } => {
-                        bindings_so_far.push(LilyLocalBinding {
+                        bindings_so_far.insert(variable_name, LilyLocalBindingInfo {
                             origin: LocalBindingOrigin::PatternVariable(
                                 pattern_node_in_typed.range,
                             ),
-                            name: variable_name,
+                            scope_expression: scope_expression,
                             type_: maybe_type.as_ref().and_then(|type_node| {
                                 lily_syntax_type_to_type(
                                     &mut Vec::new(),
@@ -6372,6 +6341,7 @@ fn lily_syntax_pattern_bindings_into<'a>(
                                 bindings_so_far,
                                 type_aliases,
                                 choice_types,
+                                scope_expression,
                                 lily_syntax_node_unbox(value_node),
                             );
                         }
@@ -6381,6 +6351,7 @@ fn lily_syntax_pattern_bindings_into<'a>(
                             bindings_so_far,
                             type_aliases,
                             choice_types,
+                            scope_expression,
                             LilySyntaxNode {
                                 range: pattern_node_in_typed.range,
                                 value: other_in_typed,
@@ -6399,6 +6370,7 @@ fn lily_syntax_pattern_bindings_into<'a>(
                     bindings_so_far,
                     type_aliases,
                     choice_types,
+                    scope_expression,
                     lily_syntax_node_unbox(pattern_node_after_comment),
                 );
             }
@@ -6410,6 +6382,7 @@ fn lily_syntax_pattern_bindings_into<'a>(
                         bindings_so_far,
                         type_aliases,
                         choice_types,
+                        scope_expression,
                         lily_syntax_node_as_ref(field_value_node),
                     );
                 }
