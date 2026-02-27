@@ -3,11 +3,7 @@
     "lineComment": {
       "comment": "#",
       "noIndent": false
-    },
-    "blockComment": [
-      "(#",
-      "#)"
-    ]
+    }
   },
   "brackets": [
     [
