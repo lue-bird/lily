@@ -24,12 +24,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             lsp_main()
         }
         Some(command) => match command.as_str() {
-            "lsp" => lsp_main(),
-            "help" | "-h" | "--help" => {
+            "lsp" | "language-server" | "ls" => lsp_main(),
+            "help" | "-h" | "--help" | "elp" | "h" | "pad" | "?" => {
                 println!("{command_help}");
                 Ok(())
             }
-            "build" => {
+            "build" | "make" | "compile" | "transpile" => {
                 let maybe_input_file_path: Option<String> = full_command.next();
                 let maybe_output_file_path: Option<String> = full_command.next();
                 build_main(
