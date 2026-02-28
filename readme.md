@@ -38,7 +38,7 @@ choice io Future
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
 ```bash
-cargo +nightly install --git https://github.com/lue-bird/lily
+cargo +nightly install --git https://github.com/lue-bird/lily lily
 ```
 Then point your editor to `lily lsp`, see also [specific setups](#editor-setups).
 
