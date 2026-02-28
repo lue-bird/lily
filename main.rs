@@ -4,7 +4,7 @@
 mod lily_core;
 
 struct State {
-    projects: std::collections::HashMap<lsp_types::Url, ProjectState>,
+    projects: std::collections::HashMap<lsp_types::Uri, ProjectState>,
 }
 
 struct ProjectState {
@@ -443,11 +443,8 @@ fn update_state_on_did_open_text_document(
     arguments: lsp_types::DidOpenTextDocumentParams,
 ) {
     if arguments.text_document.language_id == "lily"
-        || (arguments
-            .text_document
-            .uri
-            .to_file_path()
-            .is_ok_and(|opened_path| opened_path.extension().is_some_and(|ext| ext == "lily")))
+        || lsp_uri_to_file_path(&arguments.text_document.uri)
+            .is_some_and(|file_path| file_path.extension().is_some_and(|ext| ext == "lily"))
     {
         state.projects.insert(
             arguments.text_document.uri.clone(),
@@ -655,14 +652,14 @@ fn update_state_on_did_change_text_document(
 
 fn initialize_project_state_from_source(
     connection: &lsp_server::Connection,
-    url: lsp_types::Url,
+    uri: lsp_types::Uri,
     source: String,
 ) -> ProjectState {
     let mut errors: Vec<LilyErrorNode> = Vec::new();
     let parsed_project: LilySyntaxProject = parse_lily_syntax_project(&source);
     let compiled_project: CompiledProject =
         lily_project_compile_to_rust(&mut errors, &parsed_project);
-    if let Ok(input_file_path) = url.to_file_path()
+    if let Some(input_file_path) = lsp_uri_to_file_path(&uri)
         && std::fs::exists(input_file_path.with_extension("")).is_ok_and(|exists| exists)
     {
         let _: std::io::Result<()> = std::fs::write(
@@ -673,7 +670,7 @@ fn initialize_project_state_from_source(
     publish_diagnostics(
         connection,
         lsp_types::PublishDiagnosticsParams {
-            uri: url,
+            uri,
             diagnostics: errors
                 .iter()
                 .map(lily_error_node_to_diagnostic)
@@ -15942,6 +15939,42 @@ fn syn_expr_reference<const N: usize>(segments: [&str; N]) -> syn::Expr {
         qself: None,
         path: syn_path_reference(segments),
     })
+}
+
+/// "polyfill" for the removed lsp_types::Uri::to_file_path (removed after 0.95.1)
+/// Inspired by (thank you!): https://github.com/tower-lsp-community/tower-lsp-server/blob/ff1562a33bda1da55ef4edbfc9ee24ecd50f6807/src/uri_ext.rs
+fn lsp_uri_to_file_path(uri: &lsp_types::Uri) -> Option<std::borrow::Cow<'_, std::path::Path>> {
+    let Ok(path_as_str) = uri.path().as_estr().decode().into_string() else {
+        return None;
+    };
+    let path_as_file_path: std::borrow::Cow<std::path::Path> = match path_as_str {
+        std::borrow::Cow::Borrowed(str) => std::borrow::Cow::Borrowed(std::path::Path::new(str)),
+        std::borrow::Cow::Owned(owned) => std::borrow::Cow::Owned(std::path::PathBuf::from(owned)),
+    };
+    if cfg!(windows) {
+        let Some(authority) = uri.authority() else {
+            return None;
+        };
+        let host = authority.host();
+        if host.as_str().is_empty() {
+            // assume file:/// → path includes leading /
+            let path_with_leading_slash_str: std::borrow::Cow<str> =
+                path_as_file_path.to_string_lossy();
+            let Some(path_without_leading_slash) = path_with_leading_slash_str.get(1..) else {
+                return None;
+            };
+            Some(std::borrow::Cow::Owned(std::path::PathBuf::from(
+                path_without_leading_slash,
+            )))
+        } else {
+            let mut full_file_path: std::path::PathBuf =
+                std::path::PathBuf::from(format!("{host}:"));
+            full_file_path.push(path_as_file_path);
+            Some(std::borrow::Cow::Owned(full_file_path))
+        }
+    } else {
+        Some(path_as_file_path)
+    }
 }
 
 fn str_slice_in_lsp_range(str: &str, range: lsp_types::Range) -> Option<&str> {

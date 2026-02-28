@@ -10,13 +10,13 @@ path = "main.rs"
 [dependencies]
 compact_str = { version = "0.9.0", default-features = false }
 lsp-server = { version = "0.7.9", default-features = false }
-lsp-types = { version = "0.95.1", default-features = false }
+lsp-types = { version = "0.97.0", default-features = false }
 prettyplease = { version = "0.2.37", default-features = false }
 proc-macro2 = { version = "1.0.106", default-features = false }
 quote = { version = "1.0.44", default-features = false }
-serde_json = { version = "1.0.145", default-features = false }
+serde_json = { version = "1.0.149", default-features = false }
 strongly-connected-components = { version = "1.0.0", default-features = false }
-syn = { version = "2.0.114", features = [
+syn = { version = "2.0.117", features = [
     "full",
     "printing",
 ], default-features = false }
