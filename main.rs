@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     }
 }
-const command_help: &str = r"\
+const command_help: &str = "\
 To compile to a rust file: lily build [input-file.lily [output-file.rs]]
 To start the language server: lily lsp
 To copy the hello-world project setup into the current directory: lily init
