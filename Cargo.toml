@@ -1,6 +1,7 @@
 cargo-features = ["codegen-backend"]
 [package]
 name = "lily"
+version = "0.0.1"
 edition = "2024"
 [[bin]]
 name = "lily"
