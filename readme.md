@@ -109,7 +109,7 @@ strs-flatten [ "Hello, ", local-variable-name, "\n" ]
 type point Unity-type-parameter =
     { x Unity-type-parameter, y Unity-type-parameter }
 
-# for expressions, that are either one thing, or some another thing
+# for expressions that are either one thing or some another thing
 choice card Custom-joker-action
     | Draw4
     | Joker
