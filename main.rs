@@ -67,11 +67,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 const command_help: &str = "\
 To compile to a rust file: lily build [input-file.lily [output-file.rs]]
-To start the language server: lily lsp
 To copy the hello-world project setup into the current directory: lily init
-To print all core declaration types: lily core-docs
+To start the language server: lily lsp
+To print core declaration documentation: lily core-docs
+To run a rust project: cargo run
+To compile a rust project into an executable: cargo build --release
 To print this help message: lily help
-See the source code, report bugs or leave any kind of feedback at https://codeberg.org/lue-bird/lily";
+See the source code, see the full documentation, report bugs or leave any kind of feedback at https://codeberg.org/lue-bird/lily";
 
 fn print_core_lily_docs() {
     for (core_choice_type_name, core_choice_type_info) in core_choice_type_infos.iter() {
