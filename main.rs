@@ -9004,7 +9004,12 @@ If you wanted to start a declaration, try one of:
                         .value
                         .starts_with('.')
                     {
-                        "Record access is not a feature in lily. Instead, use pattern matching, like value | { field :field-value:variable } > result? Otherwise, is everything indented correctly?"
+                        "Record access is not a feature in lily. Instead, use pattern matching, like value | { field :field-value:variable } > result. Otherwise, is everything indented correctly?"
+                    } else if unknown_node
+                        .value
+                        .starts_with(['+', '-', '*', '/'])
+                    {
+                        "Operator application are not a feature in lily. Instead, use regular function calls like dec-add, int-negate or unt-mul. Otherwise, is everything indented correctly?"
                     } else {
                         "Is it indented correctly? Are brackets/braces/parens or similar closed prematurely?"
                     }).into_boxed_str(),
