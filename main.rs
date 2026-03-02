@@ -3657,25 +3657,35 @@ fn lily_syntax_pattern_into(
                 }
             }
             so_far.push(':');
-            if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
-                linebreak_indented_into(so_far, indent);
-            }
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
                 match &pattern_node_in_typed.value {
                     LilySyntaxPatternUntyped::Ignored => {
+                        if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
+                            linebreak_indented_into(so_far, indent);
+                        }
                         so_far.push('_');
                     }
                     LilySyntaxPatternUntyped::Variable { overwriting, name } => {
+                        if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
+                            linebreak_indented_into(so_far, indent);
+                        }
                         so_far.push_str(name);
                         if *overwriting {
                             so_far.push('^');
                         }
                     }
                     LilySyntaxPatternUntyped::Variant {
-                        name: variable,
+                        name: variant_name_node,
                         value: maybe_value,
                     } => {
-                        so_far.push_str(&variable.value);
+                        if lily_syntax_range_line_span(lsp_types::Range {
+                            start: pattern_node.range.start,
+                            end: variant_name_node.range.end,
+                        }) == LineSpan::Multiple
+                        {
+                            linebreak_indented_into(so_far, indent);
+                        }
+                        so_far.push_str(&variant_name_node.value);
                         if let Some(value_node) = maybe_value {
                             space_or_linebreak_indented_into(
                                 so_far,
@@ -3690,6 +3700,9 @@ fn lily_syntax_pattern_into(
                         }
                     }
                     LilySyntaxPatternUntyped::Other(other_in_typed) => {
+                        if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
+                            linebreak_indented_into(so_far, indent);
+                        }
                         lily_syntax_pattern_into(
                             so_far,
                             indent,
@@ -4077,20 +4090,19 @@ fn lily_syntax_expression_not_parenthesized_into(
             }
             so_far.push(':');
             if let Some(expression_node_in_typed) = maybe_expression {
-                if match &expression_node_in_typed.value {
-                    LilySyntaxExpressionUntyped::Variant { .. } => false,
-                    LilySyntaxExpressionUntyped::Other(_) => {
-                        lily_syntax_range_line_span(expression_node.range) == LineSpan::Multiple
-                    }
-                } {
-                    linebreak_indented_into(so_far, indent);
-                }
                 match &expression_node_in_typed.value {
                     LilySyntaxExpressionUntyped::Variant {
-                        name: name_node,
+                        name: variant_name_node,
                         value: maybe_value,
                     } => {
-                        so_far.push_str(&name_node.value);
+                        if lily_syntax_range_line_span(lsp_types::Range {
+                            start: expression_node.range.start,
+                            end: variant_name_node.range.end,
+                        }) == LineSpan::Multiple
+                        {
+                            linebreak_indented_into(so_far, indent);
+                        }
+                        so_far.push_str(&variant_name_node.value);
                         if let Some(value_node) = maybe_value {
                             let line_span: LineSpan =
                                 lily_syntax_range_line_span(expression_node_in_typed.range);
@@ -4107,6 +4119,10 @@ fn lily_syntax_expression_not_parenthesized_into(
                         }
                     }
                     LilySyntaxExpressionUntyped::Other(expression_node_other_in_typed) => {
+                        if lily_syntax_range_line_span(expression_node.range) == LineSpan::Multiple
+                        {
+                            linebreak_indented_into(so_far, indent);
+                        }
                         lily_syntax_expression_not_parenthesized_into(
                             so_far,
                             indent,
