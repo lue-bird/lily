@@ -13434,7 +13434,7 @@ fn lily_syntax_expression_to_rust<'a>(
                 lily_syntax_node_unbox(matched_node),
             );
             let mut maybe_match_result_type_or_conflicting: Option<Result<LilyType, ()>> = None;
-            let mut maybe_catch: Option<StilCasePatternsCatch> = None;
+            let mut maybe_catch: Option<LilyCasePatternsCatch> = None;
             let mut rust_arms: Vec<syn::Arm> = cases
                 .iter()
                 .filter_map(|case| {
@@ -13612,8 +13612,22 @@ fn lily_syntax_expression_to_rust<'a>(
                     }
                 };
             match maybe_catch {
-                None => {}
-                Some(StilCasePatternsCatch::Exhaustive) => {}
+                Some(LilyCasePatternsCatch::Exhaustive) => {}
+                None => {
+                    // _ => todo!() is appended to still make inexhaustive matching compile
+                    // and be able to be run, rust will emit a warning
+                    rust_arms.push(syn::Arm {
+                        attrs: vec![],
+                        pat: syn::Pat::Wild(syn::PatWild {
+                            attrs: vec![],
+                            underscore_token: syn::token::Underscore(syn_span()),
+                        }),
+                        fat_arrow_token: syn::token::FatArrow(syn_span()),
+                        guard: None,
+                        body: Box::new(syn_expr_todo()),
+                        comma: None,
+                    });
+                }
                 Some(_catch_not_exhaustive) => {
                     errors.push(LilyErrorNode {
                         range: cases
@@ -13622,7 +13636,7 @@ fn lily_syntax_expression_to_rust<'a>(
                             .unwrap_or(matched_node.range),
                         message: Box::from("inexhaustive pattern match. A pattern match must cover all possible cases, otherwise the program would need to crash if such a value was matched on."),
                     });
-                    // _ => todo!() is appended to lily make inexhaustive matching compile
+                    // _ => todo!() is appended to still make inexhaustive matching compile
                     // and be able to be run, rust will emit a warning
                     rust_arms.push(syn::Arm {
                         attrs: vec![],
@@ -14273,7 +14287,7 @@ enum VariantCatch<Catch> {
     Uncaught { has_value: bool },
 }
 #[derive(PartialEq, Eq, Debug)]
-enum StilCasePatternsCatch {
+enum LilyCasePatternsCatch {
     Exhaustive,
     Unts(Vec<usize>),
     Ints(Vec<isize>),
@@ -14281,21 +14295,21 @@ enum StilCasePatternsCatch {
     Strings(Vec<String>),
     /// invariant: all variants are never exhaustive
     // and choice_type_variant_count is >= 2
-    Variants(std::collections::HashMap<LilyName, VariantCatch<StilCasePatternsCatch>>),
+    Variants(std::collections::HashMap<LilyName, VariantCatch<LilyCasePatternsCatch>>),
     /// invariant: all fields are never exhaustive
     // and field count is >= 2
     Record(Vec<std::collections::HashMap<LilyName, LilyPatternCatch>>),
 }
 fn lily_pattern_catch_to_case_patterns_catch(
     pattern_catch: LilyPatternCatch,
-) -> StilCasePatternsCatch {
+) -> LilyCasePatternsCatch {
     match pattern_catch {
-        LilyPatternCatch::Exhaustive => StilCasePatternsCatch::Exhaustive,
-        LilyPatternCatch::Unt(unt) => StilCasePatternsCatch::Unts(vec![unt]),
-        LilyPatternCatch::Int(int) => StilCasePatternsCatch::Ints(vec![int]),
-        LilyPatternCatch::Char(char) => StilCasePatternsCatch::Chars(vec![char]),
-        LilyPatternCatch::String(string) => StilCasePatternsCatch::Strings(vec![string]),
-        LilyPatternCatch::Variant(variants) => StilCasePatternsCatch::Variants(
+        LilyPatternCatch::Exhaustive => LilyCasePatternsCatch::Exhaustive,
+        LilyPatternCatch::Unt(unt) => LilyCasePatternsCatch::Unts(vec![unt]),
+        LilyPatternCatch::Int(int) => LilyCasePatternsCatch::Ints(vec![int]),
+        LilyPatternCatch::Char(char) => LilyCasePatternsCatch::Chars(vec![char]),
+        LilyPatternCatch::String(string) => LilyCasePatternsCatch::Strings(vec![string]),
+        LilyPatternCatch::Variant(variants) => LilyCasePatternsCatch::Variants(
             variants
                 .into_iter()
                 .map(|(name, variant_catch)| {
@@ -14313,22 +14327,22 @@ fn lily_pattern_catch_to_case_patterns_catch(
                 })
                 .collect(),
         ),
-        LilyPatternCatch::Record(fields) => StilCasePatternsCatch::Record(vec![fields]),
+        LilyPatternCatch::Record(fields) => LilyCasePatternsCatch::Record(vec![fields]),
     }
 }
 fn lily_pattern_catch_merge_with(
     errors: &mut Vec<LilyErrorNode>,
     pattern_range: lsp_types::Range,
-    catch: &mut StilCasePatternsCatch,
+    catch: &mut LilyCasePatternsCatch,
     new_catch: LilyPatternCatch,
 ) {
     match catch {
-        StilCasePatternsCatch::Exhaustive => {
+        LilyCasePatternsCatch::Exhaustive => {
             errors.push(LilyErrorNode { range: pattern_range, message: Box::from("unreachable pattern. All previous case patterns already exhaustively match any possible value") });
         }
-        StilCasePatternsCatch::Unts(unts) => match new_catch {
+        LilyCasePatternsCatch::Unts(unts) => match new_catch {
             LilyPatternCatch::Exhaustive => {
-                *catch = StilCasePatternsCatch::Exhaustive;
+                *catch = LilyCasePatternsCatch::Exhaustive;
             }
             LilyPatternCatch::Unt(new_unt) => {
                 if unts.contains(&new_unt) {
@@ -14342,9 +14356,9 @@ fn lily_pattern_catch_merge_with(
             }
             _ => {}
         },
-        StilCasePatternsCatch::Ints(ints) => match new_catch {
+        LilyCasePatternsCatch::Ints(ints) => match new_catch {
             LilyPatternCatch::Exhaustive => {
-                *catch = StilCasePatternsCatch::Exhaustive;
+                *catch = LilyCasePatternsCatch::Exhaustive;
             }
             LilyPatternCatch::Int(new_int) => {
                 if ints.contains(&new_int) {
@@ -14358,9 +14372,9 @@ fn lily_pattern_catch_merge_with(
             }
             _ => {}
         },
-        StilCasePatternsCatch::Chars(chars) => match new_catch {
+        LilyCasePatternsCatch::Chars(chars) => match new_catch {
             LilyPatternCatch::Exhaustive => {
-                *catch = StilCasePatternsCatch::Exhaustive;
+                *catch = LilyCasePatternsCatch::Exhaustive;
             }
             LilyPatternCatch::Char(new_char) => {
                 if chars.contains(&new_char) {
@@ -14374,9 +14388,9 @@ fn lily_pattern_catch_merge_with(
             }
             _ => {}
         },
-        StilCasePatternsCatch::Strings(strings) => match new_catch {
+        LilyCasePatternsCatch::Strings(strings) => match new_catch {
             LilyPatternCatch::Exhaustive => {
-                *catch = StilCasePatternsCatch::Exhaustive;
+                *catch = LilyCasePatternsCatch::Exhaustive;
             }
             LilyPatternCatch::String(new_string) => {
                 if strings.contains(&new_string) {
@@ -14390,9 +14404,9 @@ fn lily_pattern_catch_merge_with(
             }
             _ => {}
         },
-        StilCasePatternsCatch::Variants(variants) => match new_catch {
+        LilyCasePatternsCatch::Variants(variants) => match new_catch {
             LilyPatternCatch::Exhaustive => {
-                *catch = StilCasePatternsCatch::Exhaustive;
+                *catch = LilyCasePatternsCatch::Exhaustive;
             }
             LilyPatternCatch::Variant(new_variants) => {
                 if let Some((new_variant_name, new_variant_caught)) = new_variants
@@ -14408,7 +14422,7 @@ fn lily_pattern_catch_merge_with(
                     && let Some(previous_catch_of_new_variant) = variants.get_mut(&new_variant_name)
                 {
                     match previous_catch_of_new_variant {
-                        VariantCatch::Caught(StilCasePatternsCatch::Exhaustive) => {
+                        VariantCatch::Caught(LilyCasePatternsCatch::Exhaustive) => {
                             errors.push(LilyErrorNode {
                             range: pattern_range,
                             message: Box::from("this pattern is unreachable as it's already matched by a previous case pattern"),
@@ -14423,9 +14437,9 @@ fn lily_pattern_catch_merge_with(
                             );
                             if variants.values().all(|variant_catch| {
                                 variant_catch
-                                    == &VariantCatch::Caught(StilCasePatternsCatch::Exhaustive)
+                                    == &VariantCatch::Caught(LilyCasePatternsCatch::Exhaustive)
                             }) {
-                                *catch = StilCasePatternsCatch::Exhaustive;
+                                *catch = LilyCasePatternsCatch::Exhaustive;
                             }
                         }
                         VariantCatch::Uncaught { .. } => {
@@ -14434,9 +14448,9 @@ fn lily_pattern_catch_merge_with(
                             );
                             if variants.values().all(|variant_catch| {
                                 variant_catch
-                                    == &VariantCatch::Caught(StilCasePatternsCatch::Exhaustive)
+                                    == &VariantCatch::Caught(LilyCasePatternsCatch::Exhaustive)
                             }) {
-                                *catch = StilCasePatternsCatch::Exhaustive;
+                                *catch = LilyCasePatternsCatch::Exhaustive;
                             }
                         }
                     }
@@ -14444,9 +14458,9 @@ fn lily_pattern_catch_merge_with(
             }
             _ => {}
         },
-        StilCasePatternsCatch::Record(possibilities) => match new_catch {
+        LilyCasePatternsCatch::Record(possibilities) => match new_catch {
             LilyPatternCatch::Exhaustive => {
-                *catch = StilCasePatternsCatch::Exhaustive;
+                *catch = LilyCasePatternsCatch::Exhaustive;
             }
             LilyPatternCatch::Record(new_possibility) => {
                 if possibilities.iter().any(|record_possibility| {
@@ -14467,7 +14481,7 @@ fn lily_pattern_catch_merge_with(
                 } else {
                     possibilities.push(new_possibility);
                     if lily_case_patterns_catch_record_is_exhaustive(possibilities) {
-                        *catch = StilCasePatternsCatch::Exhaustive;
+                        *catch = LilyCasePatternsCatch::Exhaustive;
                     }
                 }
             }
