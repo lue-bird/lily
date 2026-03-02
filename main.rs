@@ -12563,7 +12563,7 @@ fn lily_syntax_expression_to_rust<'a>(
             if let Some(lambda_result_node) = maybe_lambda_result {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     &mut parameter_introduced_bindings,
-                    None,
+                    &[],
                     lily_syntax_node_unbox(lambda_result_node),
                 );
             }
@@ -13473,7 +13473,7 @@ fn lily_syntax_expression_to_rust<'a>(
                     if let Some(case_result_node) = &case.result {
                         lily_syntax_expression_uses_of_local_bindings_into(
                             &mut case_pattern_introduced_bindings,
-                            None,
+                            &[],
                             lily_syntax_node_as_ref(case_result_node),
                         );
                     }
@@ -13864,7 +13864,7 @@ fn lily_syntax_expression_to_rust<'a>(
 /// If called from outside itself, set `in_closures` to `None`
 fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
     local_binding_infos: &mut std::collections::HashMap<&'a str, LilyLocalBindingCompileInfo>,
-    maybe_in_closure: Option<lsp_types::Range>,
+    in_closures: &[lsp_types::Range],
     expression_node: LilySyntaxNode<&'a LilySyntaxExpression>,
 ) {
     match expression_node.value {
@@ -13877,7 +13877,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             if let Some(in_parens_node) = maybe_in_parens {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_unbox(in_parens_node),
                 );
             }
@@ -13889,7 +13889,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             if let Some(after_comment_node) = maybe_after_comment {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_unbox(after_comment_node),
                 );
             }
@@ -13908,7 +13908,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
                         if let Some(value_node) = maybe_value {
                             lily_syntax_expression_uses_of_local_bindings_into(
                                 local_binding_infos,
-                                maybe_in_closure,
+                                in_closures,
                                 lily_syntax_node_unbox(value_node),
                             );
                         }
@@ -13916,7 +13916,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
                     LilySyntaxExpressionUntyped::Other(other_node) => {
                         lily_syntax_expression_uses_of_local_bindings_into(
                             local_binding_infos,
-                            maybe_in_closure,
+                            in_closures,
                             LilySyntaxNode {
                                 range: untyped_node.range,
                                 value: other_node,
@@ -13934,22 +13934,24 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
                 local_binding_infos.get_mut(variable_node.value.as_str())
             {
                 local_binding_info.last_uses.clear();
-                match maybe_in_closure {
+                match in_closures.first() {
                     None => {
                         local_binding_info.last_uses.push(variable_node.range);
                     }
-                    Some(in_closure) => {
-                        local_binding_info.closures_it_is_used_in.push(in_closure);
+                    Some(&in_closure_outermost) => {
+                        local_binding_info
+                            .closures_it_is_used_in
+                            .extend(in_closures);
                         // the variables in closures are considered their own thing
                         // since they e.g. always need to be cloned
-                        local_binding_info.last_uses.push(in_closure);
+                        local_binding_info.last_uses.push(in_closure_outermost);
                     }
                 }
             }
             for argument_node in arguments {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_as_ref(argument_node),
                 );
             }
@@ -13960,20 +13962,39 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
         } => {
             lily_syntax_expression_uses_of_local_bindings_into(
                 local_binding_infos,
-                maybe_in_closure,
+                in_closures,
                 lily_syntax_node_unbox(matched_node),
             );
             if let Some((last_case, cases_before_last)) = cases.split_last() {
+                let mut local_bindings_infos_across_branches: std::collections::HashMap<
+                    &str,
+                    LilyLocalBindingCompileInfo,
+                > = local_binding_infos
+                    .iter()
+                    .map(|(&local_binding, local_binding_info)| {
+                        (
+                            local_binding,
+                            LilyLocalBindingCompileInfo {
+                                type_: None,
+                                origin_range: local_binding_info.origin_range,
+                                is_copy: local_binding_info.is_copy,
+                                overwriting: local_binding_info.overwriting,
+                                last_uses: vec![],
+                                closures_it_is_used_in: vec![],
+                            },
+                        )
+                    })
+                    .collect();
                 if let Some(last_case_result) = &last_case.result {
                     lily_syntax_expression_uses_of_local_bindings_into(
-                        local_binding_infos,
-                        maybe_in_closure,
+                        &mut local_bindings_infos_across_branches,
+                        in_closures,
                         lily_syntax_node_as_ref(last_case_result),
                     );
                 }
                 // we collect last uses separately for each case because
                 // cases are not run in sequence but exclusively one of them
-                let mut local_bindings_last_uses_in_branch: std::collections::HashMap<
+                let mut local_bindings_infos_in_branch: std::collections::HashMap<
                     &str,
                     LilyLocalBindingCompileInfo,
                 > = std::collections::HashMap::new();
@@ -13981,15 +14002,13 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
                     .iter()
                     .filter_map(|case| case.result.as_ref())
                 {
-                    // cloning all local binding types can maybe be optimized,
-                    // e.g. by duplicating lily_syntax_expression_uses_of_local_bindings_into
-                    // with only the relevant info
-                    local_bindings_last_uses_in_branch.extend(local_binding_infos.iter().map(
+                    // cloning all local bindings can maybe be optimized
+                    local_bindings_infos_in_branch.extend(local_binding_infos.iter().map(
                         |(&local_binding, local_binding_info)| {
                             (
                                 local_binding,
                                 LilyLocalBindingCompileInfo {
-                                    type_: local_binding_info.type_.clone(),
+                                    type_: None,
                                     origin_range: local_binding_info.origin_range,
                                     is_copy: local_binding_info.is_copy,
                                     overwriting: local_binding_info.overwriting,
@@ -14000,21 +14019,37 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
                         },
                     ));
                     lily_syntax_expression_uses_of_local_bindings_into(
-                        &mut local_bindings_last_uses_in_branch,
-                        maybe_in_closure,
+                        &mut local_bindings_infos_in_branch,
+                        in_closures,
                         lily_syntax_node_as_ref(case_result),
                     );
                     for (local_binding_name, local_binding_info_in_branch) in
-                        local_bindings_last_uses_in_branch.drain()
+                        local_bindings_infos_in_branch.drain()
                     {
-                        if let Some(existing) = local_binding_infos.get_mut(local_binding_name) {
-                            existing
+                        if let Some(existing_info_across_branches) =
+                            local_bindings_infos_across_branches.get_mut(local_binding_name)
+                        {
+                            existing_info_across_branches
                                 .last_uses
                                 .extend(local_binding_info_in_branch.last_uses);
-                            existing
+                            existing_info_across_branches
                                 .closures_it_is_used_in
                                 .extend(local_binding_info_in_branch.closures_it_is_used_in);
                         }
+                    }
+                }
+                // if last_uses even before checking cases had a last use,
+                // overwrite that one
+                for (local_binding_name, local_binding_info_across_branches) in
+                    local_bindings_infos_across_branches
+                {
+                    if let Some(existing_info) = local_binding_infos.get_mut(local_binding_name) {
+                        if !local_binding_info_across_branches.last_uses.is_empty() {
+                            existing_info.last_uses = local_binding_info_across_branches.last_uses;
+                        }
+                        existing_info
+                            .closures_it_is_used_in
+                            .extend(local_binding_info_across_branches.closures_it_is_used_in);
                     }
                 }
             }
@@ -14027,7 +14062,12 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             if let Some(result_node) = maybe_result {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    Some(maybe_in_closure.unwrap_or(expression_node.range)),
+                    in_closures
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(expression_node.range))
+                        .collect::<Vec<_>>()
+                        .as_slice(),
                     lily_syntax_node_unbox(result_node),
                 );
             }
@@ -14041,14 +14081,14 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_unbox(declaration_result_node),
                 );
             }
             if let Some(result_node) = maybe_result {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_unbox(result_node),
                 );
             }
@@ -14057,7 +14097,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             for element_node in elements {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_as_ref(element_node),
                 );
             }
@@ -14066,7 +14106,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             for field_vale_node in fields.iter().filter_map(|field| field.value.as_ref()) {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_as_ref(field_vale_node),
                 );
             }
@@ -14079,7 +14119,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             for field_vale_node in fields.iter().filter_map(|field| field.value.as_ref()) {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_as_ref(field_vale_node),
                 );
             }
@@ -14087,7 +14127,7 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             if let Some(record_node) = maybe_record {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
-                    maybe_in_closure,
+                    in_closures,
                     lily_syntax_node_unbox(record_node),
                 );
             }
@@ -14205,7 +14245,7 @@ fn lily_syntax_local_variable_declaration_to_rust_into(
     if let Some(result_node) = maybe_result {
         lily_syntax_expression_uses_of_local_bindings_into(
             &mut introduced_binding_infos,
-            None,
+            &[],
             result_node,
         );
     }
@@ -15918,20 +15958,25 @@ fn syn_type_variable(name: &str) -> syn::Type {
     })
 }
 fn default_parameter_bounds() -> impl Iterator<Item = syn::TypeParamBound> {
-    [syn::TypeParamBound::Trait(syn::TraitBound {
-        paren_token: None,
-        modifier: syn::TraitBoundModifier::None,
-        lifetimes: None,
-        path: syn::Path::from(syn_ident("Clone")),
-    })]
+    [
+        syn::TypeParamBound::Trait(syn::TraitBound {
+            paren_token: None,
+            modifier: syn::TraitBoundModifier::None,
+            lifetimes: None,
+            path: syn::Path::from(syn_ident("Clone")),
+        }),
+        syn::TypeParamBound::Lifetime(syn_lifetime_static()),
+    ]
     .into_iter()
 }
 fn default_dyn_fn_bounds() -> impl Iterator<Item = syn::TypeParamBound> {
-    [syn::TypeParamBound::Lifetime(syn::Lifetime {
+    [syn::TypeParamBound::Lifetime(syn_lifetime_static())].into_iter()
+}
+fn syn_lifetime_static() -> syn::Lifetime {
+    syn::Lifetime {
         apostrophe: syn_span(),
         ident: syn_ident("static"),
-    })]
-    .into_iter()
+    }
 }
 fn syn_attribute_derive<'a>(trait_macro_names: impl Iterator<Item = &'a str>) -> syn::Attribute {
     syn::Attribute {
