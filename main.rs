@@ -3980,12 +3980,12 @@ fn lily_syntax_expression_not_parenthesized_into(
             space_or_linebreak_indented_into(
                 so_far,
                 lily_syntax_range_line_span(expression_node.range),
-                next_indent(indent),
+                indent,
             );
             if let Some(result_node) = maybe_result {
                 lily_syntax_expression_not_parenthesized_into(
                     so_far,
-                    next_indent(indent),
+                    indent,
                     lily_syntax_node_unbox(result_node),
                 );
             }
@@ -4284,44 +4284,29 @@ fn lily_syntax_local_variable_declaration_into(
         Some(result_node) => {
             let result_node: LilySyntaxNode<&LilySyntaxExpression> =
                 lily_syntax_expression_to_unparenthesized(lily_syntax_node_unbox(result_node));
-            let result_start_on_same_line_then_indent: Option<usize> = match &result_node.value {
+            let result_start_on_same_line: bool = match &result_node.value {
                 LilySyntaxExpression::Lambda { parameters, .. } => match parameters.first() {
                     Some(first_parameter_node) => {
-                        match lily_syntax_range_line_span(lsp_types::Range {
+                        lily_syntax_range_line_span(lsp_types::Range {
                             start: first_parameter_node.range.start,
                             end: parameters.last().unwrap_or(first_parameter_node).range.end,
-                        }) {
-                            LineSpan::Multiple => None,
-                            LineSpan::Single => Some(indent),
-                        }
+                        }) == LineSpan::Single
                     }
-                    None => Some(indent),
+                    None => true,
                 },
-                LilySyntaxExpression::Typed { .. } => Some(next_indent(indent)),
-                _ => None,
+                LilySyntaxExpression::Typed { .. } => true,
+                _ => false,
             };
-            match result_start_on_same_line_then_indent {
-                Some(result_indent) => {
-                    so_far.push(' ');
-                    lily_syntax_expression_not_parenthesized_into(
-                        so_far,
-                        result_indent,
-                        result_node,
-                    );
-                }
-                None => {
-                    space_or_linebreak_indented_into(
-                        so_far,
-                        lily_syntax_range_line_span(local_declaration_node.range),
-                        next_indent(indent),
-                    );
-                    lily_syntax_expression_not_parenthesized_into(
-                        so_far,
-                        next_indent(indent),
-                        result_node,
-                    );
-                }
+            if result_start_on_same_line {
+                so_far.push(' ');
+            } else {
+                space_or_linebreak_indented_into(
+                    so_far,
+                    lily_syntax_range_line_span(local_declaration_node.range),
+                    next_indent(indent),
+                );
             }
+            lily_syntax_expression_not_parenthesized_into(so_far, next_indent(indent), result_node);
         }
     }
 }
@@ -4339,40 +4324,25 @@ fn lily_syntax_variable_declaration_into(
         Some(result_node) => {
             let result_node: LilySyntaxNode<&LilySyntaxExpression> =
                 lily_syntax_expression_to_unparenthesized(result_node);
-            let result_start_on_same_line_then_indent: Option<usize> = match &result_node.value {
+            let result_start_on_same_line: bool = match &result_node.value {
                 LilySyntaxExpression::Lambda { parameters, .. } => match parameters.first() {
                     Some(first_parameter_node) => {
-                        match lily_syntax_range_line_span(lsp_types::Range {
+                        lily_syntax_range_line_span(lsp_types::Range {
                             start: first_parameter_node.range.start,
                             end: parameters.last().unwrap_or(first_parameter_node).range.end,
-                        }) {
-                            LineSpan::Multiple => None,
-                            LineSpan::Single => Some(indent),
-                        }
+                        }) == LineSpan::Single
                     }
-                    None => Some(indent),
+                    None => true,
                 },
-                LilySyntaxExpression::Typed { .. } => Some(next_indent(indent)),
-                _ => None,
+                LilySyntaxExpression::Typed { .. } => true,
+                _ => false,
             };
-            match result_start_on_same_line_then_indent {
-                Some(result_indent) => {
-                    so_far.push(' ');
-                    lily_syntax_expression_not_parenthesized_into(
-                        so_far,
-                        result_indent,
-                        result_node,
-                    );
-                }
-                None => {
-                    linebreak_indented_into(so_far, next_indent(indent));
-                    lily_syntax_expression_not_parenthesized_into(
-                        so_far,
-                        next_indent(indent),
-                        result_node,
-                    );
-                }
+            if result_start_on_same_line {
+                so_far.push(' ');
+            } else {
+                linebreak_indented_into(so_far, next_indent(indent));
             }
+            lily_syntax_expression_not_parenthesized_into(so_far, next_indent(indent), result_node);
         }
     }
 }
