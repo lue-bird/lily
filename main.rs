@@ -12907,7 +12907,7 @@ fn lily_syntax_expression_to_rust<'a>(
                             });
                         return CompiledLilyExpression {
                             rust: syn_expr_todo(),
-                            type_: None,
+                            type_: Some(type_),
                         };
                     };
                     let Some(origin_choice_type_info) =
@@ -12915,7 +12915,10 @@ fn lily_syntax_expression_to_rust<'a>(
                     else {
                         return CompiledLilyExpression {
                             rust: syn_expr_todo(),
-                            type_: None,
+                            type_: Some(LilyType::ChoiceConstruct {
+                                name: origin_choice_type_name,
+                                arguments: origin_choice_type_arguments,
+                            }),
                         };
                     };
                     let Some(origin_variant_info) = origin_choice_type_info
@@ -12928,14 +12931,17 @@ fn lily_syntax_expression_to_rust<'a>(
                         errors.push(LilyErrorNode {
                             range: name_node.range,
                             message: format!(
-                                "the type in :here: is a choice type \"{}\" which is does not declare a variant with this name. Valid variant names are: {}. If you expected this variant name to be valid, check the origin choice type for errors",
+                                "the type in :here: is a choice type \"{}\" which does not declare a variant with this name. Valid variant names are: {}. If you expected this variant name to be valid, check the origin choice type for errors",
                                 origin_choice_type_name,
                                 origin_choice_type_info.type_variants.iter().map(|variant| variant.name.as_str()).collect::<Vec<&str>>().join(", ")
                             ).into_boxed_str()
                         });
                         return CompiledLilyExpression {
                             rust: syn_expr_todo(),
-                            type_: None,
+                            type_: Some(LilyType::ChoiceConstruct {
+                                name: origin_choice_type_name,
+                                arguments: origin_choice_type_arguments,
+                            }),
                         };
                     };
                     let rust_variant_reference: syn::Expr = syn_expr_reference([
@@ -12959,15 +12965,18 @@ fn lily_syntax_expression_to_rust<'a>(
                                 });
                                 return CompiledLilyExpression {
                                     rust: syn_expr_todo(),
-                                    type_: None,
+                                    type_: Some(LilyType::ChoiceConstruct {
+                                        name: origin_choice_type_name,
+                                        arguments: origin_choice_type_arguments,
+                                    }),
                                 };
                             }
                             CompiledLilyExpression {
+                                rust: rust_variant_reference,
                                 type_: Some(LilyType::ChoiceConstruct {
                                     name: origin_choice_type_name,
                                     arguments: origin_choice_type_arguments,
                                 }),
-                                rust: rust_variant_reference,
                             }
                         }
                         Some(value_node) => {
@@ -13022,7 +13031,10 @@ fn lily_syntax_expression_to_rust<'a>(
                                 });
                                 return CompiledLilyExpression {
                                     rust: syn_expr_todo(),
-                                    type_: None,
+                                    type_: Some(LilyType::ChoiceConstruct {
+                                        name: origin_choice_type_name,
+                                        arguments: origin_choice_type_arguments,
+                                    }),
                                 };
                             }
                             CompiledLilyExpression {
@@ -15012,7 +15024,7 @@ struct BindingToClone<'a> {
     name: &'a str,
     is_copy: bool,
 }
-/// TODO should be `Option<{ type_: LilyType, catch: LilyPatternCatch, rust: Option<syn::Pat> (or not option) }>`
+/// TODO should be `Option<{ type_: LilyType, catch: LilyPatternCatch, rust: syn::Pat }>`
 /// as an untyped pattern should never exist
 struct CompiledLilyPattern {
     // None means it should be ignored (e.g. in a case of that case should be removed)
