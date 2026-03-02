@@ -4294,7 +4294,6 @@ fn lily_syntax_local_variable_declaration_into(
                     }
                     None => true,
                 },
-                LilySyntaxExpression::Typed { .. } => true,
                 _ => false,
             };
             if result_start_on_same_line {
@@ -4334,7 +4333,6 @@ fn lily_syntax_variable_declaration_into(
                     }
                     None => true,
                 },
-                LilySyntaxExpression::Typed { .. } => true,
                 _ => false,
             };
             if result_start_on_same_line {
