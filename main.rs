@@ -2826,7 +2826,11 @@ enum LilySyntaxExpression {
     Typed {
         type_: Option<LilySyntaxNode<LilySyntaxType>>,
         closing_colon_range: Option<lsp_types::Range>,
-        expression: Option<LilySyntaxNode<LilySyntaxExpressionUntyped>>,
+        expression: Option<LilySyntaxNode<Box<LilySyntaxExpression>>>,
+    },
+    Variant {
+        name: LilySyntaxNode<LilyName>,
+        value: Option<LilySyntaxNode<Box<LilySyntaxExpression>>>,
     },
     Record(Vec<LilySyntaxExpressionField>),
     RecordUpdate {
@@ -2838,14 +2842,6 @@ enum LilySyntaxExpression {
         content: String,
         quoting_style: LilySyntaxStringQuotingStyle,
     },
-}
-#[derive(Clone, Debug)]
-enum LilySyntaxExpressionUntyped {
-    Variant {
-        name: LilySyntaxNode<LilyName>,
-        value: Option<LilySyntaxNode<Box<LilySyntaxExpression>>>,
-    },
-    Other(Box<LilySyntaxExpression>),
 }
 #[derive(Clone, Debug)]
 struct LilySyntaxExpressionCase {
@@ -3030,38 +3026,34 @@ fn lily_syntax_expression_type_with<'a>(
     expression_node: LilySyntaxNode<&'a LilySyntaxExpression>,
 ) -> Option<LilyType> {
     match expression_node.value {
+        LilySyntaxExpression::Variant { .. } => {
+            // TODO try regardless
+            None
+        }
         LilySyntaxExpression::Typed {
             type_: maybe_type,
             closing_colon_range: _,
             expression: maybe_in_typed,
         } => match maybe_type {
-            None => match maybe_in_typed {
-                None => None,
-                Some(untyped_node) => match &untyped_node.value {
-                    LilySyntaxExpressionUntyped::Variant { .. } => {
-                        // consider trying regardless
-                        None
-                    }
-                    LilySyntaxExpressionUntyped::Other(other_expression) => {
-                        lily_syntax_expression_type_with(
-                            type_aliases,
-                            choice_types,
-                            variable_declarations,
-                            local_bindings,
-                            LilySyntaxNode {
-                                range: untyped_node.range,
-                                value: other_expression,
-                            },
-                        )
-                    }
-                },
-            },
             Some(type_node) => lily_syntax_type_to_type(
                 &mut Vec::new(),
                 type_aliases,
                 choice_types,
                 lily_syntax_node_as_ref(type_node),
             ),
+            None => match maybe_in_typed {
+                None => None,
+                Some(untyped_node) => lily_syntax_expression_type_with(
+                    type_aliases,
+                    choice_types,
+                    variable_declarations,
+                    local_bindings,
+                    LilySyntaxNode {
+                        range: untyped_node.range,
+                        value: &untyped_node.value,
+                    },
+                ),
+            },
         },
         LilySyntaxExpression::VariableOrCall {
             variable: variable_node,
@@ -4090,8 +4082,8 @@ fn lily_syntax_expression_not_parenthesized_into(
             }
             so_far.push(':');
             if let Some(expression_node_in_typed) = maybe_expression {
-                match &expression_node_in_typed.value {
-                    LilySyntaxExpressionUntyped::Variant {
+                match expression_node_in_typed.value.as_ref() {
+                    LilySyntaxExpression::Variant {
                         name: variant_name_node,
                         value: maybe_value,
                     } => {
@@ -4104,11 +4096,9 @@ fn lily_syntax_expression_not_parenthesized_into(
                         }
                         so_far.push_str(&variant_name_node.value);
                         if let Some(value_node) = maybe_value {
-                            let line_span: LineSpan =
-                                lily_syntax_range_line_span(expression_node_in_typed.range);
                             space_or_linebreak_indented_into(
                                 so_far,
-                                line_span,
+                                lily_syntax_range_line_span(expression_node_in_typed.range),
                                 next_indent(indent),
                             );
                             lily_syntax_expression_not_parenthesized_into(
@@ -4118,7 +4108,7 @@ fn lily_syntax_expression_not_parenthesized_into(
                             );
                         }
                     }
-                    LilySyntaxExpressionUntyped::Other(expression_node_other_in_typed) => {
+                    expression_node_other_in_typed => {
                         if lily_syntax_range_line_span(expression_node.range) == LineSpan::Multiple
                         {
                             linebreak_indented_into(so_far, indent);
@@ -4133,6 +4123,25 @@ fn lily_syntax_expression_not_parenthesized_into(
                         );
                     }
                 }
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: variant_name_node,
+            value: maybe_value,
+        } => {
+            so_far.push_str("::");
+            so_far.push_str(&variant_name_node.value);
+            if let Some(value_node) = maybe_value {
+                space_or_linebreak_indented_into(
+                    so_far,
+                    lily_syntax_range_line_span(expression_node.range),
+                    next_indent(indent),
+                );
+                lily_syntax_expression_not_parenthesized_into(
+                    so_far,
+                    next_indent(indent),
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxExpression::Record(fields) => match fields.split_first() {
@@ -4406,6 +4415,7 @@ fn lily_syntax_expression_parenthesized_if_space_separated_into(
         } => !arguments.is_empty(),
         LilySyntaxExpression::Match { .. } => true,
         LilySyntaxExpression::Typed { .. } => true,
+        LilySyntaxExpression::Variant { .. } => true,
         LilySyntaxExpression::WithComment { .. } => true,
         LilySyntaxExpression::Char(_) => false,
         LilySyntaxExpression::Dec(_) => false,
@@ -5370,8 +5380,8 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
             }
             match maybe_expression_in_typed {
                 None => std::ops::ControlFlow::Continue(local_bindings),
-                Some(expression_node_in_typed) => match &expression_node_in_typed.value {
-                    LilySyntaxExpressionUntyped::Variant {
+                Some(expression_node_in_typed) => match expression_node_in_typed.value.as_ref() {
+                    LilySyntaxExpression::Variant {
                         name: name_node,
                         value: maybe_value,
                     } => {
@@ -5397,21 +5407,45 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
                             None => std::ops::ControlFlow::Continue(local_bindings),
                         }
                     }
-                    LilySyntaxExpressionUntyped::Other(other_expression_in_typed) => {
-                        lily_syntax_expression_find_symbol_at_position(
-                            type_aliases,
-                            choice_types,
-                            variable_declarations,
-                            scope_declaration,
-                            local_bindings,
-                            LilySyntaxNode {
-                                range: expression_node_in_typed.range,
-                                value: other_expression_in_typed,
-                            },
-                            position,
-                        )
-                    }
+                    other_expression_in_typed => lily_syntax_expression_find_symbol_at_position(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        scope_declaration,
+                        local_bindings,
+                        LilySyntaxNode {
+                            range: expression_node_in_typed.range,
+                            value: other_expression_in_typed,
+                        },
+                        position,
+                    ),
                 },
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: name_node,
+            value: maybe_value,
+        } => {
+            if lsp_range_includes_position(name_node.range, position) {
+                return std::ops::ControlFlow::Break(LilySyntaxNode {
+                    value: LilySyntaxSymbol::Variant {
+                        name: &name_node.value,
+                        type_: None,
+                    },
+                    range: name_node.range,
+                });
+            }
+            match maybe_value {
+                Some(value_node) => lily_syntax_expression_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
+                    variable_declarations,
+                    scope_declaration,
+                    local_bindings,
+                    lily_syntax_node_unbox(value_node),
+                    position,
+                ),
+                None => std::ops::ControlFlow::Continue(local_bindings),
             }
         }
         LilySyntaxExpression::Record(fields) => {
@@ -6050,8 +6084,8 @@ fn lily_syntax_expression_uses_of_symbol_into(
                 );
             }
             if let Some(expression_node_in_typed) = maybe_expression_in_typed {
-                match &expression_node_in_typed.value {
-                    LilySyntaxExpressionUntyped::Variant {
+                match expression_node_in_typed.value.as_ref() {
+                    LilySyntaxExpression::Variant {
                         name: name_node,
                         value: maybe_value,
                     } => {
@@ -6092,7 +6126,7 @@ fn lily_syntax_expression_uses_of_symbol_into(
                             );
                         }
                     }
-                    LilySyntaxExpressionUntyped::Other(other_expression_in_typed) => {
+                    other_expression_in_typed => {
                         lily_syntax_expression_uses_of_symbol_into(
                             uses_so_far,
                             type_aliases,
@@ -6105,6 +6139,29 @@ fn lily_syntax_expression_uses_of_symbol_into(
                         );
                     }
                 }
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: name_node,
+            value: maybe_value,
+        } => {
+            if let LilySymbolToReference::Variant {
+                name: symbol_name,
+                including_declaration_name: _,
+                origin_type_name: _,
+            } = symbol_to_collect_uses_of
+                && symbol_name == name_node.value.as_str()
+            {
+                uses_so_far.push(name_node.range);
+            }
+            if let Some(value_node) = maybe_value {
+                lily_syntax_expression_uses_of_symbol_into(
+                    uses_so_far,
+                    type_aliases,
+                    local_bindings,
+                    lily_syntax_node_unbox(value_node),
+                    symbol_to_collect_uses_of,
+                );
             }
         }
         LilySyntaxExpression::Record(fields) => {
@@ -7205,32 +7262,28 @@ fn lily_syntax_highlight_expression_into(
                 });
             }
             if let Some(expression_node_in_typed) = maybe_expression_in_typed {
-                match &expression_node_in_typed.value {
-                    LilySyntaxExpressionUntyped::Variant {
-                        name: name_node,
-                        value: maybe_value,
-                    } => {
-                        highlighted_so_far.push(LilySyntaxNode {
-                            range: name_node.range,
-                            value: LilySyntaxHighlightKind::Variant,
-                        });
-                        if let Some(value_node) = maybe_value {
-                            lily_syntax_highlight_expression_into(
-                                highlighted_so_far,
-                                lily_syntax_node_unbox(value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxExpressionUntyped::Other(other_expression_in_typed) => {
-                        lily_syntax_highlight_expression_into(
-                            highlighted_so_far,
-                            LilySyntaxNode {
-                                range: expression_node_in_typed.range,
-                                value: other_expression_in_typed,
-                            },
-                        );
-                    }
-                }
+                lily_syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    LilySyntaxNode {
+                        range: expression_node_in_typed.range,
+                        value: &expression_node_in_typed.value,
+                    },
+                );
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: name_node,
+            value: maybe_value,
+        } => {
+            highlighted_so_far.push(LilySyntaxNode {
+                range: name_node.range,
+                value: LilySyntaxHighlightKind::Variant,
+            });
+            if let Some(value_node) = maybe_value {
+                lily_syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxExpression::Record(fields) => {
@@ -8111,6 +8164,7 @@ fn parse_lily_syntax_expression_space_separated(
             .or_else(|| parse_lily_syntax_expression_variable_or_call(state))
             .or_else(|| parse_lily_syntax_expression_with_comment_node(state))
             .or_else(|| parse_lily_syntax_expression_string(state))
+            .or_else(|| parse_lily_syntax_expression_variant_node(state))
             .or_else(|| {
                 let start_position: lsp_types::Position = state.position;
                 parse_lily_syntax_expression_parenthesized(state)
@@ -8182,16 +8236,6 @@ fn parse_lily_syntax_expression_space_separated(
         })
     }
 }
-fn parse_lily_syntax_expression_untyped_node(
-    state: &mut ParseState,
-) -> Option<LilySyntaxNode<LilySyntaxExpressionUntyped>> {
-    parse_lily_syntax_expression_variant_node(state).or_else(|| {
-        parse_lily_syntax_expression_space_separated(state).map(|n| LilySyntaxNode {
-            range: n.range,
-            value: LilySyntaxExpressionUntyped::Other(Box::new(n.value)),
-        })
-    })
-}
 fn parse_lily_syntax_expression_typed(
     state: &mut ParseState,
 ) -> Option<LilySyntaxNode<LilySyntaxExpression>> {
@@ -8204,8 +8248,8 @@ fn parse_lily_syntax_expression_typed(
     parse_lily_whitespace(state);
     let maybe_closing_colon_range: Option<lsp_types::Range> = parse_symbol_as_range(state, ":");
     parse_lily_whitespace(state);
-    let maybe_expression: Option<LilySyntaxNode<LilySyntaxExpressionUntyped>> =
-        parse_lily_syntax_expression_untyped_node(state);
+    let maybe_expression: Option<LilySyntaxNode<LilySyntaxExpression>> =
+        parse_lily_syntax_expression_space_separated(state);
     Some(LilySyntaxNode {
         range: lsp_types::Range {
             start: start_position,
@@ -8219,7 +8263,7 @@ fn parse_lily_syntax_expression_typed(
         value: LilySyntaxExpression::Typed {
             type_: maybe_type,
             closing_colon_range: maybe_closing_colon_range,
-            expression: maybe_expression,
+            expression: maybe_expression.map(lily_syntax_node_box),
         },
     })
 }
@@ -8256,7 +8300,7 @@ fn parse_lily_syntax_expression_variable_or_call(
 }
 fn parse_lily_syntax_expression_variant_node(
     state: &mut ParseState,
-) -> Option<LilySyntaxNode<LilySyntaxExpressionUntyped>> {
+) -> Option<LilySyntaxNode<LilySyntaxExpression>> {
     let name_node: LilySyntaxNode<LilyName> = parse_lily_uppercase_name_node(state)?;
     parse_lily_whitespace(state);
     let maybe_value: Option<LilySyntaxNode<LilySyntaxExpression>> =
@@ -8269,7 +8313,7 @@ fn parse_lily_syntax_expression_variant_node(
                 .map(|n| n.range.end)
                 .unwrap_or(name_node.range.end),
         },
-        value: LilySyntaxExpressionUntyped::Variant {
+        value: LilySyntaxExpression::Variant {
             name: name_node,
             value: maybe_value.map(lily_syntax_node_box),
         },
@@ -10668,32 +10712,28 @@ fn lily_syntax_expression_connect_variables_in_graph_from(
             expression: expression_in_typed,
         } => {
             if let Some(expression_node_in_typed) = expression_in_typed {
-                match &expression_node_in_typed.value {
-                    LilySyntaxExpressionUntyped::Variant {
-                        name: _,
-                        value: maybe_variant_value,
-                    } => {
-                        if let Some(variant_value_node) = maybe_variant_value {
-                            lily_syntax_expression_connect_variables_in_graph_from(
-                                variable_graph,
-                                origin_variable_declaration_graph_node,
-                                variable_graph_node_by_name,
-                                lily_syntax_node_unbox(variant_value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxExpressionUntyped::Other(other_expression_in_typed) => {
-                        lily_syntax_expression_connect_variables_in_graph_from(
-                            variable_graph,
-                            origin_variable_declaration_graph_node,
-                            variable_graph_node_by_name,
-                            LilySyntaxNode {
-                                range: expression_node_in_typed.range,
-                                value: other_expression_in_typed,
-                            },
-                        );
-                    }
-                }
+                lily_syntax_expression_connect_variables_in_graph_from(
+                    variable_graph,
+                    origin_variable_declaration_graph_node,
+                    variable_graph_node_by_name,
+                    LilySyntaxNode {
+                        range: expression_node_in_typed.range,
+                        value: &expression_node_in_typed.value,
+                    },
+                );
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: _,
+            value: maybe_variant_value,
+        } => {
+            if let Some(variant_value_node) = maybe_variant_value {
+                lily_syntax_expression_connect_variables_in_graph_from(
+                    variable_graph,
+                    origin_variable_declaration_graph_node,
+                    variable_graph_node_by_name,
+                    lily_syntax_node_unbox(variant_value_node),
+                );
             }
         }
         LilySyntaxExpression::Record(fields) => {
@@ -12869,8 +12909,8 @@ fn lily_syntax_expression_to_rust<'a>(
                     rust: syn_expr_todo(),
                 };
             };
-            match &untyped_node.value {
-                LilySyntaxExpressionUntyped::Variant {
+            match untyped_node.value.as_ref() {
+                LilySyntaxExpression::Variant {
                     name: name_node,
                     value: maybe_value,
                 } => {
@@ -13051,72 +13091,79 @@ fn lily_syntax_expression_to_rust<'a>(
                         }
                     }
                 }
-                LilySyntaxExpressionUntyped::Other(other_expression) => {
-                    if let LilySyntaxExpression::Vec(elements) = other_expression.as_ref()
-                        && elements.is_empty()
-                    {
-                        let type_is_conflicting: bool = match &maybe_expected_type {
-                            None => false,
-                            Some(LilyType::ChoiceConstruct {
-                                name: choice_type_name,
-                                arguments: _,
-                            }) => choice_type_name != lily_type_vec_name,
-                            Some(_) => true,
-                        };
-                        if type_is_conflicting {
-                            errors.push(LilyErrorNode {
+                LilySyntaxExpression::Vec(elements) if elements.is_empty() => {
+                    let type_is_conflicting: bool = match &maybe_expected_type {
+                        None => false,
+                        Some(LilyType::ChoiceConstruct {
+                            name: choice_type_name,
+                            arguments: _,
+                        }) => choice_type_name != lily_type_vec_name,
+                        Some(_) => true,
+                    };
+                    if type_is_conflicting {
+                        errors.push(LilyErrorNode {
                                 range: expression_node.range,
                                 message: Box::from("type of an empty vec ([]) must be vec (or a type alias to vec), not its element type.")
                             });
-                            return CompiledLilyExpression {
-                                rust: syn_expr_todo(),
-                                type_: None,
-                            };
-                        }
-                        CompiledLilyExpression {
-                            rust: syn::Expr::Call(syn::ExprCall {
+                        return CompiledLilyExpression {
+                            rust: syn_expr_todo(),
+                            type_: None,
+                        };
+                    }
+                    CompiledLilyExpression {
+                        rust: syn::Expr::Call(syn::ExprCall {
+                            attrs: vec![],
+                            func: Box::new(syn_expr_reference(["Vec", "from_array"])),
+                            paren_token: syn::token::Paren(syn_span()),
+                            args: std::iter::once(syn::Expr::Array(syn::ExprArray {
                                 attrs: vec![],
-                                func: Box::new(syn_expr_reference(["Vec", "from_array"])),
-                                paren_token: syn::token::Paren(syn_span()),
-                                args: std::iter::once(syn::Expr::Array(syn::ExprArray {
-                                    attrs: vec![],
-                                    bracket_token: syn::token::Bracket(syn_span()),
-                                    elems: syn::punctuated::Punctuated::new(),
-                                }))
-                                .collect(),
-                            }),
-                            type_: maybe_expected_type,
-                        }
-                    } else {
-                        let compiled_other: CompiledLilyExpression = lily_syntax_expression_to_rust(
-                            errors,
-                            records_used,
-                            type_aliases,
-                            choice_types,
-                            project_variable_declarations,
-                            local_bindings,
-                            closure_representation,
-                            LilySyntaxNode {
-                                range: untyped_node.range,
-                                value: other_expression,
-                            },
-                        );
-                        if let Some(expected_type) = &maybe_expected_type
-                            && let Some(other_type) = &compiled_other.type_
-                            && let Some(type_diff) = lily_type_diff(expected_type, other_type)
-                        {
-                            errors.push(LilyErrorNode {
-                                range: untyped_node.range,
-                                message: lily_type_diff_error_message(&type_diff).into_boxed_str(),
-                            });
-                            return CompiledLilyExpression {
-                                rust: syn_expr_todo(),
-                                type_: maybe_expected_type,
-                            };
-                        }
-                        compiled_other
+                                bracket_token: syn::token::Bracket(syn_span()),
+                                elems: syn::punctuated::Punctuated::new(),
+                            }))
+                            .collect(),
+                        }),
+                        type_: maybe_expected_type,
                     }
                 }
+                other_expression => {
+                    let compiled_other: CompiledLilyExpression = lily_syntax_expression_to_rust(
+                        errors,
+                        records_used,
+                        type_aliases,
+                        choice_types,
+                        project_variable_declarations,
+                        local_bindings,
+                        closure_representation,
+                        LilySyntaxNode {
+                            range: untyped_node.range,
+                            value: other_expression,
+                        },
+                    );
+                    if let Some(expected_type) = &maybe_expected_type
+                        && let Some(other_type) = &compiled_other.type_
+                        && let Some(type_diff) = lily_type_diff(expected_type, other_type)
+                    {
+                        errors.push(LilyErrorNode {
+                            range: untyped_node.range,
+                            message: lily_type_diff_error_message(&type_diff).into_boxed_str(),
+                        });
+                        return CompiledLilyExpression {
+                            rust: syn_expr_todo(),
+                            type_: maybe_expected_type,
+                        };
+                    }
+                    compiled_other
+                }
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: name_node,
+            value: _,
+        } => {
+            errors.push(LilyErrorNode { range: name_node.range, message: Box::from("missing :type: before this variant. Add it to the front. An example of a valid variant would be :opt unt:Present 3") });
+            CompiledLilyExpression {
+                rust: syn_expr_todo(),
+                type_: None,
             }
         }
         LilySyntaxExpression::VariableOrCall {
@@ -13884,30 +13931,26 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
             expression: maybe_untyped,
         } => {
             if let Some(untyped_node) = maybe_untyped {
-                match &untyped_node.value {
-                    LilySyntaxExpressionUntyped::Variant {
-                        name: _,
-                        value: maybe_value,
-                    } => {
-                        if let Some(value_node) = maybe_value {
-                            lily_syntax_expression_uses_of_local_bindings_into(
-                                local_binding_infos,
-                                in_closures,
-                                lily_syntax_node_unbox(value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxExpressionUntyped::Other(other_node) => {
-                        lily_syntax_expression_uses_of_local_bindings_into(
-                            local_binding_infos,
-                            in_closures,
-                            LilySyntaxNode {
-                                range: untyped_node.range,
-                                value: other_node,
-                            },
-                        );
-                    }
-                }
+                lily_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    in_closures,
+                    LilySyntaxNode {
+                        range: untyped_node.range,
+                        value: &untyped_node.value,
+                    },
+                );
+            }
+        }
+        LilySyntaxExpression::Variant {
+            name: _,
+            value: maybe_value,
+        } => {
+            if let Some(value_node) = maybe_value {
+                lily_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    in_closures,
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxExpression::VariableOrCall {
