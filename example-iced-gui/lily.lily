@@ -1,0 +1,156 @@
+
+
+choice state
+    | Checked-out
+    | Selecting-extra-ingredient
+        { selected-extra-ingredient opt extra-ingredient
+        }
+
+choice event
+    | Order-confirmed
+    | Extra-ingredient-selected opt extra-ingredient
+
+choice extra-ingredient
+    | Onions
+    | Picked-cucumber
+    | Tomatoes
+    | Beans
+
+initial-state
+    :state:Selecting-extra-ingredient
+        { selected-extra-ingredient :opt extra-ingredient:Absent
+        }
+
+view \:state:state >
+    state
+    | :state:Checked-out >
+        :widget event:Container
+            { padding padding-evenly 20.0
+            , sub :widget event:Text "Thanks for your order :)"
+            }
+    | :state:Selecting-extra-ingredient
+        { selected-extra-ingredient :opt extra-ingredient:selected-extra-ingredient
+        }
+    >
+    :widget event:Container
+        { padding padding-evenly 20.0
+        , sub
+            :widget event:Column
+                { spacing 20.0
+                , subs
+                    [ :widget event:Text "Add one free extra ingredient?"
+                    , widget-pick-list
+                        { selected selected-extra-ingredient
+                        , options
+                            [ :extra-ingredient:Onions
+                            , :extra-ingredient:Picked-cucumber
+                            , :extra-ingredient:Tomatoes
+                            , :extra-ingredient:Beans
+                            ]
+                        , on-select
+                            \:opt extra-ingredient:new-selected >
+                            :event:Extra-ingredient-selected new-selected
+                        , option-to-str
+                            \:extra-ingredient:extra-ingredient >
+                            extra-ingredient
+                            | :extra-ingredient:Onions > "onions"
+                            | :extra-ingredient:Picked-cucumber > "pickled cucumber"
+                            | :extra-ingredient:Tomatoes > "tomatoes"
+                            | :extra-ingredient:Beans > "beans"
+                        }
+                    , :widget event:Button
+                        { label "confirm selection"
+                        , padding padding-evenly 10.0
+                        , on-press \{} > :event:Order-confirmed
+                        }
+                    ]
+                }
+        }
+
+widget-pick-list
+    \ { selected :opt Option:selected
+      , options :vec Option:options
+      , on-select :\opt Option > Event:on-select
+      , option-to-str :\Option > str:option-to-str
+      }
+    >
+    :widget Event:PickList
+        { selected opt-present-change selected option-to-str
+        , options vec-each-change options option-to-str
+        , on-select
+            \:str:new-selected >
+            on-select
+                (vec-walk-from options
+                    {}
+                    (\{}, :Option:option >
+                     str-order (option-to-str option) new-selected
+                     | :order:Equal > :continue-or-exit {} Option:Exit option
+                     | :order:_ > :continue-or-exit {} Option:Continue {}
+                    )
+                 | :continue-or-exit {} Option:Continue {} > :opt Option:Absent
+                 | :continue-or-exit {} Option:Exit :Option:option > :opt Option:Present option
+                )
+        }
+
+opt-present-change \:opt A:opt, :\A > B:present-change >
+    opt
+    | :opt A:Absent > :opt B:Absent
+    | :opt A:Present :A:a > :opt B:Present present-change a
+
+vec-each-change \:vec A:vec, :\A > B:element-change >
+    vec-walk-from vec
+        (vec-increase-capacity-by (:vec B:[]) (vec-length vec))
+        (\:vec B:so-far, :A:element >
+         :continue-or-exit (vec B) (vec B):Continue
+            vec-attach-element so-far (element-change element)
+        )
+    | :continue-or-exit (vec B) (vec B):Continue :vec B:result > result
+    | :continue-or-exit (vec B) (vec B):Exit :vec B:result > result
+
+update \:event:event, :state:state >
+    event
+    | :event:Extra-ingredient-selected :opt extra-ingredient:selected-extra-ingredient >
+        state
+        | :state:Selecting-extra-ingredient { selected-extra-ingredient :opt extra-ingredient:_ } >
+            :state:Selecting-extra-ingredient
+                { selected-extra-ingredient selected-extra-ingredient }
+        | :state:_ > state
+    | :event:Order-confirmed >
+        :state:Checked-out
+
+choice widget Event
+    | Text str
+    | Button
+        { label str
+        , padding padding
+        , on-press \{} > Event
+        }
+    | PickList
+        { selected opt str
+        , options vec str
+        , on-select \str > Event
+        }
+    | Container
+        { padding padding
+        , sub widget Event
+        }
+    | Column
+        { subs vec (widget Event)
+        , spacing dec
+        }
+    | Row
+        { subs vec (widget Event)
+        , spacing dec
+        }
+
+type padding =
+    { right dec, top dec, left dec, bottom dec }
+
+padding-evenly \:dec:padding >
+    :padding:
+    { right padding
+    , top padding
+    , left padding
+    , bottom padding
+    }
+

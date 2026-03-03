@@ -1,0 +1,11 @@
+[package]
+name = "example-iced-gui"
+edition = "2024"
+[[bin]]
+name = "example-iced-gui"
+path = "main.rs"
+[dependencies]
+iced = "0.14.0"
+web-sys = { version = "0.3.77", features = ["Event"] }
+[profile.dev]
+debug = "none"
