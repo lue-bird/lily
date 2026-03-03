@@ -8270,8 +8270,7 @@ fn parse_lily_syntax_expression_typed(
 fn parse_lily_syntax_expression_variable_or_call(
     state: &mut ParseState,
 ) -> Option<LilySyntaxNode<LilySyntaxExpression>> {
-    let variable_node: LilySyntaxNode<LilyName> =
-        parse_lily_syntax_expression_variable_standalone(state)?;
+    let variable_node: LilySyntaxNode<LilyName> = parse_lily_lowercase_name_node(state)?;
     parse_lily_whitespace(state);
     let mut arguments: Vec<LilySyntaxNode<LilySyntaxExpression>> = Vec::new();
     let mut call_end_position: lsp_types::Position = variable_node.range.end;
@@ -8380,15 +8379,8 @@ fn parse_lily_syntax_expression_not_space_separated(
             })
     })
 }
-fn parse_lily_syntax_expression_variable_standalone(
-    state: &mut ParseState,
-) -> Option<LilySyntaxNode<LilyName>> {
-    // can be optimized by e.g. adding a non-state-mutating parse_lily_lowercase_as_string
-    // that checks for keywords on successful chomp and returns None only then (and if no keyword, mutate the state)
-    parse_lily_lowercase_name_node(state).or_else(|| parse_lily_uppercase_name_node(state))
-}
 fn parse_lily_syntax_expression_variable(state: &mut ParseState) -> Option<LilySyntaxExpression> {
-    let variable_node = parse_lily_syntax_expression_variable_standalone(state)?;
+    let variable_node = parse_lily_lowercase_name_node(state)?;
     Some(LilySyntaxExpression::VariableOrCall {
         variable: variable_node,
         arguments: vec![],
