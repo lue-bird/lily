@@ -254,8 +254,15 @@ cargo build
 Then point your editor to the created `???/target/debug/lily lsp`.
 
 ## considering
-- allow any variant/variable/ignore pattern to be untyped but error out when compiling. Because I can see making this mistake often and failing completely in that case seems too strict
-- introduce `first-arg .function second-arg` syntax sugar
+- introduce `first-arg .function second-arg` syntax sugar, like
+  ```lily
+  "("
+  .str-attach-char ' '
+  .str-attach-unt 10
+  .str-attach " > "
+  .str-attach-dec 0.2
+  ```
+  I do love this. Its just too perfect and convenient at the cost of more syntax and more ways of expressing the same thing.
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
 - (leaning towards yes) add `unts-sum`, `decs-sum`, `ints-sum`, `unts-product`, `ints-product`, `decs-product`
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`

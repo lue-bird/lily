@@ -2754,17 +2754,8 @@ enum LilySyntaxPattern {
     Typed {
         type_: Option<LilySyntaxNode<LilySyntaxType>>,
         closing_colon_range: Option<lsp_types::Range>,
-        pattern: Option<LilySyntaxNode<LilySyntaxPatternUntyped>>,
+        pattern: Option<LilySyntaxNode<Box<LilySyntaxPattern>>>,
     },
-    Record(Vec<LilySyntaxPatternField>),
-}
-#[derive(Clone, Debug)]
-struct LilySyntaxPatternField {
-    name: LilySyntaxNode<LilyName>,
-    value: Option<LilySyntaxNode<LilySyntaxPattern>>,
-}
-#[derive(Clone, Debug)]
-enum LilySyntaxPatternUntyped {
     Variable {
         overwriting: bool,
         name: LilyName,
@@ -2774,7 +2765,12 @@ enum LilySyntaxPatternUntyped {
         name: LilySyntaxNode<LilyName>,
         value: Option<LilySyntaxNode<Box<LilySyntaxPattern>>>,
     },
-    Other(Box<LilySyntaxPattern>),
+    Record(Vec<LilySyntaxPatternField>),
+}
+#[derive(Clone, Debug)]
+struct LilySyntaxPatternField {
+    name: LilySyntaxNode<LilyName>,
+    value: Option<LilySyntaxNode<LilySyntaxPattern>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LilySyntaxStringQuotingStyle {
@@ -2974,19 +2970,20 @@ fn lily_syntax_pattern_type(
             type_: maybe_type,
             closing_colon_range: _,
             pattern: _maybe_in_typed,
-        } => {
-            match maybe_type {
-                Some(type_node) => lily_syntax_type_to_type(
-                    &mut Vec::new(),
-                    type_aliases,
-                    choice_types,
-                    lily_syntax_node_as_ref(type_node),
-                ),
-                None => {
-                    // consider trying regardless for variant
-                    None
-                }
-            }
+        } => match maybe_type {
+            None => None,
+            Some(type_node) => lily_syntax_type_to_type(
+                &mut Vec::new(),
+                type_aliases,
+                choice_types,
+                lily_syntax_node_as_ref(type_node),
+            ),
+        },
+        LilySyntaxPattern::Ignored => None,
+        LilySyntaxPattern::Variable { .. } => None,
+        LilySyntaxPattern::Variant { .. } => {
+            // consider trying regardless for variant
+            None
         }
         LilySyntaxPattern::Record(fields) => {
             let mut field_types: Vec<LilyTypeField> = Vec::with_capacity(fields.len());
@@ -3650,14 +3647,14 @@ fn lily_syntax_pattern_into(
             }
             so_far.push(':');
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => {
+                match pattern_node_in_typed.value.as_ref() {
+                    LilySyntaxPattern::Ignored => {
                         if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
                             linebreak_indented_into(so_far, indent);
                         }
                         so_far.push('_');
                     }
-                    LilySyntaxPatternUntyped::Variable { overwriting, name } => {
+                    LilySyntaxPattern::Variable { overwriting, name } => {
                         if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
                             linebreak_indented_into(so_far, indent);
                         }
@@ -3666,7 +3663,7 @@ fn lily_syntax_pattern_into(
                             so_far.push('^');
                         }
                     }
-                    LilySyntaxPatternUntyped::Variant {
+                    LilySyntaxPattern::Variant {
                         name: variant_name_node,
                         value: maybe_value,
                     } => {
@@ -3691,7 +3688,7 @@ fn lily_syntax_pattern_into(
                             );
                         }
                     }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
+                    other_in_typed => {
                         if lily_syntax_range_line_span(pattern_node.range) == LineSpan::Multiple {
                             linebreak_indented_into(so_far, indent);
                         }
@@ -3705,6 +3702,35 @@ fn lily_syntax_pattern_into(
                         );
                     }
                 }
+            }
+        }
+        LilySyntaxPattern::Ignored => {
+            so_far.push_str("::_");
+        }
+        LilySyntaxPattern::Variable { overwriting, name } => {
+            so_far.push_str("::");
+            so_far.push_str(name);
+            if *overwriting {
+                so_far.push('^');
+            }
+        }
+        LilySyntaxPattern::Variant {
+            name: variant_name_node,
+            value: maybe_value,
+        } => {
+            so_far.push_str("::");
+            so_far.push_str(&variant_name_node.value);
+            if let Some(value_node) = maybe_value {
+                space_or_linebreak_indented_into(
+                    so_far,
+                    lily_syntax_range_line_span(pattern_node.range),
+                    next_indent(indent),
+                );
+                lily_syntax_pattern_into(
+                    so_far,
+                    next_indent(indent),
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxPattern::Record(field_names) => {
@@ -4861,13 +4887,13 @@ fn lily_syntax_pattern_find_symbol_at_position<'a>(
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     scope_declaration: &'a LilySyntaxDeclaration,
     scope_expression: Option<LilySyntaxNode<&'a LilySyntaxExpression>>,
-    lily_syntax_pattern_node: LilySyntaxNode<&'a LilySyntaxPattern>,
+    pattern_node: LilySyntaxNode<&'a LilySyntaxPattern>,
     position: lsp_types::Position,
 ) -> Option<LilySyntaxNode<LilySyntaxSymbol<'a>>> {
-    if !lsp_range_includes_position(lily_syntax_pattern_node.range, position) {
+    if !lsp_range_includes_position(pattern_node.range, position) {
         return None;
     }
-    match lily_syntax_pattern_node.value {
+    match pattern_node.value {
         LilySyntaxPattern::Unt { .. } => None,
         LilySyntaxPattern::Int { .. } => None,
         LilySyntaxPattern::Char(_) => None,
@@ -4889,9 +4915,8 @@ fn lily_syntax_pattern_find_symbol_at_position<'a>(
             })
             .or_else(|| {
                 let pattern_node_in_typed = maybe_pattern_node_in_typed.as_ref()?;
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => None,
-                    LilySyntaxPatternUntyped::Variable {
+                match pattern_node_in_typed.value.as_ref() {
+                    LilySyntaxPattern::Variable {
                         overwriting: _,
                         name,
                     } => Some(LilySyntaxNode {
@@ -4917,46 +4942,85 @@ fn lily_syntax_pattern_find_symbol_at_position<'a>(
                             )]),
                         },
                     }),
-                    LilySyntaxPatternUntyped::Variant {
+                    LilySyntaxPattern::Variant {
                         name: variable,
                         value: maybe_value,
                     } => {
                         if lsp_range_includes_position(variable.range, position) {
-                            Some(LilySyntaxNode {
+                            return Some(LilySyntaxNode {
                                 value: LilySyntaxSymbol::Variant {
                                     name: &variable.value,
                                     type_: maybe_type_node.as_ref().map(|n| &n.value),
                                 },
                                 range: variable.range,
-                            })
-                        } else {
-                            maybe_value.as_ref().and_then(|value| {
-                                lily_syntax_pattern_find_symbol_at_position(
-                                    type_aliases,
-                                    choice_types,
-                                    scope_declaration,
-                                    scope_expression,
-                                    lily_syntax_node_unbox(value),
-                                    position,
-                                )
-                            })
+                            });
                         }
+                        maybe_value.as_ref().and_then(|value| {
+                            lily_syntax_pattern_find_symbol_at_position(
+                                type_aliases,
+                                choice_types,
+                                scope_declaration,
+                                scope_expression,
+                                lily_syntax_node_unbox(value),
+                                position,
+                            )
+                        })
                     }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
-                        lily_syntax_pattern_find_symbol_at_position(
-                            type_aliases,
-                            choice_types,
-                            scope_declaration,
-                            scope_expression,
-                            LilySyntaxNode {
-                                range: pattern_node_in_typed.range,
-                                value: other_in_typed,
-                            },
-                            position,
-                        )
-                    }
+                    other_in_typed => lily_syntax_pattern_find_symbol_at_position(
+                        type_aliases,
+                        choice_types,
+                        scope_declaration,
+                        scope_expression,
+                        LilySyntaxNode {
+                            range: pattern_node_in_typed.range,
+                            value: other_in_typed,
+                        },
+                        position,
+                    ),
                 }
             }),
+        LilySyntaxPattern::Ignored => None,
+        LilySyntaxPattern::Variable {
+            overwriting: _,
+            name,
+        } => Some(LilySyntaxNode {
+            range: pattern_node.range,
+            value: LilySyntaxSymbol::Variable {
+                name: name,
+                local_bindings: std::collections::HashMap::from([(
+                    name.as_str(),
+                    LilyLocalBindingInfo {
+                        type_: None,
+                        origin: LocalBindingOrigin::PatternVariable(pattern_node.range),
+                        scope_expression: scope_expression,
+                    },
+                )]),
+            },
+        }),
+        LilySyntaxPattern::Variant {
+            name: variable,
+            value: maybe_value,
+        } => {
+            if lsp_range_includes_position(variable.range, position) {
+                return Some(LilySyntaxNode {
+                    value: LilySyntaxSymbol::Variant {
+                        name: &variable.value,
+                        type_: None,
+                    },
+                    range: variable.range,
+                });
+            }
+            maybe_value.as_ref().and_then(|value| {
+                lily_syntax_pattern_find_symbol_at_position(
+                    type_aliases,
+                    choice_types,
+                    scope_declaration,
+                    scope_expression,
+                    lily_syntax_node_unbox(value),
+                    position,
+                )
+            })
+        }
         LilySyntaxPattern::WithComment {
             comment: _,
             pattern: maybe_pattern_after_expression,
@@ -6271,10 +6335,8 @@ fn lily_syntax_pattern_uses_of_symbol_into(
                 );
             }
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => {}
-                    LilySyntaxPatternUntyped::Variable { .. } => {}
-                    LilySyntaxPatternUntyped::Variant {
+                match pattern_node_in_typed.value.as_ref() {
+                    LilySyntaxPattern::Variant {
                         name: variant_name_node,
                         value: maybe_value,
                     } => {
@@ -6314,7 +6376,7 @@ fn lily_syntax_pattern_uses_of_symbol_into(
                             );
                         }
                     }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
+                    other_in_typed => {
                         lily_syntax_pattern_uses_of_symbol_into(
                             uses_so_far,
                             type_aliases,
@@ -6328,6 +6390,30 @@ fn lily_syntax_pattern_uses_of_symbol_into(
                 }
             }
         }
+        LilySyntaxPattern::Variant {
+            name: variant_name_node,
+            value: maybe_value,
+        } => {
+            if let LilySymbolToReference::Variant {
+                name: variant_to_collect_uses_of_name,
+                including_declaration_name: _,
+                origin_type_name: _,
+            } = symbol_to_collect_uses_of
+                && variant_to_collect_uses_of_name == variant_name_node.value
+            {
+                uses_so_far.push(variant_name_node.range);
+            }
+            if let Some(value) = maybe_value {
+                lily_syntax_pattern_uses_of_symbol_into(
+                    uses_so_far,
+                    type_aliases,
+                    lily_syntax_node_unbox(value),
+                    symbol_to_collect_uses_of,
+                );
+            }
+        }
+        LilySyntaxPattern::Ignored => {}
+        LilySyntaxPattern::Variable { .. } => {}
         LilySyntaxPattern::WithComment {
             comment: _,
             pattern: maybe_pattern_after_comment,
@@ -6406,9 +6492,9 @@ fn lily_syntax_pattern_bindings_into<'a>(
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     scope_expression: LilySyntaxNode<&'a LilySyntaxExpression>,
-    lily_syntax_pattern_node: LilySyntaxNode<&'a LilySyntaxPattern>,
+    pattern_node: LilySyntaxNode<&'a LilySyntaxPattern>,
 ) {
-    match lily_syntax_pattern_node.value {
+    match pattern_node.value {
         LilySyntaxPattern::Char(_) => {}
         LilySyntaxPattern::Unt(_) => {}
         LilySyntaxPattern::Int(_) => {}
@@ -6419,9 +6505,8 @@ fn lily_syntax_pattern_bindings_into<'a>(
             pattern: maybe_pattern_node_in_typed,
         } => {
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => {}
-                    LilySyntaxPatternUntyped::Variable {
+                match pattern_node_in_typed.value.as_ref() {
+                    LilySyntaxPattern::Variable {
                         overwriting: _,
                         name: variable_name,
                     } => {
@@ -6443,21 +6528,7 @@ fn lily_syntax_pattern_bindings_into<'a>(
                             },
                         );
                     }
-                    LilySyntaxPatternUntyped::Variant {
-                        name: _,
-                        value: maybe_value,
-                    } => {
-                        if let Some(value_node) = maybe_value {
-                            lily_syntax_pattern_bindings_into(
-                                bindings_so_far,
-                                type_aliases,
-                                choice_types,
-                                scope_expression,
-                                lily_syntax_node_unbox(value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
+                    other_in_typed => {
                         lily_syntax_pattern_bindings_into(
                             bindings_so_far,
                             type_aliases,
@@ -6470,6 +6541,34 @@ fn lily_syntax_pattern_bindings_into<'a>(
                         );
                     }
                 }
+            }
+        }
+        LilySyntaxPattern::Ignored => {}
+        LilySyntaxPattern::Variable {
+            overwriting: _,
+            name: variable_name,
+        } => {
+            bindings_so_far.insert(
+                variable_name,
+                LilyLocalBindingInfo {
+                    origin: LocalBindingOrigin::PatternVariable(pattern_node.range),
+                    scope_expression: Some(scope_expression),
+                    type_: None,
+                },
+            );
+        }
+        LilySyntaxPattern::Variant {
+            name: _,
+            value: maybe_value,
+        } => {
+            if let Some(value_node) = maybe_value {
+                lily_syntax_pattern_bindings_into(
+                    bindings_so_far,
+                    type_aliases,
+                    choice_types,
+                    scope_expression,
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxPattern::WithComment {
@@ -6516,35 +6615,31 @@ fn lily_syntax_pattern_binding_names_into<'a>(
             pattern: maybe_pattern_node_in_typed,
         } => {
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => {}
-                    LilySyntaxPatternUntyped::Variable {
-                        overwriting: _,
-                        name: variable_name,
-                    } => {
-                        bindings_so_far.push(variable_name);
-                    }
-                    LilySyntaxPatternUntyped::Variant {
-                        name: _,
-                        value: maybe_value,
-                    } => {
-                        if let Some(value_node) = maybe_value {
-                            lily_syntax_pattern_binding_names_into(
-                                bindings_so_far,
-                                lily_syntax_node_unbox(value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
-                        lily_syntax_pattern_binding_names_into(
-                            bindings_so_far,
-                            LilySyntaxNode {
-                                range: pattern_node_in_typed.range,
-                                value: other_in_typed,
-                            },
-                        );
-                    }
-                }
+                lily_syntax_pattern_binding_names_into(
+                    bindings_so_far,
+                    LilySyntaxNode {
+                        range: pattern_node_in_typed.range,
+                        value: &pattern_node_in_typed.value,
+                    },
+                );
+            }
+        }
+        LilySyntaxPattern::Ignored => {}
+        LilySyntaxPattern::Variable {
+            overwriting: _,
+            name: variable_name,
+        } => {
+            bindings_so_far.push(variable_name);
+        }
+        LilySyntaxPattern::Variant {
+            name: _,
+            value: maybe_value,
+        } => {
+            if let Some(value_node) = maybe_value {
+                lily_syntax_pattern_binding_names_into(
+                    bindings_so_far,
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxPattern::WithComment {
@@ -6587,9 +6682,8 @@ fn lily_syntax_pattern_binding_types_into<'a>(
             pattern: maybe_pattern_node_in_typed,
         } => {
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => {}
-                    LilySyntaxPatternUntyped::Variable {
+                match pattern_node_in_typed.value.as_ref() {
+                    LilySyntaxPattern::Variable {
                         overwriting: _,
                         name: variable_name,
                     } => {
@@ -6605,20 +6699,7 @@ fn lily_syntax_pattern_binding_types_into<'a>(
                             }),
                         );
                     }
-                    LilySyntaxPatternUntyped::Variant {
-                        name: _,
-                        value: maybe_value,
-                    } => {
-                        if let Some(value_node) = maybe_value {
-                            lily_syntax_pattern_binding_types_into(
-                                bindings_so_far,
-                                type_aliases,
-                                choice_types,
-                                lily_syntax_node_unbox(value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
+                    other_in_typed => {
                         lily_syntax_pattern_binding_types_into(
                             bindings_so_far,
                             type_aliases,
@@ -6630,6 +6711,26 @@ fn lily_syntax_pattern_binding_types_into<'a>(
                         );
                     }
                 }
+            }
+        }
+        LilySyntaxPattern::Ignored => {}
+        LilySyntaxPattern::Variable {
+            overwriting: _,
+            name: variable_name,
+        } => {
+            bindings_so_far.insert(variable_name, None);
+        }
+        LilySyntaxPattern::Variant {
+            name: _,
+            value: maybe_value,
+        } => {
+            if let Some(value_node) = maybe_value {
+                lily_syntax_pattern_binding_types_into(
+                    bindings_so_far,
+                    type_aliases,
+                    choice_types,
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxPattern::WithComment {
@@ -6876,67 +6977,60 @@ fn lily_syntax_highlight_pattern_into(
                 });
             }
             if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
-                match &pattern_node_in_typed.value {
-                    LilySyntaxPatternUntyped::Ignored => {
-                        highlighted_so_far.push(LilySyntaxNode {
-                            range: pattern_node_in_typed.range,
-                            value: LilySyntaxHighlightKind::KeySymbol,
-                        });
-                    }
-                    LilySyntaxPatternUntyped::Variable { overwriting, name } => {
-                        if *overwriting {
-                            highlighted_so_far.push(LilySyntaxNode {
-                                range: lsp_types::Range {
-                                    start: pattern_node_in_typed.range.start,
-                                    end: lsp_position_add_characters(
-                                        pattern_node_in_typed.range.start,
-                                        name.len() as i32,
-                                    ),
-                                },
-                                value: LilySyntaxHighlightKind::Variable,
-                            });
-                            highlighted_so_far.push(LilySyntaxNode {
-                                range: lsp_types::Range {
-                                    start: lsp_position_add_characters(
-                                        pattern_node_in_typed.range.end,
-                                        -1,
-                                    ),
-                                    end: pattern_node_in_typed.range.end,
-                                },
-                                value: LilySyntaxHighlightKind::KeySymbol,
-                            });
-                        } else {
-                            highlighted_so_far.push(LilySyntaxNode {
-                                range: pattern_node_in_typed.range,
-                                value: LilySyntaxHighlightKind::Variable,
-                            });
-                        }
-                    }
-                    LilySyntaxPatternUntyped::Variant {
-                        name: name_node,
-                        value: maybe_value,
-                    } => {
-                        highlighted_so_far.push(LilySyntaxNode {
-                            range: name_node.range,
-                            value: LilySyntaxHighlightKind::Variant,
-                        });
-                        if let Some(value_node) = maybe_value {
-                            lily_syntax_highlight_pattern_into(
-                                highlighted_so_far,
-                                lily_syntax_node_unbox(value_node),
-                            );
-                        }
-                    }
-                    LilySyntaxPatternUntyped::Other(other_in_typed) => {
-                        lily_syntax_highlight_pattern_into(
-                            highlighted_so_far,
-                            LilySyntaxNode {
-                                range: pattern_node_in_typed.range,
-                                value: other_in_typed,
-                            },
-                        );
-                    }
-                }
+                lily_syntax_highlight_pattern_into(
+                    highlighted_so_far,
+                    LilySyntaxNode {
+                        range: pattern_node_in_typed.range,
+                        value: &pattern_node_in_typed.value,
+                    },
+                );
+            }
+        }
+        LilySyntaxPattern::Ignored => {
+            highlighted_so_far.push(LilySyntaxNode {
+                range: pattern_node.range,
+                value: LilySyntaxHighlightKind::KeySymbol,
+            });
+        }
+        LilySyntaxPattern::Variable { overwriting, name } => {
+            if *overwriting {
+                highlighted_so_far.push(LilySyntaxNode {
+                    range: lsp_types::Range {
+                        start: pattern_node.range.start,
+                        end: lsp_position_add_characters(
+                            pattern_node.range.start,
+                            name.len() as i32,
+                        ),
+                    },
+                    value: LilySyntaxHighlightKind::Variable,
+                });
+                highlighted_so_far.push(LilySyntaxNode {
+                    range: lsp_types::Range {
+                        start: lsp_position_add_characters(pattern_node.range.end, -1),
+                        end: pattern_node.range.end,
+                    },
+                    value: LilySyntaxHighlightKind::KeySymbol,
+                });
+            } else {
+                highlighted_so_far.push(LilySyntaxNode {
+                    range: pattern_node.range,
+                    value: LilySyntaxHighlightKind::Variable,
+                });
+            }
+        }
+        LilySyntaxPattern::Variant {
+            name: name_node,
+            value: maybe_value,
+        } => {
+            highlighted_so_far.push(LilySyntaxNode {
+                range: name_node.range,
+                value: LilySyntaxHighlightKind::Variant,
+            });
+            if let Some(value_node) = maybe_value {
+                lily_syntax_highlight_pattern_into(
+                    highlighted_so_far,
+                    lily_syntax_node_unbox(value_node),
+                );
             }
         }
         LilySyntaxPattern::WithComment {
@@ -7786,8 +7880,9 @@ fn parse_lily_syntax_pattern(state: &mut ParseState) -> Option<LilySyntaxNode<Li
         return None;
     }
     let start_position: lsp_types::Position = state.position;
-    parse_lily_char(state)
-        .map(LilySyntaxPattern::Char)
+
+    parse_symbol_as(state, "_", LilySyntaxPattern::Ignored)
+        .or_else(|| parse_lily_char(state).map(LilySyntaxPattern::Char))
         .or_else(|| parse_lily_syntax_pattern_record(state))
         .or_else(|| parse_lily_syntax_pattern_int(state))
         .or_else(|| parse_lily_syntax_pattern_unt(state))
@@ -7798,6 +7893,22 @@ fn parse_lily_syntax_pattern(state: &mut ParseState) -> Option<LilySyntaxNode<Li
             },
             value: pattern,
         })
+        .or_else(|| {
+            parse_lily_syntax_local_variable(state).map(|local_variable| LilySyntaxNode {
+                range: local_variable
+                    .overwriting
+                    .map(|end| lsp_types::Range {
+                        start: local_variable.name.range.start,
+                        end: end,
+                    })
+                    .unwrap_or(local_variable.name.range),
+                value: LilySyntaxPattern::Variable {
+                    overwriting: local_variable.overwriting.is_some(),
+                    name: local_variable.name.value,
+                },
+            })
+        })
+        .or_else(|| parse_lily_syntax_pattern_variant(state))
         .or_else(|| parse_lily_syntax_pattern_string(state))
         .or_else(|| parse_lily_syntax_pattern_with_comment(state))
         .or_else(|| parse_lily_syntax_pattern_typed(state))
@@ -7843,8 +7954,7 @@ fn parse_lily_syntax_pattern_typed(
     parse_lily_whitespace(state);
     let maybe_closing_colon_range: Option<lsp_types::Range> = parse_symbol_as_range(state, ":");
     parse_lily_whitespace(state);
-    let maybe_pattern: Option<LilySyntaxNode<LilySyntaxPatternUntyped>> =
-        parse_lily_syntax_pattern_untyped(state);
+    let maybe_pattern: Option<LilySyntaxNode<LilySyntaxPattern>> = parse_lily_syntax_pattern(state);
     Some(LilySyntaxNode {
         range: lsp_types::Range {
             start: start_position,
@@ -7858,41 +7968,9 @@ fn parse_lily_syntax_pattern_typed(
         value: LilySyntaxPattern::Typed {
             type_: maybe_type,
             closing_colon_range: maybe_closing_colon_range,
-            pattern: maybe_pattern,
+            pattern: maybe_pattern.map(lily_syntax_node_box),
         },
     })
-}
-fn parse_lily_syntax_pattern_untyped(
-    state: &mut ParseState,
-) -> Option<LilySyntaxNode<LilySyntaxPatternUntyped>> {
-    parse_symbol_as_range(state, "_")
-        .map(|range| LilySyntaxNode {
-            range: range,
-            value: LilySyntaxPatternUntyped::Ignored,
-        })
-        .or_else(|| {
-            parse_lily_syntax_local_variable(state).map(|local_variable| LilySyntaxNode {
-                range: local_variable
-                    .overwriting
-                    .map(|end| lsp_types::Range {
-                        start: local_variable.name.range.start,
-                        end: end,
-                    })
-                    .unwrap_or(local_variable.name.range),
-                value: LilySyntaxPatternUntyped::Variable {
-                    overwriting: local_variable.overwriting.is_some(),
-                    name: local_variable.name.value,
-                },
-            })
-        })
-        .or_else(|| parse_lily_syntax_pattern_variant(state))
-        .or_else(|| {
-            parse_lily_syntax_pattern(state).map(|other_node| {
-                lily_syntax_node_map(other_node, |other| {
-                    LilySyntaxPatternUntyped::Other(Box::new(other))
-                })
-            })
-        })
 }
 struct LilySyntaxLocalVariable {
     name: LilySyntaxNode<LilyName>,
@@ -7916,7 +7994,7 @@ fn parse_lily_syntax_local_variable(state: &mut ParseState) -> Option<LilySyntax
 }
 fn parse_lily_syntax_pattern_variant(
     state: &mut ParseState,
-) -> Option<LilySyntaxNode<LilySyntaxPatternUntyped>> {
+) -> Option<LilySyntaxNode<LilySyntaxPattern>> {
     let variable_node: LilySyntaxNode<LilyName> = parse_lily_uppercase_name_node(state)?;
     parse_lily_whitespace(state);
     let maybe_value: Option<LilySyntaxNode<LilySyntaxPattern>> = parse_lily_syntax_pattern(state);
@@ -7928,7 +8006,7 @@ fn parse_lily_syntax_pattern_variant(
                 Some(value_node) => value_node.range.end,
             },
         },
-        value: LilySyntaxPatternUntyped::Variant {
+        value: LilySyntaxPattern::Variant {
             name: variable_node,
             value: maybe_value.map(lily_syntax_node_box),
         },
@@ -9000,12 +9078,12 @@ If you wanted to start a declaration, try one of:
                         .value
                         .starts_with(|c: char| c.is_ascii_lowercase())
                     {
-                        "If you are trying to create a variable pattern, a :type: is required before it (so for example :int:my-input). Did you put one? Otherwise, it could be that a name starting with an uppercase letter is expected here. Also, is it indented correctly?"
+                        "It could be that a name starting with an uppercase letter is expected here (variant and type variable names start uppercase). Also, is it indented correctly?"
                     } else if unknown_node
                         .value
                         .starts_with(|c: char| c.is_ascii_uppercase())
                     {
-                        "Maybe you forgot to add its :type: before it? Otherwise, it could be that a lowercase letter is expected here. Also, is it indented correctly?"
+                        "It could be that a name starting with a lowercase letter is expected here (only variant and type variable names start uppercase). Also, is it indented correctly?"
                     } else if unknown_node
                         .value
                         .starts_with('#')
@@ -15260,13 +15338,13 @@ fn lily_syntax_pattern_to_rust<'a>(
                     catch: None,
                 };
             };
-            match &untyped_pattern_node.value {
-                LilySyntaxPatternUntyped::Ignored => CompiledLilyPattern {
+            match untyped_pattern_node.value.as_ref() {
+                LilySyntaxPattern::Ignored => CompiledLilyPattern {
                     rust: Some(syn_pat_wild()),
                     type_: maybe_type,
                     catch: Some(LilyPatternCatch::Exhaustive),
                 },
-                LilySyntaxPatternUntyped::Variable { overwriting, name } => {
+                LilySyntaxPattern::Variable { overwriting, name } => {
                     let maybe_existing_pattern_variable_with_same_name_info: Option<
                         LilyLocalBindingCompileInfo,
                     > = introduced_bindings.insert(
@@ -15314,39 +15392,7 @@ fn lily_syntax_pattern_to_rust<'a>(
                         catch: Some(LilyPatternCatch::Exhaustive),
                     }
                 }
-                LilySyntaxPatternUntyped::Other(other_in_typed) => {
-                    let compiled_other_pattern: CompiledLilyPattern = lily_syntax_pattern_to_rust(
-                        errors,
-                        records_used,
-                        introduced_str_bindings_to_match,
-                        introduced_bindings,
-                        bindings_to_clone,
-                        type_aliases,
-                        choice_types,
-                        is_reference,
-                        LilySyntaxNode {
-                            range: untyped_pattern_node.range,
-                            value: other_in_typed,
-                        },
-                    );
-                    if let Some(expected_type) = &maybe_type
-                        && let Some(actual_type) = &compiled_other_pattern.type_
-                        && let Some(type_diff) = lily_type_diff(expected_type, actual_type)
-                    {
-                        errors.push(LilyErrorNode {
-                            range: untyped_pattern_node.range,
-                            message: lily_type_diff_error_message(&type_diff).into_boxed_str(),
-                        });
-                        // proceed as if the expected type does not exist
-                        return compiled_other_pattern;
-                    }
-                    CompiledLilyPattern {
-                        rust: compiled_other_pattern.rust,
-                        type_: maybe_type.or(compiled_other_pattern.type_),
-                        catch: compiled_other_pattern.catch,
-                    }
-                }
-                LilySyntaxPatternUntyped::Variant {
+                LilySyntaxPattern::Variant {
                     name: name_node,
                     value: maybe_value,
                 } => {
@@ -15621,6 +15667,80 @@ fn lily_syntax_pattern_to_rust<'a>(
                         }
                     }
                 }
+                other_in_typed => {
+                    let compiled_other_pattern: CompiledLilyPattern = lily_syntax_pattern_to_rust(
+                        errors,
+                        records_used,
+                        introduced_str_bindings_to_match,
+                        introduced_bindings,
+                        bindings_to_clone,
+                        type_aliases,
+                        choice_types,
+                        is_reference,
+                        LilySyntaxNode {
+                            range: untyped_pattern_node.range,
+                            value: other_in_typed,
+                        },
+                    );
+                    if let Some(expected_type) = &maybe_type
+                        && let Some(actual_type) = &compiled_other_pattern.type_
+                        && let Some(type_diff) = lily_type_diff(expected_type, actual_type)
+                    {
+                        errors.push(LilyErrorNode {
+                            range: untyped_pattern_node.range,
+                            message: lily_type_diff_error_message(&type_diff).into_boxed_str(),
+                        });
+                        // proceed as if the expected type does not exist
+                        return compiled_other_pattern;
+                    }
+                    CompiledLilyPattern {
+                        rust: compiled_other_pattern.rust,
+                        type_: maybe_type.or(compiled_other_pattern.type_),
+                        catch: compiled_other_pattern.catch,
+                    }
+                }
+            }
+        }
+        LilySyntaxPattern::Ignored => {
+            errors.push(LilyErrorNode {
+                range: pattern_node.range,
+                message: Box::from("missing :type: before this ignored pattern. Add one in front. An example of a valid ignored pattern is :unt:_")
+            });
+            CompiledLilyPattern {
+                rust: Some(syn_pat_wild()),
+                type_: None,
+                catch: Some(LilyPatternCatch::Exhaustive),
+            }
+        }
+        LilySyntaxPattern::Variable {
+            overwriting: _,
+            name,
+        } => {
+            errors.push(LilyErrorNode {
+                range: pattern_node.range,
+                message: Box::from("missing :type: before this variable name. Add one in front. An example of a valid variable pattern is :unt:incoming-value")
+            });
+            CompiledLilyPattern {
+                rust: Some(syn::Pat::Ident(syn::PatIdent {
+                    attrs: vec![],
+                    by_ref: None,
+                    mutability: None,
+                    ident: syn_ident(&lily_name_to_lowercase_rust(name)),
+                    subpat: None,
+                })),
+                type_: None,
+                catch: Some(LilyPatternCatch::Exhaustive),
+            }
+        }
+        LilySyntaxPattern::Variant { name: _, value: _ } => {
+            errors.push(LilyErrorNode {
+                range: pattern_node.range,
+                message: Box::from("missing :type: before this variant pattern. Add one in front. An example of a valid variant pattern is :opt unt:Present :unt:value")
+            });
+            CompiledLilyPattern {
+                rust: None,
+                type_: None,
+                catch: None,
             }
         }
         LilySyntaxPattern::Record(fields) => {
