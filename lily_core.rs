@@ -210,6 +210,12 @@ impl<A> Opt<A> {
             Opt::Present(value) => std::option::Option::Some(value),
         }
     }
+    pub fn as_ref(&self) -> Opt<&A> {
+        match self {
+            Opt::Absent => Opt::Absent,
+            Opt::Present(value) => Opt::Present(value),
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
