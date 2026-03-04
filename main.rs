@@ -3999,51 +3999,19 @@ fn lily_syntax_expression_not_parenthesized_into(
         }
         LilySyntaxExpression::DotCall {
             argument0: argument0_node,
-            dot_key_symbol_range: _,
+            dot_key_symbol_range,
             function_variable: maybe_variable_node,
             argument1_up,
         } => {
-            lily_syntax_expression_argument0_in_dot_call_into(
+            lily_syntax_expression_dot_call_not_parenthesized_into(
                 so_far,
-                next_indent(indent),
+                indent,
+                lily_syntax_range_line_span(expression_node.range),
                 lily_syntax_node_unbox(argument0_node),
+                *dot_key_symbol_range,
+                maybe_variable_node.as_ref().map(lily_syntax_node_as_ref),
+                argument1_up,
             );
-            let full_line_span: LineSpan = lily_syntax_range_line_span(expression_node.range);
-            space_or_linebreak_indented_into(so_far, full_line_span, indent);
-            so_far.push('.');
-
-            if let Some(variable_node) = maybe_variable_node {
-                so_far.push_str(&variable_node.value);
-            }
-            if let Some((argument1_node, argument2_up)) = argument1_up.split_first() {
-                let line_span_before_argument1: LineSpan =
-                    if maybe_variable_node.as_ref().is_none_or(|variable_node| {
-                        variable_node.range.start.line == argument1_node.range.end.line
-                    }) && lily_syntax_range_line_span(argument1_node.range) == LineSpan::Single
-                    {
-                        LineSpan::Single
-                    } else {
-                        LineSpan::Multiple
-                    };
-                space_or_linebreak_indented_into(
-                    so_far,
-                    line_span_before_argument1,
-                    next_indent(indent),
-                );
-                lily_syntax_expression_parenthesized_if_space_separated_into(
-                    so_far,
-                    next_indent(indent),
-                    lily_syntax_node_as_ref(argument1_node),
-                );
-                for argument_node in argument2_up.iter().map(lily_syntax_node_as_ref) {
-                    space_or_linebreak_indented_into(so_far, full_line_span, next_indent(indent));
-                    lily_syntax_expression_parenthesized_if_space_separated_into(
-                        so_far,
-                        next_indent(indent),
-                        argument_node,
-                    );
-                }
-            }
         }
         LilySyntaxExpression::Match {
             matched: matched_node,
@@ -4322,6 +4290,73 @@ fn lily_syntax_expression_not_parenthesized_into(
             quoting_style,
         } => {
             lily_string_into(so_far, indent, *quoting_style, content);
+        }
+    }
+}
+fn lily_syntax_expression_dot_call_not_parenthesized_into(
+    so_far: &mut String,
+    indent: usize,
+    full_line_span: LineSpan,
+    argument0_node: LilySyntaxNode<&LilySyntaxExpression>,
+    dot_key_symbol_range: lsp_types::Range,
+    maybe_variable_node: Option<LilySyntaxNode<&LilyName>>,
+    argument1_up: &[LilySyntaxNode<LilySyntaxExpression>],
+) {
+    match argument0_node.value {
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_argument0_node,
+            dot_key_symbol_range: argument0_dot_key_symbol_range,
+            function_variable: argument0_maybe_variable_node,
+            argument1_up: argument0_argument1_up,
+        } => {
+            lily_syntax_expression_dot_call_not_parenthesized_into(
+                so_far,
+                indent,
+                full_line_span,
+                lily_syntax_node_unbox(argument0_argument0_node),
+                *argument0_dot_key_symbol_range,
+                argument0_maybe_variable_node
+                    .as_ref()
+                    .map(lily_syntax_node_as_ref),
+                argument0_argument1_up,
+            );
+        }
+        _ => {
+            lily_syntax_expression_argument0_in_dot_call_into(so_far, indent, argument0_node);
+        }
+    }
+    space_or_linebreak_indented_into(so_far, full_line_span, indent);
+    so_far.push('.');
+    if let Some(variable_node) = maybe_variable_node {
+        so_far.push_str(variable_node.value);
+    }
+    if let Some((argument1_node, argument2_up)) = argument1_up.split_first() {
+        let line_span_before_argument1: LineSpan =
+            if maybe_variable_node.as_ref().is_none_or(|variable_node| {
+                variable_node.range.start.line == argument1_node.range.end.line
+            }) && lily_syntax_range_line_span(argument1_node.range) == LineSpan::Single
+            {
+                LineSpan::Single
+            } else {
+                LineSpan::Multiple
+            };
+        space_or_linebreak_indented_into(so_far, line_span_before_argument1, next_indent(indent));
+        lily_syntax_expression_parenthesized_if_space_separated_into(
+            so_far,
+            next_indent(indent),
+            lily_syntax_node_as_ref(argument1_node),
+        );
+        let argument2_up_line_span: LineSpan = lily_syntax_range_line_span(lsp_types::Range {
+            start: dot_key_symbol_range.start,
+            end: argument2_up.last().unwrap_or(argument1_node).range.end,
+        });
+        for argument_node in argument2_up.iter().map(lily_syntax_node_as_ref) {
+            space_or_linebreak_indented_into(so_far, argument2_up_line_span, next_indent(indent));
+            lily_syntax_expression_parenthesized_if_space_separated_into(
+                so_far,
+                next_indent(indent),
+                argument_node,
+            );
         }
     }
 }
