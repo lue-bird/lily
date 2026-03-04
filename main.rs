@@ -2795,6 +2795,12 @@ enum LilySyntaxExpression {
         variable: LilySyntaxNode<LilyName>,
         arguments: Vec<LilySyntaxNode<LilySyntaxExpression>>,
     },
+    DotCall {
+        argument0: LilySyntaxNode<Box<LilySyntaxExpression>>,
+        dot_key_symbol_range: lsp_types::Range,
+        function_variable: Option<LilySyntaxNode<LilyName>>,
+        argument1_up: Vec<LilySyntaxNode<LilySyntaxExpression>>,
+    },
     Match {
         matched: LilySyntaxNode<Box<LilySyntaxExpression>>,
         // consider splitting into case0, case1_up
@@ -3057,7 +3063,7 @@ fn lily_syntax_expression_type_with<'a>(
             arguments,
         } => match local_bindings.get(variable_node.value.as_str()) {
             Some(maybe_variable_type) => {
-                let Some(variable_type) = maybe_variable_type.as_ref() else {
+                let Some(variable_type) = maybe_variable_type else {
                     return None;
                 };
                 if arguments.is_empty() {
@@ -3085,50 +3091,59 @@ fn lily_syntax_expression_type_with<'a>(
                 if arguments.is_empty() {
                     Some(project_variable_type.clone())
                 } else {
-                    let LilyType::Function {
-                        inputs: variable_type_inputs,
-                        output: variable_type_output,
-                    } = project_variable_type
-                    else {
-                        return None;
-                    };
-                    // optimization possibility: when output contains no type variables,
-                    // just return it
-                    let mut type_parameter_replacements: std::collections::HashMap<
-                        &str,
-                        &LilyType,
-                    > = std::collections::HashMap::new();
-                    let argument_types: Vec<Option<LilyType>> = arguments
-                        .iter()
-                        .map(|argument_node| {
-                            lily_syntax_expression_type(
-                                type_aliases,
-                                choice_types,
-                                variable_declarations,
-                                lily_syntax_node_as_ref(argument_node),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    for (parameter_type, maybe_argument_type_node) in
-                        variable_type_inputs.iter().zip(argument_types.iter())
-                    {
-                        if let Some(argument_type_node) = maybe_argument_type_node {
-                            lily_type_collect_variables_that_are_concrete_into(
-                                &mut type_parameter_replacements,
-                                parameter_type,
-                                argument_type_node,
-                            );
-                        }
-                    }
-                    let mut concrete_output_type: LilyType = variable_type_output.as_ref().clone();
-                    lily_type_replace_variables(
-                        &type_parameter_replacements,
-                        &mut concrete_output_type,
-                    );
-                    Some(concrete_output_type)
+                    project_function_variable_call_type_with(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        project_variable_type,
+                        arguments.iter().map(lily_syntax_node_as_ref),
+                    )
                 }
             }
         },
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            let Some(variable_node) = maybe_variable_node else {
+                return None;
+            };
+            match local_bindings.get(variable_node.value.as_str()) {
+                Some(maybe_function_variable_type) => {
+                    let Some(function_variable_type) = maybe_function_variable_type else {
+                        return None;
+                    };
+                    let LilyType::Function {
+                        inputs: _,
+                        output: variable_type_output,
+                    } = function_variable_type
+                    else {
+                        return None;
+                    };
+                    Some(variable_type_output.as_ref().clone())
+                }
+                None => {
+                    let Some(maybe_project_variable_info) =
+                        variable_declarations.get(variable_node.value.as_str())
+                    else {
+                        return None;
+                    };
+                    let Some(project_variable_type) = &maybe_project_variable_info.type_ else {
+                        return None;
+                    };
+                    project_function_variable_call_type_with(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        project_variable_type,
+                        std::iter::once(lily_syntax_node_unbox(argument0_node))
+                            .chain(argument1_up.iter().map(lily_syntax_node_as_ref)),
+                    )
+                }
+            }
+        }
         LilySyntaxExpression::Match { matched: _, cases } => match cases.iter().find_map(|case| {
             case.result
                 .as_ref()
@@ -3296,6 +3311,50 @@ fn lily_syntax_expression_type_with<'a>(
         },
     }
 }
+fn project_function_variable_call_type_with<'a>(
+    type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
+    variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
+    project_variable_type: &LilyType,
+    arguments: impl Iterator<Item = LilySyntaxNode<&'a LilySyntaxExpression>>,
+) -> Option<LilyType> {
+    let LilyType::Function {
+        inputs: variable_type_inputs,
+        output: variable_type_output,
+    } = project_variable_type
+    else {
+        return None;
+    };
+    // optimization possibility: when output contains no type variables,
+    // just return it
+    let mut type_parameter_replacements: std::collections::HashMap<&str, &LilyType> =
+        std::collections::HashMap::new();
+    let argument_types: Vec<Option<LilyType>> = arguments
+        .map(|argument_node| {
+            lily_syntax_expression_type(
+                type_aliases,
+                choice_types,
+                variable_declarations,
+                argument_node,
+            )
+        })
+        .collect::<Vec<_>>();
+    for (parameter_type, maybe_argument_type_node) in
+        variable_type_inputs.iter().zip(argument_types.iter())
+    {
+        if let Some(argument_type_node) = maybe_argument_type_node {
+            lily_type_collect_variables_that_are_concrete_into(
+                &mut type_parameter_replacements,
+                parameter_type,
+                argument_type_node,
+            );
+        }
+    }
+    let mut concrete_output_type: LilyType = variable_type_output.as_ref().clone();
+    lily_type_replace_variables(&type_parameter_replacements, &mut concrete_output_type);
+    Some(concrete_output_type)
+}
+
 const lily_type_char_name: &str = "char";
 const lily_type_char: LilyType = LilyType::ChoiceConstruct {
     name: LilyName::const_new(lily_type_char_name),
@@ -3938,6 +3997,54 @@ fn lily_syntax_expression_not_parenthesized_into(
                 }
             }
         }
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            lily_syntax_expression_argument0_in_dot_call_into(
+                so_far,
+                next_indent(indent),
+                lily_syntax_node_unbox(argument0_node),
+            );
+            let full_line_span: LineSpan = lily_syntax_range_line_span(expression_node.range);
+            space_or_linebreak_indented_into(so_far, full_line_span, indent);
+            so_far.push('.');
+
+            if let Some(variable_node) = maybe_variable_node {
+                so_far.push_str(&variable_node.value);
+            }
+            if let Some((argument1_node, argument2_up)) = argument1_up.split_first() {
+                let line_span_before_argument1: LineSpan =
+                    if maybe_variable_node.as_ref().is_none_or(|variable_node| {
+                        variable_node.range.start.line == argument1_node.range.end.line
+                    }) && lily_syntax_range_line_span(argument1_node.range) == LineSpan::Single
+                    {
+                        LineSpan::Single
+                    } else {
+                        LineSpan::Multiple
+                    };
+                space_or_linebreak_indented_into(
+                    so_far,
+                    line_span_before_argument1,
+                    next_indent(indent),
+                );
+                lily_syntax_expression_parenthesized_if_space_separated_into(
+                    so_far,
+                    next_indent(indent),
+                    lily_syntax_node_as_ref(argument1_node),
+                );
+                for argument_node in argument2_up.iter().map(lily_syntax_node_as_ref) {
+                    space_or_linebreak_indented_into(so_far, full_line_span, next_indent(indent));
+                    lily_syntax_expression_parenthesized_if_space_separated_into(
+                        so_far,
+                        next_indent(indent),
+                        argument_node,
+                    );
+                }
+            }
+        }
         LilySyntaxExpression::Match {
             matched: matched_node,
             cases,
@@ -4439,6 +4546,7 @@ fn lily_syntax_expression_parenthesized_if_space_separated_into(
             variable: _,
             arguments,
         } => !arguments.is_empty(),
+        LilySyntaxExpression::DotCall { .. } => true,
         LilySyntaxExpression::Match { .. } => true,
         LilySyntaxExpression::Typed { .. } => true,
         LilySyntaxExpression::Variant { .. } => true,
@@ -4454,6 +4562,38 @@ fn lily_syntax_expression_parenthesized_if_space_separated_into(
         LilySyntaxExpression::String { .. } => false,
     };
     if is_space_separated {
+        lily_syntax_expression_parenthesized_into(so_far, indent, unparenthesized);
+    } else {
+        lily_syntax_expression_not_parenthesized_into(so_far, indent, expression_node);
+    }
+}
+fn lily_syntax_expression_argument0_in_dot_call_into(
+    so_far: &mut String,
+    indent: usize,
+    expression_node: LilySyntaxNode<&LilySyntaxExpression>,
+) {
+    let unparenthesized: LilySyntaxNode<&LilySyntaxExpression> =
+        lily_syntax_expression_to_unparenthesized(expression_node);
+    let should_parenthesize: bool = match unparenthesized.value {
+        LilySyntaxExpression::Lambda { .. } => true,
+        LilySyntaxExpression::AfterLocalVariable { .. } => true,
+        LilySyntaxExpression::Match { .. } => true,
+        LilySyntaxExpression::Typed { .. } => true,
+        LilySyntaxExpression::Variant { .. } => true,
+        LilySyntaxExpression::WithComment { .. } => true,
+        LilySyntaxExpression::VariableOrCall { .. } => false,
+        LilySyntaxExpression::DotCall { .. } => false,
+        LilySyntaxExpression::Char(_) => false,
+        LilySyntaxExpression::Dec(_) => false,
+        LilySyntaxExpression::Unt { .. } => false,
+        LilySyntaxExpression::Int { .. } => false,
+        LilySyntaxExpression::Vec(_) => false,
+        LilySyntaxExpression::Parenthesized(_) => false,
+        LilySyntaxExpression::Record(_) => false,
+        LilySyntaxExpression::RecordUpdate { .. } => false,
+        LilySyntaxExpression::String { .. } => false,
+    };
+    if should_parenthesize {
         lily_syntax_expression_parenthesized_into(so_far, indent, unparenthesized);
     } else {
         lily_syntax_expression_not_parenthesized_into(so_far, indent, expression_node);
@@ -5230,14 +5370,45 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
             }
             arguments
                 .iter()
-                .try_fold(local_bindings, |local_bindings, argument| {
+                .try_fold(local_bindings, |local_bindings, argument_node| {
                     lily_syntax_expression_find_symbol_at_position(
                         type_aliases,
                         choice_types,
                         variable_declarations,
                         scope_declaration,
                         local_bindings,
-                        lily_syntax_node_as_ref(argument),
+                        lily_syntax_node_as_ref(argument_node),
+                        position,
+                    )
+                })
+        }
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            if let Some(variable_node) = maybe_variable_node
+                && lsp_range_includes_position(variable_node.range, position)
+            {
+                return std::ops::ControlFlow::Break(LilySyntaxNode {
+                    value: LilySyntaxSymbol::Variable {
+                        name: &variable_node.value,
+                        local_bindings: local_bindings,
+                    },
+                    range: variable_node.range,
+                });
+            }
+            std::iter::once(lily_syntax_node_unbox(argument0_node))
+                .chain(argument1_up.iter().map(lily_syntax_node_as_ref))
+                .try_fold(local_bindings, |local_bindings, argument_node| {
+                    lily_syntax_expression_find_symbol_at_position(
+                        type_aliases,
+                        choice_types,
+                        variable_declarations,
+                        scope_declaration,
+                        local_bindings,
+                        argument_node,
                         position,
                     )
                 })
@@ -5970,28 +6141,62 @@ fn lily_syntax_expression_uses_of_symbol_into(
             variable: variable_node,
             arguments,
         } => {
-            let name: &str = variable_node.value.as_str();
-            let name_is_symbol_use: bool = match symbol_to_collect_uses_of {
+            let variable_name: &str = variable_node.value.as_str();
+            let variable_is_symbol_use: bool = match symbol_to_collect_uses_of {
                 LilySymbolToReference::LocalBinding {
                     name: symbol_name,
                     including_local_declaration_name: _,
-                } => {
-                    // fairly certain we can skip the local_bindings check and collection
-                    // since ::LocalBinding is only passed
-                    // into lily_syntax_expression_uses_of_symbol_into
-                    // when checking within a scope expression
-                    symbol_name == name && local_bindings.contains(&name)
-                }
+                } => symbol_name == variable_name,
                 LilySymbolToReference::Variable {
                     name: symbol_name,
                     including_declaration_name: _,
-                } => symbol_name == name,
+                } => symbol_name == variable_name && !local_bindings.contains(&variable_name),
                 _ => false,
             };
-            if name_is_symbol_use {
+            if variable_is_symbol_use {
                 uses_so_far.push(variable_node.range);
             }
             for argument_node in arguments {
+                lily_syntax_expression_uses_of_symbol_into(
+                    uses_so_far,
+                    type_aliases,
+                    local_bindings,
+                    lily_syntax_node_as_ref(argument_node),
+                    symbol_to_collect_uses_of,
+                );
+            }
+        }
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            if let Some(variable_node) = maybe_variable_node {
+                let variable_name: &str = variable_node.value.as_str();
+                let variable_is_symbol_use: bool = match symbol_to_collect_uses_of {
+                    LilySymbolToReference::LocalBinding {
+                        name: symbol_name,
+                        including_local_declaration_name: _,
+                    } => symbol_name == variable_name,
+                    LilySymbolToReference::Variable {
+                        name: symbol_name,
+                        including_declaration_name: _,
+                    } => symbol_name == variable_name && !local_bindings.contains(&variable_name),
+                    _ => false,
+                };
+                if variable_is_symbol_use {
+                    uses_so_far.push(variable_node.range);
+                }
+            }
+            lily_syntax_expression_uses_of_symbol_into(
+                uses_so_far,
+                type_aliases,
+                local_bindings,
+                lily_syntax_node_unbox(argument0_node),
+                symbol_to_collect_uses_of,
+            );
+            for argument_node in argument1_up {
                 lily_syntax_expression_uses_of_symbol_into(
                     uses_so_far,
                     type_aliases,
@@ -7187,6 +7392,29 @@ fn lily_syntax_highlight_expression_into(
                 );
             }
         }
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            lily_syntax_highlight_expression_into(
+                highlighted_so_far,
+                lily_syntax_node_unbox(argument0_node),
+            );
+            if let Some(variable_node) = maybe_variable_node {
+                highlighted_so_far.push(LilySyntaxNode {
+                    range: variable_node.range,
+                    value: LilySyntaxHighlightKind::DeclaredVariable,
+                });
+            }
+            for argument_node in argument1_up {
+                lily_syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    lily_syntax_node_as_ref(argument_node),
+                );
+            }
+        }
         LilySyntaxExpression::Match {
             matched: matched_node,
             cases,
@@ -8101,7 +8329,14 @@ fn parse_lily_syntax_expression_number(state: &mut ParseState) -> Option<LilySyn
     } else {
         return None;
     };
-    let has_decimal_point: bool = parse_symbol(state, ".");
+    let has_decimal_point: bool = {
+        // lookahead that there's no letter after .
+        // disambiguate from argument.function-name
+        state
+            .source
+            .get((state.offset_utf8 + 1)..)
+            .is_none_or(|str| !str.starts_with(|c: char| c.is_ascii_alphabetic()))
+    } && parse_symbol(state, ".");
     if has_decimal_point {
         parse_same_line_while(state, |c| c.is_ascii_digit());
     }
@@ -8235,7 +8470,7 @@ fn parse_lily_syntax_expression_space_separated(
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
-    let start_expression_node: LilySyntaxNode<LilySyntaxExpression> =
+    let mut start_expression_node: LilySyntaxNode<LilySyntaxExpression> =
         parse_lily_syntax_expression_typed(state)
             .or_else(|| parse_lily_syntax_expression_after_local_variable(state))
             .or_else(|| parse_lily_syntax_expression_lambda(state))
@@ -8248,6 +8483,8 @@ fn parse_lily_syntax_expression_space_separated(
                 parse_lily_syntax_expression_parenthesized(state)
                     .or_else(|| parse_lily_syntax_expression_record_or_record_update(state))
                     .or_else(|| parse_lily_char(state).map(LilySyntaxExpression::Char))
+                    .or_else(|| parse_lily_syntax_expression_list(state))
+                    .or_else(|| parse_lily_syntax_expression_number(state))
                     .map(|start_expression| LilySyntaxNode {
                         range: lsp_types::Range {
                             start: start_position,
@@ -8255,26 +8492,40 @@ fn parse_lily_syntax_expression_space_separated(
                         },
                         value: start_expression,
                     })
-                    .or_else(|| {
-                        parse_lily_syntax_expression_list(state).map(|node| LilySyntaxNode {
-                            range: lsp_types::Range {
-                                start: start_position,
-                                end: state.position,
-                            },
-                            value: node,
-                        })
-                    })
-                    .or_else(|| {
-                        parse_lily_syntax_expression_number(state).map(|node| LilySyntaxNode {
-                            range: lsp_types::Range {
-                                start: start_position,
-                                end: state.position,
-                            },
-                            value: node,
-                        })
-                    })
             })?;
     parse_lily_whitespace(state);
+    while let Some(dot_key_symbol_range) = parse_symbol_as_range(state, ".") {
+        parse_lily_whitespace(state);
+        let maybe_function_variable_node: Option<LilySyntaxNode<LilyName>> =
+            if state.position.character <= u32::from(state.indent) {
+                None
+            } else {
+                parse_lily_lowercase_name_node(state)
+            };
+        parse_lily_whitespace(state);
+        let mut call_end_position: lsp_types::Position = maybe_function_variable_node
+            .as_ref()
+            .map(|n| n.range.end)
+            .unwrap_or(dot_key_symbol_range.end);
+        let mut argument1_up: Vec<LilySyntaxNode<LilySyntaxExpression>> = Vec::new();
+        while let Some(argument_node) = parse_lily_syntax_expression_not_space_separated(state) {
+            call_end_position = argument_node.range.end;
+            argument1_up.push(argument_node);
+            parse_lily_whitespace(state);
+        }
+        start_expression_node = LilySyntaxNode {
+            range: lsp_types::Range {
+                start: start_expression_node.range.start,
+                end: call_end_position,
+            },
+            value: LilySyntaxExpression::DotCall {
+                argument0: lily_syntax_node_box(start_expression_node),
+                dot_key_symbol_range: dot_key_symbol_range,
+                function_variable: maybe_function_variable_node,
+                argument1_up: argument1_up,
+            },
+        };
+    }
     let mut cases: Vec<LilySyntaxExpressionCase> = Vec::new();
     'parsing_cases: while let Some(parsed_case) = parse_lily_syntax_expression_case(state) {
         cases.push(parsed_case.syntax);
@@ -8352,17 +8603,10 @@ fn parse_lily_syntax_expression_variable_or_call(
     parse_lily_whitespace(state);
     let mut arguments: Vec<LilySyntaxNode<LilySyntaxExpression>> = Vec::new();
     let mut call_end_position: lsp_types::Position = variable_node.range.end;
-    'parsing_arguments: loop {
-        match parse_lily_syntax_expression_not_space_separated(state) {
-            None => {
-                break 'parsing_arguments;
-            }
-            Some(argument_node) => {
-                call_end_position = argument_node.range.end;
-                arguments.push(argument_node);
-                parse_lily_whitespace(state);
-            }
-        }
+    while let Some(argument_node) = parse_lily_syntax_expression_not_space_separated(state) {
+        call_end_position = argument_node.range.end;
+        arguments.push(argument_node);
+        parse_lily_whitespace(state);
     }
     Some(LilySyntaxNode {
         range: lsp_types::Range {
@@ -10677,6 +10921,35 @@ fn lily_syntax_expression_connect_variables_in_graph_from(
                     .new_edge(origin_variable_declaration_graph_node, variable_graph_node);
             }
             for argument_node in arguments {
+                lily_syntax_expression_connect_variables_in_graph_from(
+                    variable_graph,
+                    origin_variable_declaration_graph_node,
+                    variable_graph_node_by_name,
+                    lily_syntax_node_as_ref(argument_node),
+                );
+            }
+        }
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            if let Some(variable_node) = maybe_variable_node
+                && let Some(variable_graph_node) = variable_graph_node_by_name
+                    .get(&variable_node.value as &str)
+                    .copied()
+            {
+                variable_graph
+                    .new_edge(origin_variable_declaration_graph_node, variable_graph_node);
+            }
+            lily_syntax_expression_connect_variables_in_graph_from(
+                variable_graph,
+                origin_variable_declaration_graph_node,
+                variable_graph_node_by_name,
+                lily_syntax_node_unbox(argument0_node),
+            );
+            for argument_node in argument1_up {
                 lily_syntax_expression_connect_variables_in_graph_from(
                     variable_graph,
                     origin_variable_declaration_graph_node,
@@ -13239,286 +13512,51 @@ fn lily_syntax_expression_to_rust<'a>(
         LilySyntaxExpression::VariableOrCall {
             variable: variable_node,
             arguments,
+        } => lily_syntax_expression_call_to_rust(
+            errors,
+            records_used,
+            type_aliases,
+            choice_types,
+            project_variable_declarations,
+            &local_bindings,
+            lily_syntax_node_as_ref(variable_node),
+            arguments.iter().map(lily_syntax_node_as_ref),
+            arguments.len(),
+        ),
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range,
+            function_variable: variable_node,
+            argument1_up,
         } => {
-            match local_bindings.get(variable_node.value.as_str()) {
-                Some(variable_info) => {
-                    let (rust_arguments, argument_maybe_types): (
-                        Vec<syn::Expr>,
-                        Vec<Option<LilyType>>,
-                    ) = arguments
-                        .iter()
-                        .map(|argument_node| {
-                            let compiled_argument: CompiledLilyExpression =
-                                lily_syntax_expression_to_rust(
-                                    errors,
-                                    records_used,
-                                    type_aliases,
-                                    choice_types,
-                                    project_variable_declarations,
-                                    local_bindings.clone(),
-                                    FnRepresentation::RcDyn,
-                                    lily_syntax_node_as_ref(argument_node),
-                                );
-                            (compiled_argument.rust, compiled_argument.type_)
-                        })
-                        .unzip();
-                    let rust_reference: syn::Expr =
-                        syn_expr_reference([&lily_name_to_lowercase_rust(&variable_node.value)]);
-                    let Some(variable_type) = &variable_info.type_ else {
-                        return CompiledLilyExpression {
-                            rust: syn_expr_todo(),
-                            type_: None,
-                        };
-                    };
-                    let type_: LilyType = if arguments.is_empty() {
-                        variable_type.clone()
-                    } else {
-                        match variable_type {
-                            LilyType::Function {
-                                inputs: variable_input_types,
-                                output: variable_output_type,
-                            } => {
-                                match variable_input_types.len().cmp(&arguments.len()) {
-                                    std::cmp::Ordering::Equal => {}
-                                    std::cmp::Ordering::Less => {
-                                        errors.push(LilyErrorNode {
-                                            range: variable_node.range,
-                                            message: format!(
-                                                "too many arguments. Expected {} less. To call a function that is the result of a function, store it in an intermediate let and call that variable",
-                                                arguments.len() - variable_input_types.len()
-                                            ).into_boxed_str()
-                                        });
-                                    }
-                                    std::cmp::Ordering::Greater => {
-                                        errors.push(LilyErrorNode {
-                                            range: variable_node.range,
-                                            message: format!(
-                                                "missing arguments. Expected {} more. Note that partial application is not a feature in lily. Instead, wrap this call in a lambda that accepts and applies the remaining arguments",
-                                                variable_input_types.len() - arguments.len()
-                                            ).into_boxed_str()
-                                        });
-                                    }
-                                }
-                                let mut any_argument_type_conflicts_with_variable_input_type: bool =
-                                    false;
-                                for ((variable_input_type, maybe_argument_type), argument_node) in
-                                    variable_input_types
-                                        .iter()
-                                        .zip(argument_maybe_types.iter())
-                                        .zip(arguments.iter())
-                                {
-                                    if let Some(argument_type) = maybe_argument_type
-                                        && let Some(argument_variable_input_type_diff) =
-                                            lily_type_diff(variable_input_type, argument_type)
-                                    {
-                                        errors.push(LilyErrorNode {
-                                            range: argument_node.range,
-                                            message: lily_type_diff_error_message(
-                                                &argument_variable_input_type_diff,
-                                            )
-                                            .into_boxed_str(),
-                                        });
-                                        any_argument_type_conflicts_with_variable_input_type = true;
-                                    }
-                                }
-                                if any_argument_type_conflicts_with_variable_input_type
-                                    || variable_input_types.len() > arguments.len()
-                                {
-                                    return CompiledLilyExpression {
-                                        rust: syn_expr_todo(),
-                                        type_: None,
-                                    };
-                                }
-                                (**variable_output_type).clone()
-                            }
-                            _ => {
-                                errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("calling a variable whose type is not a function. Maybe you forgot a separating comma or similar?") });
-                                return CompiledLilyExpression {
-                                    rust: syn_expr_todo(),
-                                    type_: None,
-                                };
-                            }
-                        }
-                    };
-                    let rust_reference_cloned_if_necessary: syn::Expr = if variable_info.is_copy
-                        || variable_info.last_uses.contains(&variable_node.range)
-                    {
-                        rust_reference
-                    } else {
-                        syn_expr_call_clone_method(rust_reference)
-                    };
-                    CompiledLilyExpression {
-                        rust: if arguments.is_empty() {
-                            rust_reference_cloned_if_necessary
-                        } else {
-                            syn::Expr::Call(syn::ExprCall {
-                                attrs: vec![],
-                                func: Box::new(rust_reference_cloned_if_necessary),
-                                paren_token: syn::token::Paren(syn_span()),
-                                args: rust_arguments.into_iter().collect(),
-                            })
-                        },
-                        type_: Some(type_),
-                    }
-                }
-                None => {
-                    let (rust_arguments, argument_maybe_types): (
-                        syn::punctuated::Punctuated<syn::Expr, _>,
-                        Vec<Option<LilyType>>,
-                    ) = arguments
-                        .iter()
-                        .map(|argument_node| {
-                            let compiled_argument: CompiledLilyExpression =
-                                lily_syntax_expression_to_rust(
-                                    errors,
-                                    records_used,
-                                    type_aliases,
-                                    choice_types,
-                                    project_variable_declarations,
-                                    local_bindings.clone(),
-                                    FnRepresentation::Impl,
-                                    lily_syntax_node_as_ref(argument_node),
-                                );
-                            (compiled_argument.rust, compiled_argument.type_)
-                        })
-                        .unzip();
-                    let Some(project_variable_info) =
-                        project_variable_declarations.get(variable_node.value.as_str())
-                    else {
-                        errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("unknown variable. No project variable or local variable has this name. Check for typos.") });
-                        return CompiledLilyExpression {
-                            rust: syn_expr_todo(),
-                            type_: None,
-                        };
-                    };
-                    let Some(project_variable_type) = &project_variable_info.type_ else {
-                        errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("this project variable has an incomplete type. Go to that variable's declaration and fix its errors. If there aren't any, these declarations are (mutually) recursive and need an explicit output type! You can add one by prepending :type: before any expression like the result of a lambda.") });
-                        return CompiledLilyExpression {
-                            rust: syn_expr_todo(),
-                            type_: None,
-                        };
-                    };
-                    let rust_reference: syn::Expr =
-                        syn_expr_reference([&lily_name_to_lowercase_rust(&variable_node.value)]);
-                    let type_: LilyType = if arguments.is_empty() {
-                        project_variable_type.clone()
-                    } else {
-                        match project_variable_type {
-                            LilyType::Function {
-                                inputs: project_variable_input_types,
-                                output: project_variable_output_type,
-                            } => {
-                                // optimization possibility: when output contains no type variables,
-                                // just return it
-                                match project_variable_input_types.len().cmp(&arguments.len()) {
-                                    std::cmp::Ordering::Equal => {}
-                                    std::cmp::Ordering::Less => {
-                                        errors.push(LilyErrorNode {
-                                            range: variable_node.range,
-                                            message: format!(
-                                                "too many arguments. Expected {} less. To call a function that is the result of a function, store it in an intermediate let and call that variable",
-                                                arguments.len() - project_variable_input_types.len()
-                                            ).into_boxed_str()
-                                        });
-                                    }
-                                    std::cmp::Ordering::Greater => {
-                                        errors.push(LilyErrorNode {
-                                            range: variable_node.range,
-                                            message: format!(
-                                                "missing arguments. Expected {} more. Note that partial application is not a feature in lily. Instead, wrap this call in a lambda that accepts and applies the remaining arguments",
-                                                project_variable_input_types.len() - arguments.len()
-                                            ).into_boxed_str()
-                                        });
-                                    }
-                                }
-                                let mut type_parameter_replacements: std::collections::HashMap<
-                                    &str,
-                                    &LilyType,
-                                > = std::collections::HashMap::new();
-                                for (parameter_type_node, maybe_argument_type) in
-                                    project_variable_input_types
-                                        .iter()
-                                        .zip(argument_maybe_types.iter())
-                                {
-                                    if let Some(argument_type) = maybe_argument_type {
-                                        lily_type_collect_variables_that_are_concrete_into(
-                                            &mut type_parameter_replacements,
-                                            parameter_type_node,
-                                            argument_type,
-                                        );
-                                    }
-                                }
-                                let mut any_argument_type_conflicts_with_variable_input_type: bool =
-                                    false;
-                                for (
-                                    (project_variable_input_type, maybe_argument_type),
-                                    argument_node,
-                                ) in project_variable_input_types
-                                    .iter()
-                                    .zip(argument_maybe_types.iter())
-                                    .zip(arguments.iter())
-                                {
-                                    if let Some(argument_type) = maybe_argument_type {
-                                        let mut project_variable_input_type: LilyType =
-                                            project_variable_input_type.clone();
-                                        lily_type_replace_variables(
-                                            &type_parameter_replacements,
-                                            &mut project_variable_input_type,
-                                        );
-                                        if let Some(argument_variable_input_type_diff) =
-                                            lily_type_diff(
-                                                &project_variable_input_type,
-                                                argument_type,
-                                            )
-                                        {
-                                            errors.push(LilyErrorNode {
-                                                range: argument_node.range,
-                                                message: lily_type_diff_error_message(
-                                                    &argument_variable_input_type_diff,
-                                                )
-                                                .into_boxed_str(),
-                                            });
-                                            any_argument_type_conflicts_with_variable_input_type =
-                                                true;
-                                        }
-                                    }
-                                }
-                                if any_argument_type_conflicts_with_variable_input_type
-                                    || project_variable_input_types.len() > arguments.len()
-                                {
-                                    return CompiledLilyExpression {
-                                        rust: syn_expr_todo(),
-                                        type_: None,
-                                    };
-                                }
-                                let mut variable_output_type: LilyType =
-                                    (**project_variable_output_type).clone();
-                                lily_type_replace_variables(
-                                    &type_parameter_replacements,
-                                    &mut variable_output_type,
-                                );
-                                variable_output_type
-                            }
-                            _ => {
-                                errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("calling a variable whose type is not a function. Maybe you forgot a separating comma or similar?") });
-                                return CompiledLilyExpression {
-                                    rust: syn_expr_todo(),
-                                    type_: None,
-                                };
-                            }
-                        }
-                    };
-                    CompiledLilyExpression {
-                        rust: syn::Expr::Call(syn::ExprCall {
-                            attrs: vec![],
-                            func: Box::new(rust_reference),
-                            paren_token: syn::token::Paren(syn_span()),
-                            args: rust_arguments,
-                        }),
-                        type_: Some(type_),
-                    }
-                }
-            }
+            let Some(variable_node) = variable_node else {
+                errors.push(LilyErrorNode {
+                    range: *dot_key_symbol_range,
+                    message: Box::from("missing function variable name after this dot. An example of a dot call is \"hello \".str-attach \"cool person!\". The argument on the left is inserted as the first argument to the called function. If you instead intended to use a decimal point, leave some space after it")
+                });
+                return lily_syntax_expression_to_rust(
+                    errors,
+                    records_used,
+                    type_aliases,
+                    choice_types,
+                    project_variable_declarations,
+                    local_bindings,
+                    closure_representation,
+                    lily_syntax_node_unbox(argument0_node),
+                );
+            };
+            lily_syntax_expression_call_to_rust(
+                errors,
+                records_used,
+                type_aliases,
+                choice_types,
+                project_variable_declarations,
+                &local_bindings,
+                lily_syntax_node_as_ref(variable_node),
+                std::iter::once(lily_syntax_node_unbox(argument0_node))
+                    .chain(argument1_up.iter().map(lily_syntax_node_as_ref)),
+                1 + argument1_up.len(),
+            )
         }
         LilySyntaxExpression::Match {
             matched: matched_node,
@@ -13962,6 +14000,289 @@ fn lily_syntax_expression_to_rust<'a>(
         }
     }
 }
+fn lily_syntax_expression_call_to_rust<'a>(
+    errors: &mut Vec<LilyErrorNode>,
+    records_used: &mut std::collections::HashSet<Vec<LilyName>>,
+    type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
+    project_variable_declarations: &std::collections::HashMap<
+        LilyName,
+        CompiledVariableDeclarationInfo,
+    >,
+    local_bindings: &std::rc::Rc<std::collections::HashMap<&str, LilyLocalBindingCompileInfo>>,
+    variable_node: LilySyntaxNode<&LilyName>,
+    arguments: impl Iterator<Item = LilySyntaxNode<&'a LilySyntaxExpression>> + Clone,
+    argument_count: usize,
+) -> CompiledLilyExpression {
+    match local_bindings.get(variable_node.value.as_str()) {
+        Some(variable_info) => {
+            let (rust_arguments, argument_maybe_types): (Vec<syn::Expr>, Vec<Option<LilyType>>) =
+                arguments
+                    .clone()
+                    .map(|argument_node| {
+                        let compiled_argument: CompiledLilyExpression =
+                            lily_syntax_expression_to_rust(
+                                errors,
+                                records_used,
+                                type_aliases,
+                                choice_types,
+                                project_variable_declarations,
+                                local_bindings.clone(),
+                                FnRepresentation::RcDyn,
+                                argument_node,
+                            );
+                        (compiled_argument.rust, compiled_argument.type_)
+                    })
+                    .unzip();
+            let rust_reference: syn::Expr =
+                syn_expr_reference([&lily_name_to_lowercase_rust(variable_node.value)]);
+            let Some(variable_type) = &variable_info.type_ else {
+                return CompiledLilyExpression {
+                    rust: syn_expr_todo(),
+                    type_: None,
+                };
+            };
+            let type_: LilyType = if argument_count == 0 {
+                variable_type.clone()
+            } else {
+                match variable_type {
+                    LilyType::Function {
+                        inputs: variable_input_types,
+                        output: variable_output_type,
+                    } => {
+                        match variable_input_types.len().cmp(&argument_count) {
+                            std::cmp::Ordering::Equal => {}
+                            std::cmp::Ordering::Less => {
+                                errors.push(LilyErrorNode {
+                                    range: variable_node.range,
+                                    message: format!(
+                                        "too many arguments. Expected {} less. To call a function that is the result of a function, store it in an intermediate let and call that variable",
+                                        argument_count - variable_input_types.len()
+                                    ).into_boxed_str()
+                                });
+                            }
+                            std::cmp::Ordering::Greater => {
+                                errors.push(LilyErrorNode {
+                                    range: variable_node.range,
+                                    message: format!(
+                                        "missing arguments. Expected {} more. Note that partial application is not a feature in lily. Instead, wrap this call in a lambda that accepts and applies the remaining arguments",
+                                        variable_input_types.len() - argument_count
+                                    ).into_boxed_str()
+                                });
+                            }
+                        }
+                        let mut any_argument_type_conflicts_with_variable_input_type: bool = false;
+                        for ((variable_input_type, maybe_argument_type), argument_node) in
+                            variable_input_types
+                                .iter()
+                                .zip(argument_maybe_types.iter())
+                                .zip(arguments)
+                        {
+                            if let Some(argument_type) = maybe_argument_type
+                                && let Some(argument_variable_input_type_diff) =
+                                    lily_type_diff(variable_input_type, argument_type)
+                            {
+                                errors.push(LilyErrorNode {
+                                    range: argument_node.range,
+                                    message: lily_type_diff_error_message(
+                                        &argument_variable_input_type_diff,
+                                    )
+                                    .into_boxed_str(),
+                                });
+                                any_argument_type_conflicts_with_variable_input_type = true;
+                            }
+                        }
+                        if any_argument_type_conflicts_with_variable_input_type
+                            || variable_input_types.len() > argument_count
+                        {
+                            return CompiledLilyExpression {
+                                rust: syn_expr_todo(),
+                                type_: None,
+                            };
+                        }
+                        (**variable_output_type).clone()
+                    }
+                    _ => {
+                        errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("calling a variable whose type is not a function. Maybe you forgot a separating comma or similar?") });
+                        return CompiledLilyExpression {
+                            rust: syn_expr_todo(),
+                            type_: None,
+                        };
+                    }
+                }
+            };
+            let rust_reference_cloned_if_necessary: syn::Expr = if variable_info.is_copy
+                || variable_info.last_uses.contains(&variable_node.range)
+            {
+                rust_reference
+            } else {
+                syn_expr_call_clone_method(rust_reference)
+            };
+            CompiledLilyExpression {
+                rust: if argument_count == 0 {
+                    rust_reference_cloned_if_necessary
+                } else {
+                    syn::Expr::Call(syn::ExprCall {
+                        attrs: vec![],
+                        func: Box::new(rust_reference_cloned_if_necessary),
+                        paren_token: syn::token::Paren(syn_span()),
+                        args: rust_arguments.into_iter().collect(),
+                    })
+                },
+                type_: Some(type_),
+            }
+        }
+        None => {
+            let (rust_arguments, argument_maybe_types): (
+                syn::punctuated::Punctuated<syn::Expr, _>,
+                Vec<Option<LilyType>>,
+            ) = arguments
+                .clone()
+                .map(|argument_node| {
+                    let compiled_argument: CompiledLilyExpression = lily_syntax_expression_to_rust(
+                        errors,
+                        records_used,
+                        type_aliases,
+                        choice_types,
+                        project_variable_declarations,
+                        local_bindings.clone(),
+                        FnRepresentation::Impl,
+                        argument_node,
+                    );
+                    (compiled_argument.rust, compiled_argument.type_)
+                })
+                .unzip();
+            let Some(project_variable_info) =
+                project_variable_declarations.get(variable_node.value.as_str())
+            else {
+                errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("unknown variable. No project variable or local variable has this name. Check for typos.") });
+                return CompiledLilyExpression {
+                    rust: syn_expr_todo(),
+                    type_: None,
+                };
+            };
+            let Some(project_variable_type) = &project_variable_info.type_ else {
+                errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("this project variable has an incomplete type. Go to that variable's declaration and fix its errors. If there aren't any, these declarations are (mutually) recursive and need an explicit output type! You can add one by prepending :type: before any expression like the result of a lambda.") });
+                return CompiledLilyExpression {
+                    rust: syn_expr_todo(),
+                    type_: None,
+                };
+            };
+            let rust_reference: syn::Expr =
+                syn_expr_reference([&lily_name_to_lowercase_rust(variable_node.value)]);
+            let type_: LilyType = if argument_count == 0 {
+                project_variable_type.clone()
+            } else {
+                match project_variable_type {
+                    LilyType::Function {
+                        inputs: project_variable_input_types,
+                        output: project_variable_output_type,
+                    } => {
+                        // optimization possibility: when output contains no type variables,
+                        // just return it
+                        match project_variable_input_types.len().cmp(&argument_count) {
+                            std::cmp::Ordering::Equal => {}
+                            std::cmp::Ordering::Less => {
+                                errors.push(LilyErrorNode {
+                                    range: variable_node.range,
+                                    message: format!(
+                                        "too many arguments. Expected {} less. To call a function that is the result of a function, store it in an intermediate let and call that variable",
+                                        argument_count - project_variable_input_types.len()
+                                    ).into_boxed_str()
+                                });
+                            }
+                            std::cmp::Ordering::Greater => {
+                                errors.push(LilyErrorNode {
+                                    range: variable_node.range,
+                                    message: format!(
+                                        "missing arguments. Expected {} more. Note that partial application is not a feature in lily. Instead, wrap this call in a lambda that accepts and applies the remaining arguments",
+                                        project_variable_input_types.len() - argument_count
+                                    ).into_boxed_str()
+                                });
+                            }
+                        }
+                        let mut type_parameter_replacements: std::collections::HashMap<
+                            &str,
+                            &LilyType,
+                        > = std::collections::HashMap::new();
+                        for (parameter_type_node, maybe_argument_type) in
+                            project_variable_input_types
+                                .iter()
+                                .zip(argument_maybe_types.iter())
+                        {
+                            if let Some(argument_type) = maybe_argument_type {
+                                lily_type_collect_variables_that_are_concrete_into(
+                                    &mut type_parameter_replacements,
+                                    parameter_type_node,
+                                    argument_type,
+                                );
+                            }
+                        }
+                        let mut any_argument_type_conflicts_with_variable_input_type: bool = false;
+                        for ((project_variable_input_type, maybe_argument_type), argument_node) in
+                            project_variable_input_types
+                                .iter()
+                                .zip(argument_maybe_types.iter())
+                                .zip(arguments)
+                        {
+                            if let Some(argument_type) = maybe_argument_type {
+                                let mut project_variable_input_type: LilyType =
+                                    project_variable_input_type.clone();
+                                lily_type_replace_variables(
+                                    &type_parameter_replacements,
+                                    &mut project_variable_input_type,
+                                );
+                                if let Some(argument_variable_input_type_diff) =
+                                    lily_type_diff(&project_variable_input_type, argument_type)
+                                {
+                                    errors.push(LilyErrorNode {
+                                        range: argument_node.range,
+                                        message: lily_type_diff_error_message(
+                                            &argument_variable_input_type_diff,
+                                        )
+                                        .into_boxed_str(),
+                                    });
+                                    any_argument_type_conflicts_with_variable_input_type = true;
+                                }
+                            }
+                        }
+                        if any_argument_type_conflicts_with_variable_input_type
+                            || project_variable_input_types.len() > argument_count
+                        {
+                            return CompiledLilyExpression {
+                                rust: syn_expr_todo(),
+                                type_: None,
+                            };
+                        }
+                        let mut variable_output_type: LilyType =
+                            (**project_variable_output_type).clone();
+                        lily_type_replace_variables(
+                            &type_parameter_replacements,
+                            &mut variable_output_type,
+                        );
+                        variable_output_type
+                    }
+                    _ => {
+                        errors.push(LilyErrorNode { range: variable_node.range, message: Box::from("calling a variable whose type is not a function. Maybe you forgot a separating comma or similar?") });
+                        return CompiledLilyExpression {
+                            rust: syn_expr_todo(),
+                            type_: None,
+                        };
+                    }
+                }
+            };
+            CompiledLilyExpression {
+                rust: syn::Expr::Call(syn::ExprCall {
+                    attrs: vec![],
+                    func: Box::new(rust_reference),
+                    paren_token: syn::token::Paren(syn_span()),
+                    args: rust_arguments,
+                }),
+                type_: Some(type_),
+            }
+        }
+    }
+}
 /// If called from outside itself, set `in_closures` to `None`
 fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
     local_binding_infos: &mut std::collections::HashMap<&'a str, LilyLocalBindingCompileInfo>,
@@ -14046,6 +14367,44 @@ fn lily_syntax_expression_uses_of_local_bindings_into<'a>(
                 }
             }
             for argument_node in arguments {
+                lily_syntax_expression_uses_of_local_bindings_into(
+                    local_binding_infos,
+                    in_closures,
+                    lily_syntax_node_as_ref(argument_node),
+                );
+            }
+        }
+        LilySyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            if let Some(variable_node) = maybe_variable_node
+                && let Some(local_binding_info) =
+                    local_binding_infos.get_mut(variable_node.value.as_str())
+            {
+                local_binding_info.last_uses.clear();
+                match in_closures.first() {
+                    None => {
+                        local_binding_info.last_uses.push(variable_node.range);
+                    }
+                    Some(&in_closure_outermost) => {
+                        local_binding_info
+                            .closures_it_is_used_in
+                            .extend(in_closures);
+                        // the variables in closures are considered their own thing
+                        // since they e.g. always need to be cloned
+                        local_binding_info.last_uses.push(in_closure_outermost);
+                    }
+                }
+            }
+            lily_syntax_expression_uses_of_local_bindings_into(
+                local_binding_infos,
+                in_closures,
+                lily_syntax_node_unbox(argument0_node),
+            );
+            for argument_node in argument1_up {
                 lily_syntax_expression_uses_of_local_bindings_into(
                     local_binding_infos,
                     in_closures,

@@ -51,7 +51,7 @@ Then point your editor to `lily lsp`, see also [specific setups](#editor-setups)
 - no blocking compile errors. You can always build, even if your record is still missing a field value, your matching is still inexhaustive, some parens are empty, etc.
   You will still see all the errors, though.
 
-- no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): infix operators, currying, traits/type classes/overloading, objects, task/async, hidden mutation, macros & reflection, lifetime tracking, hidden side effects, modules, hidden context values, exceptions, undefined
+- no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): traits/type classes/overloading, objects, task/async, hidden mutation, macros & reflection, operators, currying, lifetime tracking, hidden side effects, modules, hidden context values, exceptions, undefined
 
 ## syntax overview
 ```lily
@@ -144,20 +144,24 @@ card
 | :card unt:Regular { color :color:_, value :unt:value } >
     value
 
-# The last case result is allowed to be unindented;
-# in effect this is like an early return.
-# This indentation trick makes it fairly nice to do simple destructuring:
+# the last case result is allowed to be unindented.
+# In effect this makes the other cases feel like an early return.
+# It also makes it fairly nice to do simple destructuring:
 variant
 | :some:Variant member >
 result
 
-# or something close to pipelines
-# You will probably prefer local variables (= name ...) in most cases, though.
-f x argument
-| :f-result:f-result >
-g y first-result
-| :g-result:g-result >
-h z g-result
+# to avoid deeply nested functions, you can inject a value
+# as the first argument of a function: first-argument .function-name second...
+# below is equivalent to: unt-mul (unt-add 3 4) 5
+3 .unt-add 4 .unt-mul 5
+
+# this is common for step-by-step builders
+"("
+.str-attach-char ' '
+.str-attach-unt 10
+.str-attach " > "
+.str-attach-dec 0.2
 
 # suffixing a local variable with ^ shadows a previous variable (also in patterns)
 # This is often used in situations similar to where you'd typically
@@ -253,16 +257,10 @@ cargo build
 ```
 Then point your editor to the created `???/target/debug/lily lsp`.
 
+## TODO
+- verify and if necessary correct rename and references for outer variables that are shadowed later
+
 ## considering
-- introduce `first-arg .function second-arg` syntax sugar, like
-  ```lily
-  "("
-  .str-attach-char ' '
-  .str-attach-unt 10
-  .str-attach " > "
-  .str-attach-dec 0.2
-  ```
-  I do love this. Its just too perfect and convenient at the cost of more syntax and more ways of expressing the same thing.
 - (leaning towards yes) allow comments before variant (field name, case?, variant?)
 - (leaning towards yes) add `unts-sum`, `decs-sum`, `ints-sum`, `unts-product`, `ints-product`, `decs-product`
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`
