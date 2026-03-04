@@ -8,8 +8,8 @@ type state =
     }
 
 choice event
-    | CounterClicked
-    | MouseMoved { x unt, y unt }
+    | Counter-clicked
+    | Mouse-moved { x unt, y unt }
 
 initial-state
     :state:
@@ -39,9 +39,9 @@ view
                     \:json:json >
                     json-to-client-position json
                     | :opt { x unt, y unt }:Absent >
-                        :event:MouseMoved { x 0, y 0 }
+                        :event:Mouse-moved { x 0, y 0 }
                     | :opt { x unt, y unt }:Present :{ x unt, y unt }:position >
-                        :event:MouseMoved position
+                        :event:Mouse-moved position
                 }
             ]
         , subs
@@ -55,12 +55,10 @@ view
                 , modifiers :vec (modifier event):[]
                 , subs
                     [ :html event:Text
-                        strs-flatten
-                            [ "You are at x="
-                            , unt-to-str mouse-x
-                            , " y="
-                            , unt-to-str mouse-y
-                            ]
+                        "You are at x="
+                        .str-attach-unt mouse-x
+                        .str-attach " y="
+                        .str-attach-unt mouse-y
                     ]
                 }
             , :html event:Element
@@ -70,7 +68,7 @@ view
                     , :modifier event:Listen
                         { name "click"
                         , on
-                            \:json:_ > :event:CounterClicked
+                            \:json:_ > :event:Counter-clicked
                         }
                     ]
                 , subs [ :html event:Text unt-to-str count ]
@@ -209,9 +207,9 @@ update \:event:event, :state:state >
       }
     >
     event
-    | :event:CounterClicked >
+    | :event:Counter-clicked >
         { ..state, count unt-add count 1 }
-    | :event:MouseMoved { x :unt:new-mouse-x, y :unt:new-mouse-y } >
+    | :event:Mouse-moved { x :unt:new-mouse-x, y :unt:new-mouse-y } >
         { ..state
         , mouse-x new-mouse-x
         , mouse-y new-mouse-y
