@@ -53,13 +53,14 @@ test-closure-impl
     vec-walk-from [ 0, 1, 3 ]
         0
         (\:unt:sum, :unt:element >
-            :continue-or-exit unt unt:Continue unt-add sum element
+         :continue-or-exit unt unt:Continue unt-add sum element
         )
 
 type state =
     unt
 
-initial-state :state:0
+initial-state
+    :state:0
 
 interface \:state:state >
     { new-state unt-add state 1
@@ -131,6 +132,13 @@ using-function-taking-function \:\unt > unt:f >
 
 function-taking-function-taking-function-taking-function \:\\\unt > unt > unt > unt:f >
     f (\:\unt > unt:g > g 0)
+
+build-dot-calls \:str:your-builder-string >
+    your-builder-string
+    .str-attach-char ' '
+    .str-attach-unt 10
+    .str-attach " > "
+    .str-attach-dec 10.2
 
 build-local-variables \:str:your-builder-string >
     = s str-attach-char your-builder-string ' '
