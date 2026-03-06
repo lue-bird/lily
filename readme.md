@@ -165,8 +165,8 @@ result
 
 # suffixing a local variable with ^ shadows a previous variable (also in patterns)
 # This is often used in situations similar to where you'd typically
-# use mutation/pipelines in other languages,
-# for example builders, random seed state or parse state
+# use mutation in other languages,
+# for example random seed state or parse state
 = s "("
 = s^ str-attach-char s ' '
 = s^ str-attach-unt s 10
