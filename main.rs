@@ -1409,7 +1409,7 @@ fn respond_to_rename(
                 lily_syntax_expression_uses_of_symbol_into(
                     &mut all_uses_of_local_variable_declaration_to_rename,
                     &to_prepare_for_rename_project_state.type_aliases,
-                    &[to_rename_name],
+                    &[],
                     scope_expression,
                     LilySymbolToReference::LocalBinding {
                         name: to_rename_name,
@@ -1445,7 +1445,7 @@ fn respond_to_rename(
                     lily_syntax_expression_uses_of_symbol_into(
                         &mut all_uses_of_local_binding_to_rename,
                         &to_prepare_for_rename_project_state.type_aliases,
-                        &[to_rename_name],
+                        &[],
                         scope_expression,
                         LilySymbolToReference::LocalBinding {
                             name: to_rename_name,
@@ -1699,7 +1699,7 @@ fn respond_to_references(
                 lily_syntax_expression_uses_of_symbol_into(
                     &mut all_uses_of_found_local_variable_declaration,
                     &to_find_project_state.type_aliases,
-                    &[to_find_name],
+                    &[],
                     scope_expression,
                     LilySymbolToReference::LocalBinding {
                         name: to_find_name,
@@ -1740,7 +1740,7 @@ fn respond_to_references(
                     lily_syntax_expression_uses_of_symbol_into(
                         &mut all_uses_of_found_local_binding,
                         &to_find_project_state.type_aliases,
-                        &[to_find_name],
+                        &[],
                         scope_expression,
                         LilySymbolToReference::LocalBinding {
                             name: to_find_name,
@@ -1775,7 +1775,6 @@ fn respond_to_references(
                     &to_find_project_state.syntax,
                     symbol_to_find,
                 );
-
                 Some(
                     all_uses_of_found_variable
                         .into_iter()
@@ -5565,7 +5564,7 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
                     if let Some(local_declaration_node) = maybe_declaration {
                         local_bindings.insert(
                             &local_declaration_node.value.name.value,
-                            lily_syntax_local_declaration_introduced_bindings_into(
+                            lily_syntax_local_declaration_introduced_binding_info(
                                 &local_bindings,
                                 type_aliases,
                                 choice_types,
@@ -6185,9 +6184,10 @@ fn lily_syntax_expression_uses_of_symbol_into(
                 LilySymbolToReference::Variable {
                     name: symbol_name,
                     including_declaration_name: _,
-                } => symbol_name == variable_name && !local_bindings.contains(&variable_name),
+                } => symbol_name == variable_name,
                 _ => false,
-            };
+            } && // skip if shadowed
+                !local_bindings.contains(&variable_name);
             if variable_is_symbol_use {
                 uses_so_far.push(variable_node.range);
             }
@@ -6207,6 +6207,13 @@ fn lily_syntax_expression_uses_of_symbol_into(
             function_variable: maybe_variable_node,
             argument1_up,
         } => {
+            lily_syntax_expression_uses_of_symbol_into(
+                uses_so_far,
+                type_aliases,
+                local_bindings,
+                lily_syntax_node_unbox(argument0_node),
+                symbol_to_collect_uses_of,
+            );
             if let Some(variable_node) = maybe_variable_node {
                 let variable_name: &str = variable_node.value.as_str();
                 let variable_is_symbol_use: bool = match symbol_to_collect_uses_of {
@@ -6217,20 +6224,14 @@ fn lily_syntax_expression_uses_of_symbol_into(
                     LilySymbolToReference::Variable {
                         name: symbol_name,
                         including_declaration_name: _,
-                    } => symbol_name == variable_name && !local_bindings.contains(&variable_name),
+                    } => symbol_name == variable_name,
                     _ => false,
-                };
+                } && // skip if shadowed
+                    !local_bindings.contains(&variable_name);
                 if variable_is_symbol_use {
                     uses_so_far.push(variable_node.range);
                 }
             }
-            lily_syntax_expression_uses_of_symbol_into(
-                uses_so_far,
-                type_aliases,
-                local_bindings,
-                lily_syntax_node_unbox(argument0_node),
-                symbol_to_collect_uses_of,
-            );
             for argument_node in argument1_up {
                 lily_syntax_expression_uses_of_symbol_into(
                     uses_so_far,
@@ -6318,17 +6319,17 @@ fn lily_syntax_expression_uses_of_symbol_into(
             let mut local_bindings_including_local_declaration_introduced: Vec<&str> =
                 local_bindings.to_vec();
             if let Some(local_declaration_node) = maybe_declaration {
+                if let Some(result_node) = &local_declaration_node.value.result {
+                    lily_syntax_expression_uses_of_symbol_into(
+                        uses_so_far,
+                        type_aliases,
+                        local_bindings,
+                        lily_syntax_node_unbox(result_node),
+                        symbol_to_collect_uses_of,
+                    );
+                }
                 local_bindings_including_local_declaration_introduced
                     .push(&local_declaration_node.value.name.value);
-            }
-            if let Some(local_declaration_node) = maybe_declaration {
-                lily_syntax_local_variable_declaration_uses_of_symbol_into(
-                    uses_so_far,
-                    type_aliases,
-                    &local_bindings_including_local_declaration_introduced,
-                    &local_declaration_node.value,
-                    symbol_to_collect_uses_of,
-                );
             }
             if let Some(result) = maybe_result {
                 lily_syntax_expression_uses_of_symbol_into(
@@ -6524,33 +6525,6 @@ fn lily_syntax_expression_uses_of_symbol_into(
     }
 }
 
-fn lily_syntax_local_variable_declaration_uses_of_symbol_into(
-    uses_so_far: &mut Vec<lsp_types::Range>,
-    type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
-    local_bindings: &[&str],
-    local_declaration: &LilySyntaxLocalVariableDeclaration,
-    symbol_to_collect_uses_of: LilySymbolToReference,
-) {
-    if symbol_to_collect_uses_of
-        == (LilySymbolToReference::LocalBinding {
-            name: &local_declaration.name.value,
-            including_local_declaration_name: true,
-        })
-    {
-        uses_so_far.push(local_declaration.name.range);
-        return;
-    }
-    if let Some(result_node) = &local_declaration.result {
-        lily_syntax_expression_uses_of_symbol_into(
-            uses_so_far,
-            type_aliases,
-            local_bindings,
-            lily_syntax_node_unbox(result_node),
-            symbol_to_collect_uses_of,
-        );
-    }
-}
-
 fn lily_syntax_pattern_uses_of_symbol_into(
     uses_so_far: &mut Vec<lsp_types::Range>,
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
@@ -6694,7 +6668,7 @@ fn lily_syntax_pattern_uses_of_symbol_into(
     }
 }
 
-fn lily_syntax_local_declaration_introduced_bindings_into<'a>(
+fn lily_syntax_local_declaration_introduced_binding_info<'a>(
     bindings_so_far: &std::collections::HashMap<&'a str, LilyLocalBindingInfo<'a>>,
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
     choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
@@ -10157,7 +10131,7 @@ str-find-spaces-in-first-line \:str:str >
         (\:int:space-count-so-far, :char:char >
             char
             | '\n' > :continue-or-exit int int:Exit space-count-so-far
-            | ' ' > 
+            | ' ' >
                 :continue-or-exit int int:
                 Continue int-add space-count-so-far 1
             | :char:_ >
@@ -10239,7 +10213,7 @@ vec-unt-range-inclusive \:unt:start, :unt:end >
 ```lily
 vec-last-element \:vec A:vec >
     unt-to-int (int-add (unt-to-int (vec-length vec) -1)
-    | :opt unt:Absent > 
+    | :opt unt:Absent >
         # vec was empty
         :opt A:Absent
     | :opt unt:Present :unt:last-index >

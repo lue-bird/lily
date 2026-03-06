@@ -51,7 +51,7 @@ Then point your editor to `lily lsp`, see also [specific setups](#editor-setups)
 - no blocking compile errors. You can always build, even if your record is still missing a field value, your matching is still inexhaustive, some parens are empty, etc.
   You will still see all the errors, though.
 
-- no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): traits/type classes/overloading, objects, task/async, hidden mutation, macros & reflection, operators, currying, lifetime tracking, hidden side effects, modules, hidden context values, exceptions, undefined
+- no features that obfuscate ("shiny, cool features" that ruin languages in my opinion): traits/type classes/overloading, objects, task/async, hidden mutation, macros & reflection, operators, currying, lifetime tracking, hidden side effects, modules, hidden context values, exceptions, undefined, implicit casts
 
 ## syntax overview
 ```lily
@@ -257,17 +257,13 @@ cargo build
 ```
 Then point your editor to the created `???/target/debug/lily lsp`.
 
-## TODO
-- verify and if necessary correct rename and references for outer variables that are shadowed later
-
 ## considering
-- (leaning towards yes) allow comments before variant (field name, case?, variant?)
-- (leaning towards yes) add `unts-sum`, `decs-sum`, `ints-sum`, `unts-product`, `ints-product`, `decs-product`
+- (leaning towards yes) allow comment lines before choice declaration variant name
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`
 - (leaning towards no) switch unt and int to 64 bit
 - (once a use case is found) add core bitwise and, or, xor, shifts, complement for the integer number types
 - (seems not worth the analysis cost but a simpler version maybe is) avoid unnecessary clones by field
-- (to make some parts almost infinitely scalable:) for formatting: leave declarations fully outside of "touched ranges" alone; for compilation: if touched only in one declaration and its type ends up the same, only change that declaration's output, (optionally: if type changed, recompile "downstream"); also, when edited range lies exclusively between existing declaration ranges, only compile that one
+- (to make some parts more scalable:) for parsing and formatting: leave declarations fully outside of "touched ranges" alone; for compilation: if touched only in one declaration and its type ends up the same, only change that declaration's output
 - in syntax tree, use separate range type for single-line tokens like keywords, symbols, names etc to save on memory consumption
 - add `map` (either tree or index map), `set` core types. currently no idea how to implement in few lines in rust. I'd like order functions to be given for each operation
 - (maybe in the future) add or pattern `( first | second | third )`
@@ -279,4 +275,4 @@ Then point your editor to the created `???/target/debug/lily lsp`.
 - `declarations.shrink_to_fit();` saves around 0.6% of memory at the cost of a bit of speed
 - upgrading `lto` to `"thin"` to `"fat"` both improve runtime speed by ~13% compared to the default (and reduce binary size) but increase build time by about 30% (default to thin) and 15% (thin to fat).
   As this prolongs installation and prevents people from quickly trying it, the default is kept.
-  If this language server get distributed as a binary or people end up using this language server a lot, this `"thin"` might become a reasonable trade-off.
+  If `lily` gets distributed as a binary or people end up using it a lot, `"thin"` might become a reasonable trade-off.
