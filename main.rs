@@ -9323,8 +9323,7 @@ fn lily_project_compile_to_rust(
 If you wanted to start a declaration, try one of:
   - some-variable-name some-value
   - type some-type-name = some-type
-  - choice some-choice-type-name | First-variant | Second-variant some-type
-",
+  - choice some-choice-type-name | First-variant | Second-variant some-type",
                     if unknown_node.value.starts_with('_') {
                         "Identifiers consist of ascii letters (a-Z), digits (0-9) and -. Otherwise, if you tried to create a _ pattern, add its :type: before it to make it valid syntax."
                     } else if unknown_node
