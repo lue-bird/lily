@@ -65,10 +65,8 @@ impl yew::Component for App {
                                                 &web_sys_event,
                                             ))
                                         };
-                                        self.lily_state = lily::update(
-                                            new_lily_event,
-                                            self.lily_state.clone(),
-                                        );
+                                        self.lily_state =
+                                            lily::update(new_lily_event, self.lily_state.clone());
                                         // uncomment to debug
                                         // web_sys::console::log_1(
                                         //     &web_sys::js_sys::JsString::from(format!(
@@ -150,9 +148,7 @@ fn yew_vtag_add_lily_virtual_dom_modifiers<Event>(
         yew_vtag.add_attribute("style", styles.join(";"));
     }
     for modifier in lily_virtual_dom_modifiers.iter() {
-        yew_vtag_add_lily_virtual_dom_modifier_except_style(
-            yew_scope, dom_path, yew_vtag, modifier,
-        )
+        yew_vtag_add_lily_virtual_dom_modifier_except_style(yew_scope, dom_path, yew_vtag, modifier)
     }
 }
 fn yew_vtag_add_lily_virtual_dom_modifier_except_style<Event>(
@@ -241,9 +237,7 @@ fn lily_virtual_dom_lookup_dom_node_at_path<Event: Clone>(
         },
     }
 }
-fn web_sys_js_value_to_lily_json(
-    web_sys_js_value: &web_sys::wasm_bindgen::JsValue,
-) -> lily::Json {
+fn web_sys_js_value_to_lily_json(web_sys_js_value: &web_sys::wasm_bindgen::JsValue) -> lily::Json {
     // shows that lily::JsonValue should probably be lazy internally for full array and object
     if web_sys_js_value.is_null() {
         return lily::Json::Null;
@@ -261,15 +255,15 @@ fn web_sys_js_value_to_lily_json(
         return lily::Json::String(lily::Str::from_string(string));
     }
     if web_sys_js_value.is_array() {
-        return lily::Json::Array(std::rc::Rc::new(lily::Vec::from_vec(
+        return lily::Json::Array(lily::Vec::from_vec(
             web_sys::js_sys::Array::from(web_sys_js_value)
                 .iter()
                 .map(|element| web_sys_js_value_to_lily_json(&element))
                 .collect::<Vec<_>>(),
-        )));
+        ));
     }
     if let Option::Some(js_object) = web_sys::js_sys::Object::try_from(web_sys_js_value) {
-        return lily::Json::Object(std::rc::Rc::new(lily::Vec::from_vec(
+        return lily::Json::Object(lily::Vec::from_vec(
             web_sys::js_sys::Object::keys(&web_sys::js_sys::Object::get_prototype_of(js_object))
                 // sanity check: all these do _not_ work:
                 // Object::entries or
@@ -301,7 +295,7 @@ fn web_sys_js_value_to_lily_json(
                         })
                 })
                 .collect::<Vec<_>>(),
-        )));
+        ));
     }
     lily::Json::Null
 }

@@ -11461,22 +11461,21 @@ fn lily_type_constructs_recursive_type_in(
                 }))
         }
         LilyType::ChoiceConstruct { name, arguments } => {
-            // skipped for now as recursive types are currently assumed to always contain a lifetime
-            // if name_node.value == lily_type_vec_name {
-            //     // is already behind a reference
-            //     false
-            // } else
-            //
-            // more precise would be expanding type aliases here and checking the result
-            // (to cover e.g. type alias list A = vec A).
-            // skipped for now for performance
-            scc_type_declaration_names.contains(name.as_str())
-                || (arguments.iter().any(|argument_type| {
-                    lily_type_constructs_recursive_type_in(
-                        scc_type_declaration_names,
-                        argument_type,
-                    )
-                }))
+            if name == lily_type_vec_name {
+                // is already behind a reference
+                false
+            } else {
+                // more precise would be expanding type aliases here and checking the result
+                // (to cover e.g. type alias list A = vec A).
+                // skipped for now for performance
+                scc_type_declaration_names.contains(name.as_str())
+                    || (arguments.iter().any(|argument_type| {
+                        lily_type_constructs_recursive_type_in(
+                            scc_type_declaration_names,
+                            argument_type,
+                        )
+                    }))
+            }
         }
         LilyType::Record(fields) => fields.iter().any(|field| {
             lily_type_constructs_recursive_type_in(scc_type_declaration_names, &field.value)
