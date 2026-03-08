@@ -7027,7 +7027,9 @@ fn lily_syntax_lines_ranges(
                 start: lines_range.start,
                 end: lsp_types::Position {
                     line: lines_range.start.line,
-                    character: line0.encode_utf16().count() as u32,
+                    character: lines_range.start.character
+                        + 1
+                        + line0.encode_utf16().count() as u32,
                 },
             })
             .chain(
@@ -7036,14 +7038,18 @@ fn lily_syntax_lines_ranges(
                     .map(move |(tail_line_index, line_content)| {
                         let line_absolute: u32 =
                             lines_range.start.line + 1 + tail_line_index as u32;
+                        // TODO: starting at lines_range.start.character is not quite correct,
+                        // only works for formatted code.
                         lsp_types::Range {
                             start: lsp_types::Position {
                                 line: line_absolute,
-                                character: 0,
+                                character: lines_range.start.character,
                             },
                             end: lsp_types::Position {
                                 line: line_absolute,
-                                character: line_content.encode_utf16().count() as u32,
+                                character: lines_range.start.character
+                                    + 1
+                                    + line_content.encode_utf16().count() as u32,
                             },
                         }
                     }),
