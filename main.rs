@@ -6998,12 +6998,14 @@ fn lily_syntax_highlight_project_into(
         .filter_map(|declaration_or_err| declaration_or_err.as_ref().ok())
     {
         if let Some(documentation_node) = &documented_declaration.documentation {
-            highlighted_so_far.extend(lily_syntax_lines_ranges(documentation_node.range).map(
-                |range| LilySyntaxNode {
-                    range: range,
-                    value: LilySyntaxHighlightKind::Comment,
-                },
-            ));
+            highlighted_so_far.extend(
+                lily_syntax_lines_ranges(documentation_node.range, &documentation_node.value).map(
+                    |range| LilySyntaxNode {
+                        range: range,
+                        value: LilySyntaxHighlightKind::Comment,
+                    },
+                ),
+            );
         }
         if let Some(declaration_node) = &documented_declaration.declaration {
             lily_syntax_highlight_declaration_into(
@@ -7014,31 +7016,41 @@ fn lily_syntax_highlight_project_into(
     }
 }
 fn lily_syntax_lines_ranges(
-    comment_lines_range: lsp_types::Range,
+    lines_range: lsp_types::Range,
+    lines_content: &str,
 ) -> impl Iterator<Item = lsp_types::Range> {
-    std::iter::once(lsp_types::Range {
-        // hacky: full line
-        start: comment_lines_range.start,
-        end: lsp_types::Position {
-            line: comment_lines_range.start.line,
-            character: 1_000_000_000,
-        },
-    })
-    .chain(
-        ((comment_lines_range.start.line + 1)..comment_lines_range.end.line).map(|line| {
-            // hacky: full line
-            lsp_types::Range {
-                start: lsp_types::Position {
-                    line: line,
-                    character: 0,
-                },
+    let mut lines: std::str::Lines = lines_content.lines();
+    lines
+        .next()
+        .map(|line0| {
+            std::iter::once(lsp_types::Range {
+                start: lines_range.start,
                 end: lsp_types::Position {
-                    line: line,
-                    character: 1_000_000_000,
+                    line: lines_range.start.line,
+                    character: line0.encode_utf16().count() as u32,
                 },
-            }
-        }),
-    )
+            })
+            .chain(
+                lines
+                    .enumerate()
+                    .map(move |(tail_line_index, line_content)| {
+                        let line_absolute: u32 =
+                            lines_range.start.line + 1 + tail_line_index as u32;
+                        lsp_types::Range {
+                            start: lsp_types::Position {
+                                line: line_absolute,
+                                character: 0,
+                            },
+                            end: lsp_types::Position {
+                                line: line_absolute,
+                                character: line_content.encode_utf16().count() as u32,
+                            },
+                        }
+                    }),
+            )
+        })
+        .into_iter()
+        .flatten()
 }
 
 fn lily_syntax_highlight_declaration_into(
@@ -7251,12 +7263,14 @@ fn lily_syntax_highlight_pattern_into(
             comment: comment_node,
             pattern: maybe_pattern_after_comment,
         } => {
-            highlighted_so_far.extend(lily_syntax_lines_ranges(comment_node.range).map(|range| {
-                LilySyntaxNode {
-                    range: range,
-                    value: LilySyntaxHighlightKind::Comment,
-                }
-            }));
+            highlighted_so_far.extend(
+                lily_syntax_lines_ranges(comment_node.range, &comment_node.value).map(|range| {
+                    LilySyntaxNode {
+                        range: range,
+                        value: LilySyntaxHighlightKind::Comment,
+                    }
+                }),
+            );
             if let Some(pattern_node_after_comment) = maybe_pattern_after_comment {
                 lily_syntax_highlight_pattern_into(
                     highlighted_so_far,
@@ -7345,12 +7359,14 @@ fn lily_syntax_highlight_type_into(
             comment: comment_node,
             type_: maybe_type_after_comment,
         } => {
-            highlighted_so_far.extend(lily_syntax_lines_ranges(comment_node.range).map(|range| {
-                LilySyntaxNode {
-                    range: range,
-                    value: LilySyntaxHighlightKind::Comment,
-                }
-            }));
+            highlighted_so_far.extend(
+                lily_syntax_lines_ranges(comment_node.range, &comment_node.value).map(|range| {
+                    LilySyntaxNode {
+                        range: range,
+                        value: LilySyntaxHighlightKind::Comment,
+                    }
+                }),
+            );
             if let Some(type_node_after_comment) = maybe_type_after_comment {
                 lily_syntax_highlight_type_into(
                     highlighted_so_far,
@@ -7555,12 +7571,14 @@ fn lily_syntax_highlight_expression_into(
             comment: comment_node,
             expression: maybe_expression_after_comment,
         } => {
-            highlighted_so_far.extend(lily_syntax_lines_ranges(comment_node.range).map(|range| {
-                LilySyntaxNode {
-                    range: range,
-                    value: LilySyntaxHighlightKind::Comment,
-                }
-            }));
+            highlighted_so_far.extend(
+                lily_syntax_lines_ranges(comment_node.range, &comment_node.value).map(|range| {
+                    LilySyntaxNode {
+                        range: range,
+                        value: LilySyntaxHighlightKind::Comment,
+                    }
+                }),
+            );
             if let Some(expression_node_after_comment) = maybe_expression_after_comment {
                 lily_syntax_highlight_expression_into(
                     highlighted_so_far,
@@ -7660,7 +7678,7 @@ fn lily_syntax_highlight_expression_into(
             }
         }
         LilySyntaxExpression::String {
-            content: _,
+            content,
             quoting_style,
         } => match quoting_style {
             LilySyntaxStringQuotingStyle::SingleQuoted => {
@@ -7670,12 +7688,14 @@ fn lily_syntax_highlight_expression_into(
                 });
             }
             LilySyntaxStringQuotingStyle::TickedLines => {
-                highlighted_so_far.extend(lily_syntax_lines_ranges(expression_node.range).map(
-                    |line_range| LilySyntaxNode {
-                        range: line_range,
-                        value: LilySyntaxHighlightKind::String,
-                    },
-                ));
+                highlighted_so_far.extend(
+                    lily_syntax_lines_ranges(expression_node.range, content).map(|line_range| {
+                        LilySyntaxNode {
+                            range: line_range,
+                            value: LilySyntaxHighlightKind::String,
+                        }
+                    }),
+                );
             }
         },
     }
