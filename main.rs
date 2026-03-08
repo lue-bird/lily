@@ -7019,7 +7019,14 @@ fn lily_syntax_lines_ranges(
     lines_range: lsp_types::Range,
     lines_content: &str,
 ) -> impl Iterator<Item = lsp_types::Range> {
-    let mut lines: std::str::Lines = lines_content.lines();
+    let mut lines = lines_content.lines().chain(
+        // restore last line break potentially eaten by .lines()
+        if lines_content.ends_with(['\r', '\n']) {
+            Some("")
+        } else {
+            None
+        },
+    );
     lines
         .next()
         .map(|line0| {
