@@ -631,15 +631,21 @@ fn update_state_on_did_change_text_document(
                 (None, None) => {
                     updated_source = change.text;
                 }
+                // zed for example does not send a range length
+                (Some(range), None) => {
+                    string_replace_lsp_range(&mut updated_source, range, &change.text);
+                }
+                // sending a range is deprecated but e.g. vscode still sends it
+                // which allows us to do a faster string replace
                 (Some(range), Some(range_length)) => {
-                    string_replace_lsp_range(
+                    string_replace_lsp_range_for_length(
                         &mut updated_source,
                         range,
                         range_length as usize,
                         &change.text,
                     );
                 }
-                (None, _) | (_, None) => {}
+                (None, Some(_)) => {}
             }
         }
         *project_state = initialize_project_state_from_source(
@@ -2367,7 +2373,16 @@ fn respond_to_document_formatting(
                 character: 0,
             },
             end: lsp_types::Position {
-                line: 1_000_000_000, // to_format_project.source.lines().count() as u32 + 1
+                line: to_format_project.source.lines().count() as u32
+                    + (
+                        // restore last line break potentially eaten by .lines()
+                        if to_format_project.source.ends_with(['\r', '\n']) {
+                            1
+                        } else {
+                            0
+                        }
+                    )
+                    + 1,
                 character: 0,
             },
         },
@@ -16605,7 +16620,7 @@ fn lsp_uri_to_file_path(uri: &lsp_types::Uri) -> Option<std::borrow::Cow<'_, std
     }
 }
 
-fn str_slice_in_lsp_range(str: &str, range: lsp_types::Range) -> Option<&str> {
+fn str_lsp_range_to_range(str: &str, range: lsp_types::Range) -> std::ops::Range<usize> {
     let start_line_offset: usize =
         str_offset_after_n_lsp_linebreaks(str, range.start.line as usize);
     let start_offset: usize = start_line_offset
@@ -16613,16 +16628,23 @@ fn str_slice_in_lsp_range(str: &str, range: lsp_types::Range) -> Option<&str> {
             &str[start_line_offset..],
             range.start.character as usize,
         );
-    // can be optimized by only ounting after the start line
+    // can be optimized by only counting after the start line
     let end_line_offset: usize = str_offset_after_n_lsp_linebreaks(str, range.end.line as usize);
     let end_offset: usize = end_line_offset
         + str_starting_utf8_length_for_utf16_length(
             &str[end_line_offset..],
             range.end.character as usize,
         );
-    str.get(start_offset..end_offset)
+    start_offset..end_offset
 }
-fn string_replace_lsp_range(
+fn str_slice_in_lsp_range(str: &str, range: lsp_types::Range) -> Option<&str> {
+    str.get(str_lsp_range_to_range(str, range))
+}
+fn string_replace_lsp_range(string: &mut String, range: lsp_types::Range, replacement: &str) {
+    string.replace_range(str_lsp_range_to_range(string, range), replacement);
+}
+/// slightly faster version of `string_replace_lsp_range` for when you know the length
+fn string_replace_lsp_range_for_length(
     string: &mut String,
     range: lsp_types::Range,
     range_length: usize,
