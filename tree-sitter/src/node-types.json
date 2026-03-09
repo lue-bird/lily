@@ -13,7 +13,7 @@
       "required": true,
       "types": [
         {
-          "type": "lower_name",
+          "type": "type_name",
           "named": true
         },
         {
@@ -176,7 +176,7 @@
           "named": true
         },
         {
-          "type": "lower_name",
+          "type": "field_name",
           "named": true
         }
       ]
@@ -203,11 +203,11 @@
           "named": true
         },
         {
-          "type": "expression_vec",
+          "type": "expression_variable_name",
           "named": true
         },
         {
-          "type": "lower_name",
+          "type": "expression_vec",
           "named": true
         },
         {
@@ -219,7 +219,7 @@
           "named": true
         },
         {
-          "type": "upper_name",
+          "type": "variant_name",
           "named": true
         }
       ]
@@ -341,6 +341,21 @@
           "named": true
         },
         {
+          "type": "expression_variable_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "expression_variable_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
           "type": "lower_name",
           "named": true
         }
@@ -360,7 +375,7 @@
           "named": true
         },
         {
-          "type": "lower_name",
+          "type": "expression_variable_name",
           "named": true
         }
       ]
@@ -379,7 +394,7 @@
           "named": true
         },
         {
-          "type": "upper_name",
+          "type": "variant_name",
           "named": true
         }
       ]
@@ -420,7 +435,37 @@
     }
   },
   {
+    "type": "field_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "lower_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "introduced_local_variable",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "introduced_local_variable_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "introduced_local_variable_name",
     "named": true,
     "fields": {},
     "children": {
@@ -509,7 +554,7 @@
       "required": true,
       "types": [
         {
-          "type": "lower_name",
+          "type": "field_name",
           "named": true
         },
         {
@@ -566,7 +611,7 @@
           "named": true
         },
         {
-          "type": "upper_name",
+          "type": "variant_name",
           "named": true
         }
       ]
@@ -707,11 +752,11 @@
       "required": true,
       "types": [
         {
-          "type": "lower_name",
+          "type": "type_grouped",
           "named": true
         },
         {
-          "type": "type_grouped",
+          "type": "type_name",
           "named": true
         }
       ]
@@ -726,7 +771,7 @@
       "required": true,
       "types": [
         {
-          "type": "lower_name",
+          "type": "field_name",
           "named": true
         },
         {
@@ -760,7 +805,7 @@
       "required": true,
       "types": [
         {
-          "type": "lower_name",
+          "type": "type_name",
           "named": true
         },
         {
@@ -773,6 +818,21 @@
         },
         {
           "type": "type_variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "lower_name",
           "named": true
         }
       ]
@@ -836,7 +896,7 @@
           "named": true
         },
         {
-          "type": "lower_name",
+          "type": "expression_variable_name",
           "named": true
         }
       ]
@@ -854,6 +914,21 @@
           "type": "type",
           "named": true
         },
+        {
+          "type": "variant_name",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variant_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
         {
           "type": "upper_name",
           "named": true

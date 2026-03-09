@@ -12,9 +12,9 @@
     }
   ],
   "metadata": {
-    "version": "0.1.0",
+    "version": "0.1.1",
     "license": "Unlicense",
-    "description": "Lily grammar for tree-sitter",
+    "description": "lily grammar for tree-sitter",
     "authors": [
       {
         "name": "lue-bird"
