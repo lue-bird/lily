@@ -1,5 +1,11 @@
 target
 *.wasm
+*.obj
+*.o
+*.tar.gz
+*.tgz
+*.zip
+*.jar
 package-lock.json
 elm-stuff
 node_modules
@@ -8,6 +14,9 @@ dist
 elm.rs
 elmMain.js
 run.rs
+build/
+prebuilds/
+node_modules/
 
 zombie
 

@@ -1,0 +1,15 @@
+# Node artifacts
+build/
+prebuilds/
+node_modules/
+
+# Grammar volatiles
+*.wasm
+*.obj
+*.o
+
+# Archives
+*.tar.gz
+*.tgz
+*.zip
+*.jar

@@ -11,5 +11,6 @@ name = "lily LSP"
 languages = ["lily"]
 
 [grammars.lily]
-repository = "https://codeberg.org/lue-bird/tree-sitter-lily"
+repository = "https://github.com/lue-bird/lily"
 rev = "main"
+path = "tree-sitter"
