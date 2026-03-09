@@ -1,0 +1,5 @@
+name = "lily"
+grammar = "lily"
+path_suffixes = ["lily"]
+line_comments = ["# "]
+word_characters = ["-"]

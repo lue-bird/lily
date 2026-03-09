@@ -1,0 +1,15 @@
+id = "lily"
+name = "lily"
+version = "0.0.1"
+schema_version = 1
+authors = ["lue-bird"]
+description = "lily programming language support"
+repository = "https://github.com/lue-bird/lily"
+
+[language_servers.lily-language-server]
+name = "lily LSP"
+languages = ["lily"]
+
+[grammars.lily]
+repository = "https://codeberg.org/lue-bird/tree-sitter-lily"
+rev = "main"

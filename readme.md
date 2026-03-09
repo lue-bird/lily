@@ -209,7 +209,7 @@ And since licensing is a bit wishy washy like that (and with copy paste in gener
 I strongly recommend licensing your lily package under ["unlicense"](https://unlicense.org/) or other public domain/"attribution not required" licenses (e.g. WTFPL or CC0).
 
 ## editor setups
-feel free to contribute as I only use vscodium
+feel free to contribute!
 
 ### vscode-like
 #### pre-built
@@ -234,6 +234,13 @@ Then add a `.vscode/lsp-proxy.json` like
   }
 ]
 ```
+
+### zed/gram-like
+1. clone this repo
+2. open the editor command panel
+3. "zed: install dev extension" or "gram: install extension from folder" and select the cloned-path-lily/zed directory
+4. (strongly recommended) to enable syntax highlighting, add the setting `"semantic_tokens": "combined"` or
+   `"languages": { "lily": { "semantic_tokens": "full" } }`
 
 ### helix
 write to `~/.config/helix/languages.toml`:
