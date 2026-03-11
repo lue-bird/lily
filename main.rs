@@ -13251,14 +13251,16 @@ fn lily_syntax_expression_to_rust<'a>(
         }
         LilySyntaxExpression::WithComment {
             comment: comment_node,
-            expression: _,
+            expression: maybe_expression,
         } => {
-            errors.push(LilyErrorNode {
-                range: expression_node.range,
-                message: Box::from(
-                    "missing expression after linebreak after comment # ...\\n here",
-                ),
-            });
+            if maybe_expression.is_none() {
+                errors.push(LilyErrorNode {
+                    range: expression_node.range,
+                    message: Box::from(
+                        "missing expression after linebreak after comment # ...\\n here",
+                    ),
+                });
+            }
             CompiledLilyExpression {
                 type_: None,
                 rust: syn::Expr::Macro(syn::ExprMacro {
