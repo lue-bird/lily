@@ -12800,7 +12800,7 @@ struct LilyLocalBindingCompileInfo {
     last_uses: Vec<lsp_types::Range>,
     closures_it_is_used_in: Vec<lsp_types::Range>,
 }
-fn lily_syntax_expression_to_rust<'a>(
+fn lily_syntax_expression_to_rust(
     errors: &mut Vec<LilyErrorNode>,
     records_used: &mut std::collections::HashSet<Vec<LilyName>>,
     type_aliases: &std::collections::HashMap<LilyName, TypeAliasInfo>,
@@ -12809,9 +12809,9 @@ fn lily_syntax_expression_to_rust<'a>(
         LilyName,
         CompiledVariableDeclarationInfo,
     >,
-    local_bindings: std::rc::Rc<std::collections::HashMap<&'a str, LilyLocalBindingCompileInfo>>,
+    local_bindings: std::rc::Rc<std::collections::HashMap<&str, LilyLocalBindingCompileInfo>>,
     closure_representation: FnRepresentation,
-    expression_node: LilySyntaxNode<&'a LilySyntaxExpression>,
+    expression_node: LilySyntaxNode<&LilySyntaxExpression>,
 ) -> CompiledLilyExpression {
     match expression_node.value {
         LilySyntaxExpression::String {
@@ -13412,11 +13412,11 @@ fn lily_syntax_expression_to_rust<'a>(
                             let Some(declared_variant_value_info) = &origin_variant_info.value
                             else {
                                 errors.push(LilyErrorNode {
-                                        range: name_node.range,
-                                        message: Box::from(
-                                            "extraneous variant value. This variant's declaration has no declared value. Remove this extra value or correct its origin choice type declaration",
-                                        ),
-                                    });
+                                    range: name_node.range,
+                                    message: Box::from(
+                                        "extraneous variant value. This variant's declaration has no declared value. Remove this extra value or correct its origin choice type declaration",
+                                    ),
+                                });
                                 return CompiledLilyExpression {
                                     type_: Some(LilyType::ChoiceConstruct {
                                         name: origin_choice_type_name,
