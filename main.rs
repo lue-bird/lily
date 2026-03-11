@@ -13255,7 +13255,10 @@ fn lily_syntax_expression_to_rust<'a>(
         } => {
             if maybe_expression.is_none() {
                 errors.push(LilyErrorNode {
-                    range: expression_node.range,
+                    range: lsp_types::Range {
+                        start: expression_node.range.start,
+                        end: lsp_position_add_characters(expression_node.range.start, 1),
+                    },
                     message: Box::from(
                         "missing expression after linebreak after comment # ...\\n here",
                     ),
@@ -15407,7 +15410,10 @@ fn lily_syntax_type_to_type(
         } => match maybe_after_comment {
             None => {
                 errors.push(LilyErrorNode {
-                    range: type_node.range,
+                    range: lsp_types::Range {
+                        start: type_node.range.start,
+                        end: lsp_position_add_characters(type_node.range.start, 1),
+                    },
                     message: Box::from("missing type after this comment # ... \\n here"),
                 });
                 None
@@ -15708,7 +15714,10 @@ fn lily_syntax_pattern_to_rust<'a>(
         } => maybe_lily_syntax_pattern_to_rust(
             errors,
             || LilyErrorNode {
-                range: pattern_node.range,
+                range: lsp_types::Range {
+                    start: pattern_node.range.start,
+                    end: lsp_position_add_characters(pattern_node.range.start, 1),
+                },
                 message: Box::from("missing pattern after comment # ...\\n here"),
             },
             records_used,
