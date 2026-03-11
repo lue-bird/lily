@@ -266,6 +266,13 @@ cargo build
 ```
 Then point your editor to the created `???/target/debug/lily lsp`.
 
+## TODO
+- when syntax after comment is missing: only report the error on the # symbol.
+- verify and if necessary correct that expression variant value types are type-checked
+- when case is removed (e.g. because it's result is missing) do not exclude it from exhaustivenness checking
+- expression (non-core) project variable function type count checking does not seem to work
+- for expression (also check pattern) variant, use the explicitly given type when it is more concrete
+
 ## considering
 - (leaning towards yes) allow comment lines before choice declaration variant name
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`
