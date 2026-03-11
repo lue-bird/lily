@@ -10167,6 +10167,7 @@ Note that the inverse never fails: `char-to-code-point`",
                 LilyName::from("str-walk-chars-from"),
                 function(
                  [lily_type_str,
+                  variable("State"),
                   function([variable("State"), lily_type_char], lily_type_continue_or_exit(variable("State"), variable("Exit")))
                  ],
                  lily_type_continue_or_exit(variable("State"), variable("Exit"))
