@@ -6,6 +6,14 @@ mod lily;
 fn main() {
     println!(
         "{}",
+        lily::str_indent(lily::Str::Slice(
+            "test line 1
+test line 2
+test line 3"
+        ))
+    );
+    println!(
+        "{}",
         lily::book()
             .iter()
             .map(lily::Str::as_str)

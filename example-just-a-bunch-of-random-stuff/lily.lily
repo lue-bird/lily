@@ -105,6 +105,41 @@ book
       `Wave to us! We'll be in row 118,000.
     ]
 
+str-indent \:str:str >
+    str-reduce-lines-from str
+        ""
+        (\:str:so-far, :str:line >
+         so-far
+         .str-attach "    "
+         .str-attach line
+         .str-attach-char '\n'
+        )
+
+str-reduce-lines-from \:str:str, :State:initial-lines-state, :\State, str > State:reduce >
+    str-walk-chars-from str
+        { current-line "", state initial-lines-state }
+        (\{ current-line :str:current-line, state :State:state }, :char:char >
+         :continue-or-exit { current-line str, state State } State:Continue
+            char
+            | '\r' >
+                { state state
+                , current-line current-line
+                }
+            | '\n' >
+                { state reduce state current-line
+                , current-line ""
+                }
+            | :char:_ >
+                { state state
+                , current-line current-line .str-attach-char char
+                }
+        )
+    | :continue-or-exit { current-line str, state State } State:Exit :State:exit > exit
+    | :continue-or-exit { current-line str, state State } State:Continue
+        { current-line :str:last-line, state :State:state }
+    >
+    reduce state last-line
+
 choice rope
     | One str
     | Append { left rope, right rope }
@@ -154,4 +189,21 @@ build-single-matches \:str:your-builder-string >
     str-attach s " > "
     | :str:s^ >
     str-attach-dec s 10.2
+
+str-from-byte-index-starts-with \:str:str, :unt:start-byte-index, :str:to-find >
+    # can be optimized to avoid allocating
+    str-order
+        to-find
+        (str-slice-from-byte-index-with-byte-length str start-byte-index (to-find .str-byte-count))
+    .order-is-equal
+
+choice bool
+    | True
+    | False
+
+order-is-equal \:order:order >
+    order
+    | :order:Equal > :bool:True
+    | :order:Greater > :bool:False
+    | :order:Less > :bool:False
 
