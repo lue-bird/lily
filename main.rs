@@ -8897,13 +8897,13 @@ fn parse_lily_syntax_expression_case(state: &mut ParseState) -> Option<ParsedLil
                 let maybe_result: Option<LilySyntaxNode<LilySyntaxExpression>> =
                     parse_lily_syntax_expression_space_separated(state);
                 Some(ParsedLilyExpressionCase {
+                    must_be_last_case: maybe_result.is_some(),
                     syntax: LilySyntaxExpressionCase {
                         or_bar_key_symbol_range: bar_key_symbol_range,
                         pattern: maybe_case_pattern,
                         arrow_key_symbol_range: Some(arrow_key_symbol_range),
                         result: maybe_result,
                     },
-                    must_be_last_case: true,
                 })
             } else {
                 parse_state_push_indent(state, bar_key_symbol_range.start.character as u16);
