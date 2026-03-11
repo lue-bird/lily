@@ -9427,11 +9427,11 @@ If you wanted to start a declaration, try one of:
                             Some(name_node) => {
                                 let choice_type_declaration_graph_node: strongly_connected_components::Node =
                                 type_graph.new_node();
-                                type_graph_node_by_name
-                                    .insert(&name_node.value, choice_type_declaration_graph_node);
                                 let existing_type_with_same_name: Option<
-                                    LilySyntaxTypeDeclarationInfo,
-                                > = type_declaration_by_graph_node.insert(
+                                    strongly_connected_components::Node,
+                                > = type_graph_node_by_name
+                                    .insert(&name_node.value, choice_type_declaration_graph_node);
+                                type_declaration_by_graph_node.insert(
                                     choice_type_declaration_graph_node,
                                     LilySyntaxTypeDeclarationInfo::ChoiceType {
                                         documentation: &documented_declaration.documentation,
@@ -9466,11 +9466,11 @@ If you wanted to start a declaration, try one of:
                             Some(name_node) => {
                                 let type_alias_declaration_graph_node: strongly_connected_components::Node =
                                 type_graph.new_node();
-                                type_graph_node_by_name
-                                    .insert(&name_node.value, type_alias_declaration_graph_node);
                                 let existing_type_with_same_name: Option<
-                                    LilySyntaxTypeDeclarationInfo,
-                                > = type_declaration_by_graph_node.insert(
+                                    strongly_connected_components::Node,
+                                > = type_graph_node_by_name
+                                    .insert(&name_node.value, type_alias_declaration_graph_node);
+                                type_declaration_by_graph_node.insert(
                                     type_alias_declaration_graph_node,
                                     LilySyntaxTypeDeclarationInfo::TypeAlias {
                                         documentation: &documented_declaration.documentation,
@@ -9493,11 +9493,11 @@ If you wanted to start a declaration, try one of:
                         } => {
                             let variable_declaration_graph_node: strongly_connected_components::Node =
                             variable_graph.new_node();
-                            variable_graph_node_by_name
-                                .insert(&name_node.value, variable_declaration_graph_node);
                             let existing_variable_with_same_name: Option<
-                                LilySyntaxVariableDeclarationInfo,
-                            > = variable_declaration_by_graph_node.insert(
+                                strongly_connected_components::Node,
+                            > = variable_graph_node_by_name
+                                .insert(&name_node.value, variable_declaration_graph_node);
+                            variable_declaration_by_graph_node.insert(
                                 variable_declaration_graph_node,
                                 LilySyntaxVariableDeclarationInfo {
                                     range: declaration_node.range,
@@ -9511,7 +9511,8 @@ If you wanted to start a declaration, try one of:
                                     range: name_node.range,
                                     message: Box::from("a variable with this name is already declared. Rename one of them")
                                 });
-                            } else if core_choice_type_infos.contains_key(&name_node.value) {
+                            } else if core_variable_declaration_infos.contains_key(&name_node.value)
+                            {
                                 errors.push(LilyErrorNode {
                                     range: name_node.range,
                                     message: Box::from("a variable with this name is already part of core (core variables are for example int-to-str or dec-add). Rename this variable")
