@@ -3413,10 +3413,10 @@ fn lily_type_opt(value_type: LilyType) -> LilyType {
         arguments: vec![value_type],
     }
 }
-const lily_type_continue_or_exit_name: &str = "continue-or-exit";
+const lily_type_go_on_or_exit_name: &str = "go-on-or-exit";
 fn lily_type_continue_or_exit(continue_type: LilyType, exit_type: LilyType) -> LilyType {
     LilyType::ChoiceConstruct {
-        name: LilyName::new(lily_type_continue_or_exit_name),
+        name: LilyName::new(lily_type_go_on_or_exit_name),
         arguments: vec![continue_type, exit_type],
     }
 }
@@ -10177,17 +10177,17 @@ Note that the inverse never fails: `char-to-code-point`",
 str-find-spaces-in-first-line \:str:str >
     str-walk-chars-from str
         0
-        (\:int:space-count-so-far, :char:char >
+        (\:unt:space-count-so-far, :char:char >
             char
-            | '\n' > :continue-or-exit int int:Exit space-count-so-far
+            | '\n' > :go-on-or-exit unt unt:Exit space-count-so-far
             | ' ' >
-                :continue-or-exit int int:
-                Continue int-add space-count-so-far 1
+                :go-on-or-exit unt unt:Go-on
+                    unt-add space-count-so-far 1
             | :char:_ >
-                :continue-or-exit int int:Continue space-count-so-far
+                :go-on-or-exit unt unt:Go-on space-count-so-far
         )
-    | :continue-or-exit int int:Continue :int:result > result
-    | :continue-or-exit int int:Exit :int:result > result
+    | :go-on-or-exit unt unt:Go-on :unt:result > result
+    | :go-on-or-exit unt unt:Exit :unt:result > result
 ```
 As you're probably realizing, this is powerful but
 both inconvenient and not very declarative (similar to a for each in loop in other languages).
@@ -10379,29 +10379,30 @@ To append only a single element, use `vec-append-element`",
                 ),
                 r"Loop through all of its elements first to last, collecting state or exiting early
 ```lily
-# if you aren't using any state in Continue, just use {}
+# if you aren't using any state in Go-on, just use {}
 vec-first-present \:vec (opt A):vec >
     vec-walk-from vec
         {}
         (\:opt A:element, {} >
             element
             | :opt A:Absent >
-                :continue-or-exit {} A:Continue {}
+                :go-on-or-exit {} A:Go-on {}
             | :opt A:Present :A:found >
-                :continue-or-exit {} A:Exit found
+                :go-on-or-exit {} A:Exit found
         )
-    | :continue-or-exit {} A:Continue {} > :opt A:Absent
-    | :continue-or-exit {} A:Exit :A:found > :opt A:Present found
+    | :go-on-or-exit {} A:Go-on {} > :opt A:Absent
+    | :go-on-or-exit {} A:Exit :A:found > :opt A:Present found
 
 # if you aren't calling Exit, you can use the same type as for the state
 ints-sum \:vec int:vec >
     vec-walk-from vec
-        0
-        (\:int:sum-so-far, :int:element > :continue-or-exit int int:
-            Continue int-add sum-so-far element
+        00
+        (\:int:sum-so-far, :int:element >
+            :go-on-or-exit int int:Go-on
+                int-add sum-so-far element
         )
-    | :continue-or-exit int int:Continue :int:result > result
-    | :continue-or-exit int int:Exit :int:result > result
+    | :go-on-or-exit int int:Go-on :int:result > result
+    | :go-on-or-exit int int:Exit :int:result > result
 ```
 As you're probably realizing, this is powerful but
 both inconvenient and not very declarative (similar to a for each in loop in other languages).
@@ -10654,53 +10655,53 @@ When comparing `int`s for < 0 and >= 0, you might prefer `int-to-unt`
             },
         ),
         (
-            LilyName::from(lily_type_continue_or_exit_name),
+            LilyName::from(lily_type_go_on_or_exit_name),
             ChoiceTypeInfo {
                 name_range: None,
                 documentation: Some(Box::from(
                     r"Either done with a final result or continuing with a partial result.
 Typically used for operations that can shortcut.
 ```lily
-# If you aren't using any state in Continue, just use {}
+# If you aren't using any state in Go-on, just use {}
 vec-first-present \:vec (opt A):vec >
     vec-walk-from vec
         {}
         (\:opt A:element, {} >
             element
             | :opt A:Absent >
-                :continue-or-exit {} A:Continue {}
+                :go-on-or-exit {} A:Go-on {}
             | :opt A:Present :A:found >
-                :continue-or-exit {} A:Exit found
+                :go-on-or-exit {} A:Exit found
         )
-    | :continue-or-exit {} A:Continue {} > :opt A:Absent
-    | :continue-or-exit {} A:Exit :A:found > :opt A:Present found
+    | :go-on-or-exit {} A:Go-on {} > :opt A:Absent
+    | :go-on-or-exit {} A:Exit :A:found > :opt A:Present found
 
-loop-from \:State:state, :\State > continue-or-exit State Exit: step >
+loop-from \:State:state, :\State > go-on-or-exit State Exit: step >
     step state
-    | :continue-or-exit State Exit:Exit :Exit:exit > exit
-    | :continue-or-exit State Exit:Continue :Continue:updated_state >
+    | :go-on-or-exit State Exit:Exit :Exit:exit > exit
+    | :go-on-or-exit State Exit:Go-on :Go-on:updated_state >
         loop_from updated_state step
 
 numbers0-9
-    loop_from { index 0, vec vec-increase-capacity-by (:vec int:[]) 10 }
-        (\{ index i, vec vec } >
-            int-order i 10
+    loop_from { index 0, vec vec-increase-capacity-by (:vec unt:[]) 10 }
+        (\{ index :unt:i, vec :vec unt:vec } >
+            unt-order i 10
             | :order:Less >
-                :continue-or-exit { index int, vec vec int } (vec int):
-                Continue { index int-add i 1, vec vec-attach vec [ i ] }
+                :go-on-or-exit { index unt, vec vec unt } (vec unt):
+                Go-on { index unt-add i 1, vec vec-attach-element vec i }
             | :order:_ >
-                :continue-or-exit { index int, vec vec int } (vec int):
+                :go-on-or-exit { index unt, vec vec unt } (vec unt):
                 Exit vec
         )
 ```
 "
                 )),
-                parameters: vec![lily_syntax_node_empty(LilyName::from("Continue")), lily_syntax_node_empty(LilyName::from("Exit"))],
+                parameters: vec![lily_syntax_node_empty(LilyName::from("Go-on")), lily_syntax_node_empty(LilyName::from("Exit"))],
                 type_variants: vec![
                     LilyChoiceTypeVariantInfo{
-                        name:LilyName::from("Continue"),
+                        name:LilyName::from("Go-on"),
                         value: Some(LilyChoiceTypeVariantValueInfo {
-                            type_: LilyType::Variable(LilyName::from("Continue")),
+                            type_: LilyType::Variable(LilyName::from("Go-on")),
                             constructs_recursive_type: false
                         })
                     },
@@ -10717,9 +10718,9 @@ numbers0-9
                 variants: vec![
                     LilySyntaxChoiceTypeVariant {
                         or_key_symbol_range: lsp_types::Range::default(),
-                        name: Some(lily_syntax_node_empty(LilyName::from("Continue"))),
+                        name: Some(lily_syntax_node_empty(LilyName::from("Go-on"))),
                         value: Some(lily_syntax_node_empty(LilySyntaxType::Variable(
-                            LilyName::from("Continue"),
+                            LilyName::from("Go-on"),
                         ))),
                     },
                     LilySyntaxChoiceTypeVariant {

@@ -219,21 +219,21 @@ impl<A> Opt<A> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum Continue_or_exit<C, E> {
-    Continue(C),
+pub enum Go_on_or_exit<C, E> {
+    Go_on(C),
     Exit(E),
 }
-impl<C, E> Continue_or_exit<C, E> {
+impl<C, E> Go_on_or_exit<C, E> {
     fn to_control_flow(self) -> std::ops::ControlFlow<E, C> {
         match self {
-            Continue_or_exit::Continue(continue_) => std::ops::ControlFlow::Continue(continue_),
-            Continue_or_exit::Exit(exit) => std::ops::ControlFlow::Break(exit),
+            Go_on_or_exit::Go_on(continue_) => std::ops::ControlFlow::Continue(continue_),
+            Go_on_or_exit::Exit(exit) => std::ops::ControlFlow::Break(exit),
         }
     }
     fn from_control_flow(control_flow: std::ops::ControlFlow<E, C>) -> Self {
         match control_flow {
-            std::ops::ControlFlow::Continue(continue_) => Continue_or_exit::Continue(continue_),
-            std::ops::ControlFlow::Break(exit) => Continue_or_exit::Exit(exit),
+            std::ops::ControlFlow::Continue(continue_) => Go_on_or_exit::Go_on(continue_),
+            std::ops::ControlFlow::Break(exit) => Go_on_or_exit::Exit(exit),
         }
     }
 }
@@ -376,9 +376,9 @@ fn str_order(left: Str, right: Str) -> Order {
 fn str_walk_chars_from<C, E>(
     str: Str,
     initial_state: C,
-    on_element: impl Fn(C, Char) -> Continue_or_exit<C, E>,
-) -> Continue_or_exit<C, E> {
-    Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
+    on_element: impl Fn(C, Char) -> Go_on_or_exit<C, E>,
+) -> Go_on_or_exit<C, E> {
+    Go_on_or_exit::from_control_flow(std::iter::Iterator::try_fold(
         &mut str.as_str().chars(),
         initial_state,
         |state, element| on_element(state, element).to_control_flow(),
@@ -593,19 +593,19 @@ fn vec_flatten<A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<A> {
 fn vec_walk_from<A: Clone, C, E>(
     vec: Vec<A>,
     state: C,
-    on_element: impl Fn(C, A) -> Continue_or_exit<C, E>,
-) -> Continue_or_exit<C, E> {
+    on_element: impl Fn(C, A) -> Go_on_or_exit<C, E>,
+) -> Go_on_or_exit<C, E> {
     match vec {
         Vec::Rc(vec) => match std::rc::Rc::try_unwrap(vec) {
             std::result::Result::Ok(vec) => {
-                Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
+                Go_on_or_exit::from_control_flow(std::iter::Iterator::try_fold(
                     &mut std::iter::IntoIterator::into_iter(vec),
                     state,
                     |state, element| on_element(state, element).to_control_flow(),
                 ))
             }
             std::result::Result::Err(vec) => {
-                Continue_or_exit::from_control_flow(std::iter::Iterator::try_fold(
+                Go_on_or_exit::from_control_flow(std::iter::Iterator::try_fold(
                     &mut std::iter::Iterator::cloned(vec.iter()),
                     state,
                     |state, element| on_element(state, element).to_control_flow(),

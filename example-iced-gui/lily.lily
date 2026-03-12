@@ -84,11 +84,11 @@ widget-pick-list
                     {}
                     (\{}, :Option:option >
                      str-order (option-to-str option) new-selected
-                     | :order:Equal > :continue-or-exit {} Option:Exit option
-                     | :order:_ > :continue-or-exit {} Option:Continue {}
+                     | :order:Equal > :go-on-or-exit {} Option:Exit option
+                     | :order:_ > :go-on-or-exit {} Option:Go-on {}
                     )
-                 | :continue-or-exit {} Option:Continue {} > :opt Option:Absent
-                 | :continue-or-exit {} Option:Exit :Option:option > :opt Option:Present option
+                 | :go-on-or-exit {} Option:Go-on {} > :opt Option:Absent
+                 | :go-on-or-exit {} Option:Exit :Option:option > :opt Option:Present option
                 )
         }
 
@@ -101,11 +101,11 @@ vec-each-change \:vec A:vec, :\A > B:element-change >
     vec-walk-from vec
         (vec-increase-capacity-by (:vec B:[]) (vec-length vec))
         (\:vec B:so-far, :A:element >
-         :continue-or-exit (vec B) (vec B):Continue
+         :go-on-or-exit (vec B) (vec B):Go-on
             vec-attach-element so-far (element-change element)
         )
-    | :continue-or-exit (vec B) (vec B):Continue :vec B:result > result
-    | :continue-or-exit (vec B) (vec B):Exit :vec B:result > result
+    | :go-on-or-exit (vec B) (vec B):Go-on :vec B:result > result
+    | :go-on-or-exit (vec B) (vec B):Exit :vec B:result > result
 
 update \:event:event, :state:state >
     event

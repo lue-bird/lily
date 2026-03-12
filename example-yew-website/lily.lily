@@ -161,15 +161,15 @@ svg-points-to-str \:vec { x unt, y unt }:points >
     vec-walk-from points
         ""
         (\:str:str, { x :unt:x, y :unt:y } >
-         :continue-or-exit str str:Continue
+         :go-on-or-exit str str:Go-on
             str
             .str-attach-unt x
             .str-attach-char ','
             .str-attach-unt y
             .str-attach-char ' '
         )
-    | :continue-or-exit str str:Continue :str:str > str
-    | :continue-or-exit str str:Exit :str:str > str
+    | :go-on-or-exit str str:Go-on :str:str > str
+    | :go-on-or-exit str str:Exit :str:str > str
 
 json-to-client-position \:json:json >
     :opt { x unt, y unt }:
@@ -192,11 +192,11 @@ json-fields-find \:vec { key str, value json }:json-fields, :str:needle >
         {}
         (\{}, { key :str:field-key, value :json:field-value } >
          str-order field-key needle
-         | :order:Equal > :continue-or-exit {} json:Exit field-value
-         | :order:_ > :continue-or-exit {} json:Continue {}
+         | :order:Equal > :go-on-or-exit {} json:Exit field-value
+         | :order:_ > :go-on-or-exit {} json:Go-on {}
         )
-    | :continue-or-exit {} json:Continue {} > :opt json:Absent
-    | :continue-or-exit {} json:Exit :json:field-value > :opt json:Present field-value
+    | :go-on-or-exit {} json:Go-on {} > :opt json:Absent
+    | :go-on-or-exit {} json:Exit :json:field-value > :opt json:Present field-value
 
 update \:event:event, :state:state >
     state

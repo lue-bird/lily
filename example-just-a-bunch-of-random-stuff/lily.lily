@@ -53,7 +53,7 @@ test-closure-impl
     vec-walk-from [ 0, 1, 3 ]
         0
         (\:unt:sum, :unt:element >
-         :continue-or-exit unt unt:Continue unt-add sum element
+         :go-on-or-exit unt unt:Go-on unt-add sum element
         )
 
 type state =
@@ -119,7 +119,7 @@ str-reduce-lines-from \:str:str, :State:initial-lines-state, :\State, str > Stat
     str-walk-chars-from str
         { current-line "", state initial-lines-state }
         (\{ current-line :str:current-line, state :State:state }, :char:char >
-         :continue-or-exit { current-line str, state State } State:Continue
+         :go-on-or-exit { current-line str, state State } State:Go-on
             char
             | '\r' >
                 { state state
@@ -134,8 +134,8 @@ str-reduce-lines-from \:str:str, :State:initial-lines-state, :\State, str > Stat
                 , current-line current-line .str-attach-char char
                 }
         )
-    | :continue-or-exit { current-line str, state State } State:Exit :State:exit > exit
-    | :continue-or-exit { current-line str, state State } State:Continue
+    | :go-on-or-exit { current-line str, state State } State:Exit :State:exit > exit
+    | :go-on-or-exit { current-line str, state State } State:Go-on
         { current-line :str:last-line, state :State:state }
     >
     reduce state last-line
