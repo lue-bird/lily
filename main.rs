@@ -834,6 +834,7 @@ fn respond_to_hover(
             }),
             range: Some(hovered_symbol_node.range),
         }),
+        LilySyntaxSymbol::InRecord { fields_sorted: _ } => None,
         LilySyntaxSymbol::Variant {
             name: hovered_name,
             type_: maybe_type,
@@ -1028,6 +1029,7 @@ fn respond_to_goto_definition(
             // already at definition
             None
         }
+        LilySyntaxSymbol::InRecord { fields_sorted: _ } => None,
         LilySyntaxSymbol::TypeVariable {
             scope_declaration,
             name: goto_type_variable_name,
@@ -1263,6 +1265,7 @@ fn respond_to_prepare_rename(
                 placeholder: name.to_string(),
             }))
         }
+        LilySyntaxSymbol::InRecord { fields_sorted: _ } => None,
     }
 }
 
@@ -1343,6 +1346,7 @@ fn respond_to_rename(
                     .collect::<Vec<_>>(),
             }])
         }
+        LilySyntaxSymbol::InRecord { fields_sorted: _ } => None,
         LilySyntaxSymbol::ProjectDeclarationName {
             name: to_rename_declaration_name,
             documentation: _,
@@ -1652,6 +1656,7 @@ fn respond_to_references(
                     .collect::<Vec<_>>(),
             )
         }
+        LilySyntaxSymbol::InRecord { fields_sorted: _ } => None,
         LilySyntaxSymbol::ProjectDeclarationName {
             name: to_find_name,
             documentation: _,
@@ -2060,6 +2065,29 @@ fn respond_to_completion(
                             field_name == field_name_to_complete
                                 || project_record_fields.contains(field_name)
                         })
+                    })
+                    .flatten()
+                    .filter(|field_name| !fields_sorted.contains(field_name))
+                    .map(|field_name| lsp_types::CompletionItem {
+                        label: field_name.to_string(),
+                        kind: Some(lsp_types::CompletionItemKind::PROPERTY),
+                        documentation: None,
+                        text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                            range: symbol_to_complete.range,
+                            new_text: field_name.to_string(),
+                        })),
+                        ..lsp_types::CompletionItem::default()
+                    })
+                    .collect(),
+            ),
+            LilySyntaxSymbol::InRecord { fields_sorted } => Some(
+                completion_project
+                    .records
+                    .iter()
+                    .filter(|project_record_fields| {
+                        fields_sorted
+                            .iter()
+                            .all(|field_name| project_record_fields.contains(field_name))
                     })
                     .flatten()
                     .filter(|field_name| !fields_sorted.contains(field_name))
@@ -4881,6 +4909,9 @@ enum LilySyntaxSymbol<'a> {
         value_type: Option<LilyType>,
         fields_sorted: Vec<LilyName>,
     },
+    InRecord {
+        fields_sorted: Vec<LilyName>,
+    },
 }
 #[derive(Clone, Debug)]
 struct LilyLocalBindingInfo<'a> {
@@ -5225,36 +5256,51 @@ fn lily_syntax_pattern_find_symbol_at_position<'a>(
                     position,
                 )
             }),
-        LilySyntaxPattern::Record(fields) => fields.iter().find_map(|field| {
-            if lsp_range_includes_position(field.name.range, position) {
-                return Some(LilySyntaxNode {
-                    value: LilySyntaxSymbol::Field {
-                        name: &field.name.value,
-                        value_type: field.value.as_ref().and_then(|field_value_node| {
-                            lily_syntax_pattern_type(
-                                type_aliases,
-                                choice_types,
-                                lily_syntax_node_as_ref(field_value_node),
-                            )
-                        }),
+        LilySyntaxPattern::Record(fields) => Some(
+            fields
+                .iter()
+                .find_map(|field| {
+                    if lsp_range_includes_position(field.name.range, position) {
+                        return Some(LilySyntaxNode {
+                            value: LilySyntaxSymbol::Field {
+                                name: &field.name.value,
+                                value_type: field.value.as_ref().and_then(|field_value_node| {
+                                    lily_syntax_pattern_type(
+                                        type_aliases,
+                                        choice_types,
+                                        lily_syntax_node_as_ref(field_value_node),
+                                    )
+                                }),
+                                fields_sorted: sorted_field_names(
+                                    fields.iter().map(|record_field| &record_field.name.value),
+                                ),
+                            },
+                            range: field.name.range,
+                        });
+                    }
+                    field.value.as_ref().and_then(|field_value_node| {
+                        lily_syntax_pattern_find_symbol_at_position(
+                            type_aliases,
+                            choice_types,
+                            scope_declaration,
+                            scope_expression,
+                            lily_syntax_node_as_ref(field_value_node),
+                            position,
+                        )
+                    })
+                })
+                .unwrap_or_else(|| LilySyntaxNode {
+                    range: lsp_types::Range {
+                        start: position,
+                        end: position,
+                    },
+                    value: LilySyntaxSymbol::InRecord {
                         fields_sorted: sorted_field_names(
                             fields.iter().map(|record_field| &record_field.name.value),
                         ),
                     },
-                    range: field.name.range,
-                });
-            }
-            field.value.as_ref().and_then(|field_value_node| {
-                lily_syntax_pattern_find_symbol_at_position(
-                    type_aliases,
-                    choice_types,
-                    scope_declaration,
-                    scope_expression,
-                    lily_syntax_node_as_ref(field_value_node),
-                    position,
-                )
-            })
-        }),
+                }),
+        ),
     }
 }
 
@@ -5337,36 +5383,51 @@ fn lily_syntax_type_find_symbol_at_position<'a>(
                     position,
                 )
             }),
-        LilySyntaxType::Record(fields) => fields.iter().find_map(|field| {
-            if lsp_range_includes_position(field.name.range, position) {
-                return Some(LilySyntaxNode {
-                    value: LilySyntaxSymbol::Field {
-                        name: &field.name.value,
-                        value_type: field.value.as_ref().and_then(|field_value_node| {
-                            lily_syntax_type_to_type(
-                                &mut Vec::new(),
-                                type_aliases,
-                                choice_types,
-                                lily_syntax_node_as_ref(field_value_node),
-                            )
-                        }),
+        LilySyntaxType::Record(fields) => Some(
+            fields
+                .iter()
+                .find_map(|field| {
+                    if lsp_range_includes_position(field.name.range, position) {
+                        return Some(LilySyntaxNode {
+                            value: LilySyntaxSymbol::Field {
+                                name: &field.name.value,
+                                value_type: field.value.as_ref().and_then(|field_value_node| {
+                                    lily_syntax_type_to_type(
+                                        &mut Vec::new(),
+                                        type_aliases,
+                                        choice_types,
+                                        lily_syntax_node_as_ref(field_value_node),
+                                    )
+                                }),
+                                fields_sorted: sorted_field_names(
+                                    fields.iter().map(|record_field| &record_field.name.value),
+                                ),
+                            },
+                            range: field.name.range,
+                        });
+                    }
+                    field.value.as_ref().and_then(|field_value_node| {
+                        lily_syntax_type_find_symbol_at_position(
+                            type_aliases,
+                            choice_types,
+                            scope_declaration,
+                            lily_syntax_node_as_ref(field_value_node),
+                            position,
+                        )
+                    })
+                })
+                .unwrap_or_else(|| LilySyntaxNode {
+                    range: lsp_types::Range {
+                        start: position,
+                        end: position,
+                    },
+                    value: LilySyntaxSymbol::InRecord {
                         fields_sorted: sorted_field_names(
                             fields.iter().map(|record_field| &record_field.name.value),
                         ),
                     },
-                    range: field.name.range,
-                });
-            }
-            field.value.as_ref().and_then(|field_value_node| {
-                lily_syntax_type_find_symbol_at_position(
-                    type_aliases,
-                    choice_types,
-                    scope_declaration,
-                    lily_syntax_node_as_ref(field_value_node),
-                    position,
-                )
-            })
-        }),
+                }),
+        ),
         LilySyntaxType::Variable(type_variable_value) => Some(LilySyntaxNode {
             range: lily_syntax_type_node.range,
             value: LilySyntaxSymbol::TypeVariable {
@@ -5732,7 +5793,7 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
                 None => std::ops::ControlFlow::Continue(local_bindings),
             }
         }
-        LilySyntaxExpression::Record(fields) => {
+        LilySyntaxExpression::Record(fields) => std::ops::ControlFlow::Break(
             fields
                 .iter()
                 .try_fold(local_bindings, |local_bindings, field| {
@@ -5747,7 +5808,19 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
                         position,
                     )
                 })
-        }
+                .break_value()
+                .unwrap_or_else(|| LilySyntaxNode {
+                    range: lsp_types::Range {
+                        start: position,
+                        end: position,
+                    },
+                    value: LilySyntaxSymbol::InRecord {
+                        fields_sorted: sorted_field_names(
+                            fields.iter().map(|record_field| &record_field.name.value),
+                        ),
+                    },
+                }),
+        ),
         LilySyntaxExpression::RecordUpdate {
             record: maybe_record,
             spread_key_symbol_range: _,
