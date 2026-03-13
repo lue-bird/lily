@@ -1,4 +1,5 @@
 /// reusable core of the lily compiler: parse, format, translate to rust.
+pub mod lily_core;
 
 pub fn compiled_rust_to_file_content(compiled_rust: &syn::File) -> String {
     format!(

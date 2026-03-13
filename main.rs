@@ -1,8 +1,4 @@
-// lsp lily reports this specific error even when it is allowed in the Cargo.toml
-#![allow(non_upper_case_globals)]
-mod lily;
-// just to get analysis on lily_core, not actually used here
-mod lily_core;
+use lily_compile as lily;
 
 struct State {
     projects: std::collections::HashMap<lsp_types::Uri, ProjectState>,

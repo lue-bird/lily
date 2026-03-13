@@ -72,7 +72,22 @@ name = "lily"
 version = "0.0.1"
 dependencies = [
  "compact_str",
+ "lily_compile",
  "lsp-server",
+ "lsp-types",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "strongly-connected-components",
+ "syn",
+]
+
+[[package]]
+name = "lily_compile"
+version = "0.0.1"
+dependencies = [
+ "compact_str",
  "lsp-types",
  "prettyplease",
  "proc-macro2",
