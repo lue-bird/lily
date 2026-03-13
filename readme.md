@@ -262,9 +262,8 @@ auto-format = true
 ## setup for developing
 Rebuild the project with
 ```bash
-cargo build
+cargo install --debug --offline --path . lily
 ```
-Then point your editor to the created `???/target/debug/lily lsp`.
 
 ## considering
 - (leaning towards yes) allow comment lines before choice declaration variant name
