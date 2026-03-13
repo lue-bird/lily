@@ -5494,20 +5494,37 @@ fn lily_syntax_expression_find_symbol_at_position<'a>(
         }
         LilySyntaxExpression::DotCall {
             argument0: argument0_node,
-            dot_key_symbol_range: _,
+            dot_key_symbol_range,
             function_variable: maybe_variable_node,
             argument1_up,
         } => {
-            if let Some(variable_node) = maybe_variable_node
-                && lsp_range_includes_position(variable_node.range, position)
-            {
-                return std::ops::ControlFlow::Break(LilySyntaxNode {
-                    value: LilySyntaxSymbol::Variable {
-                        name: &variable_node.value,
-                        local_bindings: local_bindings,
-                    },
-                    range: variable_node.range,
-                });
+            match maybe_variable_node {
+                None => {
+                    if position == dot_key_symbol_range.end {
+                        static lily_name_empty: LilyName = LilyName::const_new("");
+                        return std::ops::ControlFlow::Break(LilySyntaxNode {
+                            value: LilySyntaxSymbol::Variable {
+                                name: &lily_name_empty,
+                                local_bindings: local_bindings,
+                            },
+                            range: lsp_types::Range {
+                                start: position,
+                                end: position,
+                            },
+                        });
+                    }
+                }
+                Some(variable_node) => {
+                    if lsp_range_includes_position(variable_node.range, position) {
+                        return std::ops::ControlFlow::Break(LilySyntaxNode {
+                            value: LilySyntaxSymbol::Variable {
+                                name: &variable_node.value,
+                                local_bindings: local_bindings,
+                            },
+                            range: variable_node.range,
+                        });
+                    }
+                }
             }
             std::iter::once(lily_syntax_node_unbox(argument0_node))
                 .chain(argument1_up.iter().map(lily_syntax_node_as_ref))
