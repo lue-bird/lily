@@ -2136,7 +2136,6 @@ fn respond_to_completion(
                 completion_items.extend(local_binding_completions);
                 variable_declaration_or_variant_completions_into(
                     &mut completion_items,
-                    &completion_project.choice_types,
                     &completion_project.variable_declarations,
                     symbol_to_complete.range,
                 );
@@ -2178,7 +2177,6 @@ fn respond_to_completion(
 
 fn variable_declaration_or_variant_completions_into(
     completion_items: &mut Vec<lsp_types::CompletionItem>,
-    choice_types: &std::collections::HashMap<LilyName, ChoiceTypeInfo>,
     variable_declarations: &std::collections::HashMap<LilyName, CompiledVariableDeclarationInfo>,
     symbol_to_complete_range: lsp_types::Range,
 ) {
@@ -2200,39 +2198,6 @@ fn variable_declaration_or_variant_completions_into(
                 new_text: variable_declaration_name.to_string(),
             })),
             ..lsp_types::CompletionItem::default()
-        },
-    ));
-    completion_items.extend(choice_types.iter().flat_map(
-        |(origin_project_choice_type_name, origin_project_choice_type_info)| {
-            let info_markdown: String = format!(
-                "variant in\n{}",
-                present_choice_type_declaration_info_markdown(
-                    Some(origin_project_choice_type_name),
-                    origin_project_choice_type_info.documentation.as_deref(),
-                    &origin_project_choice_type_info.parameters,
-                    &origin_project_choice_type_info.variants,
-                ),
-            );
-            origin_project_choice_type_info
-                .variants
-                .iter()
-                .filter_map(|variant| variant.name.as_ref().map(|node| node.value.to_string()))
-                .map(move |variant_name| lsp_types::CompletionItem {
-                    insert_text: Some(format!(":{origin_project_choice_type_name}:{variant_name}")),
-                    label: variant_name.clone(),
-                    kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
-                    documentation: Some(lsp_types::Documentation::MarkupContent(
-                        lsp_types::MarkupContent {
-                            kind: lsp_types::MarkupKind::Markdown,
-                            value: info_markdown.clone(),
-                        },
-                    )),
-                    text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
-                        range: symbol_to_complete_range,
-                        new_text: variant_name,
-                    })),
-                    ..lsp_types::CompletionItem::default()
-                })
         },
     ));
 }
