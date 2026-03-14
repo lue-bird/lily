@@ -4703,7 +4703,7 @@ vec-last-element \:vec A:vec >
             (
                 Name::from("vec-swap"),
                 function(
-                    [type_vec(variable("A")),type_unt,variable("A")],
+                    [type_vec(variable("A")),type_unt,type_unt],
                     type_vec(variable("A")),
                 ),
                 r"Exchange the element at the first given index with the element at the second given index. If either index is greater than the last existing index (or the indexes are equal), nothing is changed
@@ -4747,8 +4747,7 @@ vec-remove-last \:vec A:vec >
                 r"Take at most a given count of elements from a given start index
 ```lily
 vec-remove-first \:vec A:vec >
-    vec-slice-from-index-with-length
-        vec
+    vec-slice-from-index-with-length vec
         1
         # can exceed the length of the original vec
         (vec-length vec)
@@ -5103,8 +5102,8 @@ vec-first-present \:vec (opt A):vec >
 loop-from \:State:state, :\State > go-on-or-exit State Exit: step >
     step state
     | :go-on-or-exit State Exit:Exit :Exit:exit > exit
-    | :go-on-or-exit State Exit:Go-on :Go-on:updated_state >
-        loop-from updated_state step
+    | :go-on-or-exit State Exit:Go-on :Go-on:updated-state >
+        loop-from updated-state step
 
 numbers0-9
     loop-from { index 0, vec vec-increase-capacity-by (:vec unt:[]) 10 }
@@ -5164,14 +5163,15 @@ numbers0-9
                 documentation: Some(Box::from(
                     "A growable array of elements. Arrays have constant time access and mutation and amortized constant time push.
 ```lily
-my-vec :vec int:
+my-vec
+    :vec unt:
     [ 1, 2, 3 ]
 
 vec-element 0 my-vec
-# = :opt int:Present 1
+# = :opt unt:Present 1
 
 vec-element 3 my-vec
-# = :opt int:Absent
+# = :opt unt:Absent
 ```
 "
                 )),
