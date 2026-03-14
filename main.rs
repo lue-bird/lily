@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(command) => match command.as_str() {
             "lsp" | "language-server" | "ls" => lsp_main(),
-            "help" | "-h" | "--help" | "elp" | "h" | "pad" | "?" => {
+            "help" | "-h" | "--help" | "elp" | "h" | "pad" | "?" | "-?" | "--h" | "--?" => {
                 println!("{command_help}");
                 Ok(())
             }
