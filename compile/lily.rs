@@ -1,3 +1,4 @@
+#![allow(non_upper_case_globals)]
 /// reusable core of the lily compiler: parse, format, translate to rust.
 pub mod lily_core;
 
@@ -2198,12 +2199,13 @@ fn syntax_pattern_binding_types_into<'a>(
 }
 
 // //
-struct ParseState<'a> {
-    source: &'a str,
-    offset_utf8: usize,
-    position: lsp_types::Position,
-    indent: u16,
-    lower_indents_stack: Vec<u16>,
+
+pub struct ParseState<'a> {
+    pub source: &'a str,
+    pub offset_utf8: usize,
+    pub position: lsp_types::Position,
+    pub indent: u16,
+    pub lower_indents_stack: Vec<u16>,
 }
 
 fn parse_state_push_indent(state: &mut ParseState, new_indent: u16) {
@@ -2441,7 +2443,7 @@ fn parse_lily_uppercase_name_node(state: &mut ParseState) -> Option<SyntaxNode<N
     })
 }
 
-fn parse_syntax_type(state: &mut ParseState) -> Option<SyntaxNode<SyntaxType>> {
+pub fn parse_syntax_type(state: &mut ParseState) -> Option<SyntaxNode<SyntaxType>> {
     if state.position.character <= u32::from(state.indent) {
         return None;
     }
@@ -4769,7 +4771,7 @@ vec-remove-first \:vec A:vec >
                     ],
                     type_vec(variable("A")),
                 ),
-                "Reserve capacity for at least a given count of additional elements to be inserted in the given vec (reserving space is done automatically when inserting elements but when knowing more about the final size, we can avoid reallocations).",
+                "Sort the elements with a given ordering function. For elements whose order is Equal, their order in the resulting vec is unstable and isn't guaranteed to be the same as in the original vec.",
             ),
             (
                 Name::from("vec-attach-element"),
@@ -4980,18 +4982,20 @@ char-cmp 'b' 'a'
 # = :order:Greater
 
 # typically used with pattern matching
-int-order x 5
-| :order:Less >
-    "must be >= 5"
-| :order:_ >
-int-order x 10
-| :order:Greater >
-    "must be <= 10"
-| :order:_
-    "valid"
+validate-int \:int:x >
+    int-order x +5
+    | :order:Less >
+        "must be >= 5"
+    | :order:_ >
+    int-order x +10
+    | :order:Greater >
+        "must be <= 10"
+    | :order:_ >
+        "valid"
 
 # and is used for sorting
-vec
+vec-sort unt-order [ 3, 1, 2 ]
+# = [ 1, 2, 3 ]
 ```
 If necessary you can create order functions for your specific types,
 lily does not have "traits"/"type classes" or similar, functions are always passed explicitly.
@@ -5100,10 +5104,10 @@ loop-from \:State:state, :\State > go-on-or-exit State Exit: step >
     step state
     | :go-on-or-exit State Exit:Exit :Exit:exit > exit
     | :go-on-or-exit State Exit:Go-on :Go-on:updated_state >
-        loop_from updated_state step
+        loop-from updated_state step
 
 numbers0-9
-    loop_from { index 0, vec vec-increase-capacity-by (:vec unt:[]) 10 }
+    loop-from { index 0, vec vec-increase-capacity-by (:vec unt:[]) 10 }
         (\{ index :unt:i, vec :vec unt:vec } >
             unt-order i 10
             | :order:Less >
@@ -10849,8 +10853,728 @@ fn syn_expr_reference<const N: usize>(segments: [&str; N]) -> syn::Expr {
         path: syn_path_reference(segments),
     })
 }
+#[derive(Copy, Clone)]
+pub enum SyntaxHighlightKind {
+    Type,
+    TypeVariable,
+    Variant,
+    Field,
+    Variable,
+    Comment,
+    String,
+    Number,
+    DeclaredVariable,
+    KeySymbol,
+}
+
+pub fn syntax_highlight_project_into(
+    highlighted_so_far: &mut Vec<SyntaxNode<SyntaxHighlightKind>>,
+    syntax_project: &SyntaxProject,
+) {
+    for documented_declaration in syntax_project
+        .declarations
+        .iter()
+        .filter_map(|declaration_or_err| declaration_or_err.as_ref().ok())
+    {
+        if let Some(documentation_node) = &documented_declaration.documentation {
+            highlighted_so_far.extend(
+                str_lines_ranges(documentation_node.range, &documentation_node.value).map(
+                    |range| SyntaxNode {
+                        range: range,
+                        value: SyntaxHighlightKind::Comment,
+                    },
+                ),
+            );
+        }
+        if let Some(declaration_node) = &documented_declaration.declaration {
+            syntax_highlight_declaration_into(
+                highlighted_so_far,
+                syntax_node_as_ref(declaration_node),
+            );
+        }
+    }
+}
+pub fn syntax_highlight_declaration_into(
+    highlighted_so_far: &mut Vec<SyntaxNode<SyntaxHighlightKind>>,
+    declaration_node: SyntaxNode<&SyntaxDeclaration>,
+) {
+    match declaration_node.value {
+        SyntaxDeclaration::Variable {
+            name: name_node,
+            result: maybe_result,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: name_node.range,
+                value: SyntaxHighlightKind::DeclaredVariable,
+            });
+            if let Some(result_node) = maybe_result {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_as_ref(result_node),
+                );
+            }
+        }
+        SyntaxDeclaration::ChoiceType {
+            name: maybe_name,
+            parameters,
+            variants,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: lsp_types::Range {
+                    start: declaration_node.range.start,
+                    end: lsp_position_add_characters(declaration_node.range.start, 6),
+                },
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            if let Some(name_node) = maybe_name {
+                highlighted_so_far.push(SyntaxNode {
+                    range: name_node.range,
+                    value: SyntaxHighlightKind::Type,
+                });
+            }
+            for parameter_name_node in parameters {
+                highlighted_so_far.push(SyntaxNode {
+                    range: parameter_name_node.range,
+                    value: SyntaxHighlightKind::TypeVariable,
+                });
+            }
+            for variant in variants {
+                highlighted_so_far.push(SyntaxNode {
+                    range: variant.or_key_symbol_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+                if let Some(variant_name_node) = &variant.name {
+                    highlighted_so_far.push(SyntaxNode {
+                        range: variant_name_node.range,
+                        value: SyntaxHighlightKind::Variant,
+                    });
+                }
+                for variant_value_node in variant.value.iter() {
+                    syntax_highlight_type_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(variant_value_node),
+                    );
+                }
+            }
+        }
+        SyntaxDeclaration::TypeAlias {
+            type_keyword_range,
+            name: maybe_name,
+            parameters,
+            equals_key_symbol_range: maybe_equals_key_symbol_range,
+            type_: maybe_type,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: *type_keyword_range,
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            if let Some(name_node) = maybe_name {
+                highlighted_so_far.push(SyntaxNode {
+                    range: name_node.range,
+                    value: SyntaxHighlightKind::Type,
+                });
+            }
+            for parameter_name_node in parameters {
+                highlighted_so_far.push(SyntaxNode {
+                    range: parameter_name_node.range,
+                    value: SyntaxHighlightKind::TypeVariable,
+                });
+            }
+            if let &Some(equals_key_symbol_range) = maybe_equals_key_symbol_range {
+                highlighted_so_far.push(SyntaxNode {
+                    range: equals_key_symbol_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+            }
+            if let Some(type_node) = maybe_type {
+                syntax_highlight_type_into(highlighted_so_far, syntax_node_as_ref(type_node));
+            }
+        }
+    }
+}
+pub fn syntax_highlight_pattern_into(
+    highlighted_so_far: &mut Vec<SyntaxNode<SyntaxHighlightKind>>,
+    pattern_node: SyntaxNode<&SyntaxPattern>,
+) {
+    match pattern_node.value {
+        SyntaxPattern::Char(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: pattern_node.range,
+                value: SyntaxHighlightKind::String,
+            });
+        }
+        SyntaxPattern::Unt(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: pattern_node.range,
+                value: SyntaxHighlightKind::Number,
+            });
+        }
+        SyntaxPattern::Int(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: pattern_node.range,
+                value: SyntaxHighlightKind::Number,
+            });
+        }
+        SyntaxPattern::Typed {
+            type_: maybe_type_node,
+            closing_colon_range: maybe_closing_colon_range,
+            pattern: maybe_pattern_node_in_typed,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: lsp_types::Range {
+                    start: pattern_node.range.start,
+                    end: lsp_position_add_characters(pattern_node.range.start, 1),
+                },
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            if let Some(type_node) = maybe_type_node {
+                syntax_highlight_type_into(highlighted_so_far, syntax_node_as_ref(type_node));
+            }
+            if let Some(closing_colon_range) = *maybe_closing_colon_range {
+                highlighted_so_far.push(SyntaxNode {
+                    range: closing_colon_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+            }
+            if let Some(pattern_node_in_typed) = maybe_pattern_node_in_typed {
+                syntax_highlight_pattern_into(
+                    highlighted_so_far,
+                    SyntaxNode {
+                        range: pattern_node_in_typed.range,
+                        value: &pattern_node_in_typed.value,
+                    },
+                );
+            }
+        }
+        SyntaxPattern::Ignored => {
+            highlighted_so_far.push(SyntaxNode {
+                range: pattern_node.range,
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+        }
+        SyntaxPattern::Variable { overwriting, name } => {
+            if *overwriting {
+                highlighted_so_far.push(SyntaxNode {
+                    range: lsp_types::Range {
+                        start: pattern_node.range.start,
+                        end: lsp_position_add_characters(
+                            pattern_node.range.start,
+                            name.len() as i32,
+                        ),
+                    },
+                    value: SyntaxHighlightKind::Variable,
+                });
+                highlighted_so_far.push(SyntaxNode {
+                    range: lsp_types::Range {
+                        start: lsp_position_add_characters(pattern_node.range.end, -1),
+                        end: pattern_node.range.end,
+                    },
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+            } else {
+                highlighted_so_far.push(SyntaxNode {
+                    range: pattern_node.range,
+                    value: SyntaxHighlightKind::Variable,
+                });
+            }
+        }
+        SyntaxPattern::Variant {
+            name: name_node,
+            value: maybe_value,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: name_node.range,
+                value: SyntaxHighlightKind::Variant,
+            });
+            if let Some(value_node) = maybe_value {
+                syntax_highlight_pattern_into(highlighted_so_far, syntax_node_unbox(value_node));
+            }
+        }
+        SyntaxPattern::WithComment {
+            comment: comment_node,
+            pattern: maybe_pattern_after_comment,
+        } => {
+            highlighted_so_far.extend(
+                str_lines_ranges(comment_node.range, &comment_node.value).map(|range| SyntaxNode {
+                    range: range,
+                    value: SyntaxHighlightKind::Comment,
+                }),
+            );
+            if let Some(pattern_node_after_comment) = maybe_pattern_after_comment {
+                syntax_highlight_pattern_into(
+                    highlighted_so_far,
+                    syntax_node_unbox(pattern_node_after_comment),
+                );
+            }
+        }
+        SyntaxPattern::Record(fields) => {
+            for field in fields {
+                highlighted_so_far.push(SyntaxNode {
+                    range: field.name.range,
+                    value: SyntaxHighlightKind::Field,
+                });
+                if let Some(field_value_node) = &field.value {
+                    syntax_highlight_pattern_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(field_value_node),
+                    );
+                }
+            }
+        }
+        SyntaxPattern::String {
+            content: _,
+            quoting_style: _,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: pattern_node.range,
+                value: SyntaxHighlightKind::String,
+            });
+        }
+    }
+}
+pub fn syntax_highlight_type_into(
+    highlighted_so_far: &mut Vec<SyntaxNode<SyntaxHighlightKind>>,
+    type_node: SyntaxNode<&SyntaxType>,
+) {
+    match type_node.value {
+        SyntaxType::Construct {
+            name: name_node,
+            arguments,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: name_node.range,
+                value: SyntaxHighlightKind::Type,
+            });
+            for argument_node in arguments {
+                syntax_highlight_type_into(highlighted_so_far, syntax_node_as_ref(argument_node));
+            }
+        }
+        SyntaxType::Function {
+            inputs,
+            arrow_key_symbol_range: maybe_arrow_key_symbol_range,
+            output: maybe_output,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: lsp_types::Range {
+                    start: type_node.range.start,
+                    end: lsp_position_add_characters(type_node.range.start, 1),
+                },
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            for input in inputs {
+                syntax_highlight_type_into(highlighted_so_far, syntax_node_as_ref(input));
+            }
+            if let Some(arrow_key_symbol_range) = maybe_arrow_key_symbol_range {
+                highlighted_so_far.push(SyntaxNode {
+                    range: *arrow_key_symbol_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+            }
+            if let Some(output_node) = maybe_output {
+                syntax_highlight_type_into(highlighted_so_far, syntax_node_unbox(output_node));
+            }
+        }
+        SyntaxType::Parenthesized(None) => {}
+        SyntaxType::Parenthesized(Some(in_parens)) => {
+            syntax_highlight_type_into(highlighted_so_far, syntax_node_unbox(in_parens));
+        }
+        SyntaxType::WithComment {
+            comment: comment_node,
+            type_: maybe_type_after_comment,
+        } => {
+            highlighted_so_far.extend(
+                str_lines_ranges(comment_node.range, &comment_node.value).map(|range| SyntaxNode {
+                    range: range,
+                    value: SyntaxHighlightKind::Comment,
+                }),
+            );
+            if let Some(type_node_after_comment) = maybe_type_after_comment {
+                syntax_highlight_type_into(
+                    highlighted_so_far,
+                    syntax_node_unbox(type_node_after_comment),
+                );
+            }
+        }
+        SyntaxType::Record(fields) => {
+            for field in fields {
+                highlighted_so_far.push(SyntaxNode {
+                    range: field.name.range,
+                    value: SyntaxHighlightKind::Field,
+                });
+                if let Some(field_value_node) = &field.value {
+                    syntax_highlight_type_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(field_value_node),
+                    );
+                }
+            }
+        }
+        SyntaxType::Variable(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: type_node.range,
+                value: SyntaxHighlightKind::TypeVariable,
+            });
+        }
+    }
+}
+pub fn syntax_highlight_expression_into(
+    highlighted_so_far: &mut Vec<SyntaxNode<SyntaxHighlightKind>>,
+    expression_node: SyntaxNode<&SyntaxExpression>,
+) {
+    match expression_node.value {
+        SyntaxExpression::VariableOrCall {
+            variable: variable_node,
+            arguments,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: variable_node.range,
+                value: SyntaxHighlightKind::DeclaredVariable,
+            });
+            for argument_node in arguments {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_as_ref(argument_node),
+                );
+            }
+        }
+        SyntaxExpression::DotCall {
+            argument0: argument0_node,
+            dot_key_symbol_range: _,
+            function_variable: maybe_variable_node,
+            argument1_up,
+        } => {
+            syntax_highlight_expression_into(highlighted_so_far, syntax_node_unbox(argument0_node));
+            if let Some(variable_node) = maybe_variable_node {
+                highlighted_so_far.push(SyntaxNode {
+                    range: variable_node.range,
+                    value: SyntaxHighlightKind::DeclaredVariable,
+                });
+            }
+            for argument_node in argument1_up {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_as_ref(argument_node),
+                );
+            }
+        }
+        SyntaxExpression::Match {
+            matched: matched_node,
+            cases,
+        } => {
+            syntax_highlight_expression_into(highlighted_so_far, syntax_node_unbox(matched_node));
+            for case in cases {
+                highlighted_so_far.push(SyntaxNode {
+                    range: case.or_bar_key_symbol_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+                if let Some(case_pattern_node) = &case.pattern {
+                    syntax_highlight_pattern_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(case_pattern_node),
+                    );
+                }
+                if let Some(arrow_key_symbol_range) = case.arrow_key_symbol_range {
+                    highlighted_so_far.push(SyntaxNode {
+                        range: arrow_key_symbol_range,
+                        value: SyntaxHighlightKind::KeySymbol,
+                    });
+                }
+                if let Some(result_node) = &case.result {
+                    syntax_highlight_expression_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(result_node),
+                    );
+                }
+            }
+        }
+        SyntaxExpression::Char(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: expression_node.range,
+                value: SyntaxHighlightKind::String,
+            });
+        }
+        SyntaxExpression::Dec(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: expression_node.range,
+                value: SyntaxHighlightKind::Number,
+            });
+        }
+        SyntaxExpression::Unt(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: expression_node.range,
+                value: SyntaxHighlightKind::Number,
+            });
+        }
+        SyntaxExpression::Int(_) => {
+            highlighted_so_far.push(SyntaxNode {
+                range: expression_node.range,
+                value: SyntaxHighlightKind::Number,
+            });
+        }
+        SyntaxExpression::Lambda {
+            parameters,
+            arrow_key_symbol_range: maybe_arrow_key_symbol_range,
+            result: maybe_result,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: lsp_types::Range {
+                    start: expression_node.range.start,
+                    end: lsp_position_add_characters(expression_node.range.start, 1),
+                },
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            for parameter_node in parameters {
+                syntax_highlight_pattern_into(
+                    highlighted_so_far,
+                    syntax_node_as_ref(parameter_node),
+                );
+            }
+            if let &Some(arrow_key_symbol_range) = maybe_arrow_key_symbol_range {
+                highlighted_so_far.push(SyntaxNode {
+                    range: arrow_key_symbol_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+            }
+            if let Some(result_node) = maybe_result {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_unbox(result_node),
+                );
+            }
+        }
+        SyntaxExpression::AfterLocalVariable {
+            declaration: maybe_declaration,
+            result: maybe_result,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: lsp_types::Range {
+                    start: expression_node.range.start,
+                    end: lsp_position_add_characters(expression_node.range.start, 1),
+                },
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            if let Some(local_declaration_node) = maybe_declaration {
+                syntax_highlight_local_variable_declaration_into(
+                    highlighted_so_far,
+                    syntax_node_as_ref(local_declaration_node),
+                );
+            }
+            if let Some(result_node) = maybe_result {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_unbox(result_node),
+                );
+            }
+        }
+        SyntaxExpression::Vec(elements) => {
+            for element_node in elements {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_as_ref(element_node),
+                );
+            }
+        }
+        SyntaxExpression::Parenthesized(None) => {}
+        SyntaxExpression::Parenthesized(Some(in_parens)) => {
+            syntax_highlight_expression_into(highlighted_so_far, syntax_node_unbox(in_parens));
+        }
+        SyntaxExpression::WithComment {
+            comment: comment_node,
+            expression: maybe_expression_after_comment,
+        } => {
+            highlighted_so_far.extend(
+                str_lines_ranges(comment_node.range, &comment_node.value).map(|range| SyntaxNode {
+                    range: range,
+                    value: SyntaxHighlightKind::Comment,
+                }),
+            );
+            if let Some(expression_node_after_comment) = maybe_expression_after_comment {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    syntax_node_unbox(expression_node_after_comment),
+                );
+            }
+        }
+        SyntaxExpression::Typed {
+            type_: maybe_type,
+            closing_colon_range: maybe_closing_colon_range,
+            expression: maybe_expression_in_typed,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: lsp_types::Range {
+                    start: expression_node.range.start,
+                    end: lsp_position_add_characters(expression_node.range.start, 1),
+                },
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            if let Some(type_node) = maybe_type {
+                syntax_highlight_type_into(highlighted_so_far, syntax_node_as_ref(type_node));
+            }
+            if let Some(closing_colon_range) = *maybe_closing_colon_range {
+                highlighted_so_far.push(SyntaxNode {
+                    range: closing_colon_range,
+                    value: SyntaxHighlightKind::KeySymbol,
+                });
+            }
+            if let Some(expression_node_in_typed) = maybe_expression_in_typed {
+                syntax_highlight_expression_into(
+                    highlighted_so_far,
+                    SyntaxNode {
+                        range: expression_node_in_typed.range,
+                        value: &expression_node_in_typed.value,
+                    },
+                );
+            }
+        }
+        SyntaxExpression::Variant {
+            name: name_node,
+            value: maybe_value,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: name_node.range,
+                value: SyntaxHighlightKind::Variant,
+            });
+            if let Some(value_node) = maybe_value {
+                syntax_highlight_expression_into(highlighted_so_far, syntax_node_unbox(value_node));
+            }
+        }
+        SyntaxExpression::Record(fields) => {
+            for field in fields {
+                highlighted_so_far.push(SyntaxNode {
+                    range: field.name.range,
+                    value: SyntaxHighlightKind::Field,
+                });
+                if let Some(value_node) = &field.value {
+                    syntax_highlight_expression_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(value_node),
+                    );
+                }
+            }
+        }
+        SyntaxExpression::RecordUpdate {
+            record: maybe_record,
+            spread_key_symbol_range,
+            fields,
+        } => {
+            highlighted_so_far.push(SyntaxNode {
+                range: *spread_key_symbol_range,
+                value: SyntaxHighlightKind::KeySymbol,
+            });
+            if let Some(record_node) = maybe_record {
+                highlighted_so_far.push(SyntaxNode {
+                    range: record_node.range,
+                    value: SyntaxHighlightKind::Variable,
+                });
+            }
+            for field in fields {
+                highlighted_so_far.push(SyntaxNode {
+                    range: field.name.range,
+                    value: SyntaxHighlightKind::Field,
+                });
+                if let Some(value_node) = &field.value {
+                    syntax_highlight_expression_into(
+                        highlighted_so_far,
+                        syntax_node_as_ref(value_node),
+                    );
+                }
+            }
+        }
+        SyntaxExpression::String {
+            content,
+            quoting_style,
+        } => match quoting_style {
+            SyntaxStringQuotingStyle::SingleQuoted => {
+                highlighted_so_far.push(SyntaxNode {
+                    range: expression_node.range,
+                    value: SyntaxHighlightKind::String,
+                });
+            }
+            SyntaxStringQuotingStyle::TickedLines => {
+                highlighted_so_far.extend(str_lines_ranges(expression_node.range, content).map(
+                    |line_range| SyntaxNode {
+                        range: line_range,
+                        value: SyntaxHighlightKind::String,
+                    },
+                ));
+            }
+        },
+    }
+}
+fn syntax_highlight_local_variable_declaration_into(
+    highlighted_so_far: &mut Vec<SyntaxNode<SyntaxHighlightKind>>,
+    local_declaration_node: SyntaxNode<&SyntaxLocalVariableDeclaration>,
+) {
+    highlighted_so_far.push(SyntaxNode {
+        range: local_declaration_node.value.name.range,
+        value: SyntaxHighlightKind::DeclaredVariable,
+    });
+    if let Some(caret_key_symbol_start_position) = local_declaration_node.value.overwriting {
+        highlighted_so_far.push(SyntaxNode {
+            range: lsp_types::Range {
+                start: caret_key_symbol_start_position,
+                end: lsp_position_add_characters(caret_key_symbol_start_position, 1),
+            },
+            value: SyntaxHighlightKind::DeclaredVariable,
+        });
+    }
+    if let Some(result_node) = &local_declaration_node.value.result {
+        syntax_highlight_expression_into(highlighted_so_far, syntax_node_unbox(result_node));
+    }
+}
 
 // helpers
+
+fn str_lines_ranges(
+    lines_range: lsp_types::Range,
+    lines_content: &str,
+) -> impl Iterator<Item = lsp_types::Range> {
+    let mut lines = lines_content.lines().chain(
+        // restore last line break potentially eaten by .lines()
+        if lines_content.ends_with(['\r', '\n']) {
+            Some("")
+        } else {
+            None
+        },
+    );
+    lines
+        .next()
+        .map(|line0| {
+            std::iter::once(lsp_types::Range {
+                start: lines_range.start,
+                end: lsp_types::Position {
+                    line: lines_range.start.line,
+                    character: lines_range.start.character
+                        + 1
+                        + line0.encode_utf16().count() as u32,
+                },
+            })
+            .chain(
+                lines
+                    .enumerate()
+                    .map(move |(tail_line_index, line_content)| {
+                        let line_absolute: u32 =
+                            lines_range.start.line + 1 + tail_line_index as u32;
+                        // TODO: starting at lines_range.start.character is not quite correct,
+                        // only works for formatted code.
+                        lsp_types::Range {
+                            start: lsp_types::Position {
+                                line: line_absolute,
+                                character: lines_range.start.character,
+                            },
+                            end: lsp_types::Position {
+                                line: line_absolute,
+                                character: lines_range.start.character
+                                    + 1
+                                    + line_content.encode_utf16().count() as u32,
+                            },
+                        }
+                    }),
+            )
+        })
+        .into_iter()
+        .flatten()
+}
 
 fn lsp_position_add_characters(
     position: lsp_types::Position,

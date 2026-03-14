@@ -48,7 +48,6 @@ unused_lifetimes = { level = "warn" }
 trivial-numeric-casts = { level = "warn" }
 # contains false positives when lifetime is used in impl
 # single-use-lifetimes = { level = "warn" }
-non_upper_case_globals = { level = "allow" }
 
 # If you want to contribute, you really don't need to bother with clippy
 # I just wanted to try enabling it for myself to maybe find performance issues
