@@ -4924,7 +4924,7 @@ str-to-chars "🇺🇸"
 # = [ '\u{1F1FA}', '\u{1F1F8}' ]
 #     Indicator U  Indicator S
 ```
-Read if interested: [swift's grapheme cluster docs](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/stringsandcharacters/#Extended-Grapheme-Clusters)\
+Read if interested: [swift's grapheme cluster docs](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/stringsandcharacters/#Extended-Grapheme-Clusters)
 "#
                 )),
                 parameters: vec![],
@@ -4949,12 +4949,13 @@ When building large strings, prefer `str-attach`, `str-attach-char`, `str-attach
 Raw strings (that contain no escaped characters)
 are created by putting ` at the start of each line:
 ```lily
-`This text
-`spans multiple lines.
-`    Indentation is not stripped,
-`    and neither is æn\y character "escaped"'\u{
-`To end with a linebreak, add a blank ` line:
-`
+some-multiline-string
+    `This text
+    `spans multiple lines.
+    `    Indentation is not stripped,
+    `    and neither is æn\y character "escaped"'\u{
+    `To end with a linebreak, add a blank ` line:
+    `
 ```
 "#
                 )),
@@ -9335,7 +9336,7 @@ fn case_patterns_catch_record_is_exhaustive(
             .collect::<Vec<_>>(),
     )
 }
-/// don't ask wtf this algorithm is, I'm too dumb to undertand the existing literature.
+/// don't ask wtf this algorithm is, I'm too dumb to understand the existing literature.
 /// Here's what I've come up with:
 ///
 /// Assume the case shape
@@ -9345,7 +9346,7 @@ fn case_patterns_catch_record_is_exhaustive(
 /// where we know the pattern at each index has the same type.
 /// We then look at each pattern at index 0:
 ///
-///    when this pattern type is a choice type, chategorize by
+///    when this pattern type is a choice type, categorize by
 ///    variant name, and check the value + remaining indices individually for exhaustiveness
 ///    for example:
 ///      ( None, a1 ) or ( Some v0, b1 ) or ( None, c1 )
@@ -9420,7 +9421,7 @@ fn possibilities_of_pattern_catches_are_exhaustive<'a>(
                             | PatternCatch::Char(_)
                             | PatternCatch::String(_) => {
                                 // discard any possibilities where first is in Infinite,
-                                // as only possibilities which matche all of the Infinite possible values
+                                // as only possibilities which matched all of the Infinite possible values
                                 // is relevant one for exhaustiveness checking
                                 Some(PatternCatchPossibilitiesSplit::Infinite)
                             }
