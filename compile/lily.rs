@@ -4971,24 +4971,22 @@ are created by putting ` at the start of each line:
                 documentation: Some(Box::from(
                     r#"The result of a comparison.
 ```lily
-int-cmp 1 2
+int-order 1 2
 # = :order:Less
 
-dec-cmp 0.0 0.0
+dec-order 0.0 0.0
 # = :order:Equal
 
-char-cmp 'b' 'a'
+char-order 'b' 'a'
 # = :order:Greater
 
 # typically used with pattern matching
 validate-int \:int:x >
     int-order x +5
-    | :order:Less >
-        "must be >= 5"
+    | :order:Less > "must be >= 5"
     | :order:_ >
     int-order x +10
-    | :order:Greater >
-        "must be <= 10"
+    | :order:Greater > "must be <= 10"
     | :order:_ >
         "valid"
 
