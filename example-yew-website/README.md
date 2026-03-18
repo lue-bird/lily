@@ -1,19 +1,11 @@
-for running
+develop by installing
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install trunk wasm-bindgen-cli
 ```
-- https://github.com/thedodd/trunk
+then running `trunk serve`.
+If no lsp is running, run `lily build` whenever you want to rebuild.
 
-```bash
-trunk watch
-```
-and
-```bash
-trunk serve
-```
-then open <http://localhost:8080/>.
-Run `lily build` whenever you want to rebuild.
+Build with `trunk build --release`.
 
-I've found running both `serve` and `watch` together really unreliable so you probably need to
-manually restart from time to time :/
+  - https://github.com/thedodd/trunk
