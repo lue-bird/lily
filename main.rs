@@ -670,11 +670,11 @@ fn initialize_project_state_from_source(
     );
     ProjectState {
         source: source,
-        syntax: parsed_project,
         type_aliases: compiled_project.type_aliases,
         choice_types: compiled_project.choice_types,
         variable_declarations: compiled_project.variable_declarations,
         records: compiled_project.records,
+        syntax: parsed_project,
     }
 }
 
@@ -1895,7 +1895,7 @@ fn respond_to_semantic_tokens_full(
                                         - segment.range.start.character,
                                     token_type: semantic_token_type_to_id(
                                         &lily_syntax_highlight_kind_to_lsp_semantic_token_type(
-                                            &segment.value,
+                                            segment.value,
                                         ),
                                     ),
                                     token_modifiers_bitset: 0_u32,
@@ -1992,13 +1992,21 @@ fn present_choice_type_declaration_info_markdown(
     parameters: &[lily::SyntaxNode<lily::Name>],
     variants: &[lily::SyntaxChoiceTypeVariant],
 ) -> String {
-    let mut declaration_string: String = String::new();
-    lily::syntax_choice_type_declaration_into(
-        &mut declaration_string,
-        maybe_name,
-        parameters,
-        variants,
-    );
+    let declaration_string: String = if variants.is_empty() {
+        format!(
+            "choice {}",
+            maybe_name.map(lily::Name::as_str).unwrap_or("")
+        )
+    } else {
+        let mut declaration_string: String = String::new();
+        lily::syntax_choice_type_declaration_into(
+            &mut declaration_string,
+            maybe_name,
+            parameters,
+            variants,
+        );
+        declaration_string
+    };
     let description: String = format!("```lily\n{}\n```\n", declaration_string);
     match maybe_documentation {
         None => description,
@@ -2609,6 +2617,7 @@ fn markdown_convert_indented_code_blocks_to_lily(builder: &mut String, markdown_
     }
 }
 
+#[derive(Copy, Clone)]
 struct PositionDelta {
     line: u32,
     character: u32,
@@ -2647,7 +2656,7 @@ fn lsp_position_to_string(lsp_position: lsp_types::Position) -> String {
     format!("{}:{}", lsp_position.line, lsp_position.character)
 }
 fn lily_syntax_highlight_kind_to_lsp_semantic_token_type(
-    lily_syntax_highlight_kind: &lily::SyntaxHighlightKind,
+    lily_syntax_highlight_kind: lily::SyntaxHighlightKind,
 ) -> lsp_types::SemanticTokenType {
     match lily_syntax_highlight_kind {
         lily::SyntaxHighlightKind::KeySymbol => lsp_types::SemanticTokenType::KEYWORD,
@@ -3232,7 +3241,7 @@ fn lily_syntax_type_find_symbol_at_position<'a>(
     }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum LocalBindingOrigin {
     PatternVariable(lsp_types::Range),
     LocalDeclaredVariable { name_range: lsp_types::Range },
