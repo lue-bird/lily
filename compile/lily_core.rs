@@ -18,7 +18,7 @@ use std::marker::Copy;
 use std::ops::Fn;
 // core //
 
-fn closure_rc<A, B>(closure: impl Fn(A) -> B + 'static) -> std::rc::Rc<dyn Fn(A) -> B> {
+pub fn closure_rc<A, B>(closure: impl Fn(A) -> B + 'static) -> std::rc::Rc<dyn Fn(A) -> B> {
     std::rc::Rc::new(closure)
 }
 
@@ -50,29 +50,29 @@ impl Order {
 
 pub type Unt = usize;
 
-fn unt_add(a: Unt, b: Unt) -> Unt {
+pub fn unt_add(a: Unt, b: Unt) -> Unt {
     a + b
 }
-fn unt_mul(a: Unt, b: Unt) -> Unt {
+pub fn unt_mul(a: Unt, b: Unt) -> Unt {
     a * b
 }
-fn unt_div(to_divide: Unt, to_divide_by: Unt) -> Unt {
+pub fn unt_div(to_divide: Unt, to_divide_by: Unt) -> Unt {
     Unt::checked_div(to_divide, to_divide_by).unwrap_or(0)
 }
-fn unt_order(left: Unt, right: Unt) -> Order {
+pub fn unt_order(left: Unt, right: Unt) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn unt_to_int(unt: Unt) -> Int {
+pub fn unt_to_int(unt: Unt) -> Int {
     unt as Int
 }
 #[expect(clippy::cast_precision_loss)]
-fn unt_to_dec(unt: Unt) -> Dec {
+pub fn unt_to_dec(unt: Unt) -> Dec {
     unt as Dec
 }
-fn unt_to_str(unt: Unt) -> Str {
+pub fn unt_to_str(unt: Unt) -> Str {
     Str::from_string(std::format!("{}", unt))
 }
-fn str_to_unt(str: Str) -> Opt<Unt> {
+pub fn str_to_unt(str: Str) -> Opt<Unt> {
     match str.as_str().parse::<Unt>() {
         std::result::Result::Err(_) => Opt::Absent,
         std::result::Result::Ok(unt) => Opt::Present(unt),
@@ -81,35 +81,35 @@ fn str_to_unt(str: Str) -> Opt<Unt> {
 
 pub type Int = isize;
 
-fn int_negate(int: Int) -> Int {
+pub fn int_negate(int: Int) -> Int {
     -int
 }
-fn int_absolute(a: Int) -> Unt {
+pub fn int_absolute(a: Int) -> Unt {
     Int::abs(a) as Unt
 }
-fn int_add(a: Int, b: Int) -> Int {
+pub fn int_add(a: Int, b: Int) -> Int {
     a + b
 }
-fn int_mul(a: Int, b: Int) -> Int {
+pub fn int_mul(a: Int, b: Int) -> Int {
     a * b
 }
-fn int_div(to_divide: Int, to_divide_by: Int) -> Int {
+pub fn int_div(to_divide: Int, to_divide_by: Int) -> Int {
     Int::checked_div(to_divide, to_divide_by).unwrap_or(0)
 }
-fn int_order(left: Int, right: Int) -> Order {
+pub fn int_order(left: Int, right: Int) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn int_to_unt(int: Int) -> Opt<Unt> {
+pub fn int_to_unt(int: Int) -> Opt<Unt> {
     Opt::from_option(std::convert::TryInto::<Unt>::try_into(int).ok())
 }
 #[expect(clippy::cast_precision_loss)]
-fn int_to_dec(int: Int) -> Dec {
+pub fn int_to_dec(int: Int) -> Dec {
     int as Dec
 }
-fn int_to_str(int: Int) -> Str {
+pub fn int_to_str(int: Int) -> Str {
     Str::from_string(std::format!("{}", int))
 }
-fn str_to_int(str: Str) -> Opt<Int> {
+pub fn str_to_int(str: Str) -> Opt<Int> {
     match str.as_str().parse::<Int>() {
         std::result::Result::Err(_) => Opt::Absent,
         std::result::Result::Ok(int) => Opt::Present(int),
@@ -118,75 +118,75 @@ fn str_to_int(str: Str) -> Opt<Int> {
 
 /// Please sanitize before passing it to lily (drop infinities and NaN)
 pub type Dec = f64;
-fn dec_pi() -> Dec {
+pub fn dec_pi() -> Dec {
     std::f64::consts::PI
 }
-fn dec_negate(dec: Dec) -> Dec {
+pub fn dec_negate(dec: Dec) -> Dec {
     -dec
 }
-fn dec_absolute(dec: Dec) -> Dec {
+pub fn dec_absolute(dec: Dec) -> Dec {
     Dec::abs(dec)
 }
-fn dec_ln(dec: Dec) -> Opt<Dec> {
+pub fn dec_ln(dec: Dec) -> Opt<Dec> {
     if dec <= 0. {
         Opt::Absent
     } else {
         Opt::Present(Dec::ln(dec))
     }
 }
-fn dec_sin(dec: Dec) -> Dec {
+pub fn dec_sin(dec: Dec) -> Dec {
     Dec::sin(dec)
 }
-fn dec_cos(dec: Dec) -> Dec {
+pub fn dec_cos(dec: Dec) -> Dec {
     Dec::cos(dec)
 }
-fn dec_tan(dec: Dec) -> Dec {
+pub fn dec_tan(dec: Dec) -> Dec {
     Dec::tan(dec)
 }
-fn dec_atan(a: Dec) -> Dec {
+pub fn dec_atan(a: Dec) -> Dec {
     Dec::atan(a)
 }
-fn dec_atan2(y: Dec, x: Dec) -> Dec {
+pub fn dec_atan2(y: Dec, x: Dec) -> Dec {
     Dec::atan2(y, x)
 }
-fn dec_add(a: Dec, b: Dec) -> Dec {
+pub fn dec_add(a: Dec, b: Dec) -> Dec {
     a + b
 }
-fn dec_mul(a: Dec, b: Dec) -> Dec {
+pub fn dec_mul(a: Dec, b: Dec) -> Dec {
     a * b
 }
-fn dec_div(to_divide: Dec, to_divide_by: Dec) -> Dec {
+pub fn dec_div(to_divide: Dec, to_divide_by: Dec) -> Dec {
     if to_divide_by == 0.0 {
         0.0
     } else {
         to_divide / to_divide_by
     }
 }
-fn dec_to_power_of(dec: Dec, exponent: Dec) -> Dec {
+pub fn dec_to_power_of(dec: Dec, exponent: Dec) -> Dec {
     Dec::powf(dec, exponent)
 }
-fn dec_truncate(dec: Dec) -> Int {
+pub fn dec_truncate(dec: Dec) -> Int {
     Dec::trunc(dec) as Int
 }
-fn dec_floor(dec: Dec) -> Int {
+pub fn dec_floor(dec: Dec) -> Int {
     Dec::floor(dec) as Int
 }
-fn dec_ceiling(dec: Dec) -> Int {
+pub fn dec_ceiling(dec: Dec) -> Int {
     Dec::ceil(dec) as Int
 }
-fn dec_round(dec: Dec) -> Int {
+pub fn dec_round(dec: Dec) -> Int {
     Dec::round(dec) as Int
 }
-fn dec_order(left: Dec, right: Dec) -> Order {
+pub fn dec_order(left: Dec, right: Dec) -> Order {
     match left.partial_cmp(&right) {
         std::option::Option::Some(ordering) => Order::from_ordering(ordering),
         std::option::Option::None => Order::Equal,
     }
 }
-fn dec_to_str(dec: Dec) -> Str {
+pub fn dec_to_str(dec: Dec) -> Str {
     Str::from_string(std::format!("{}", dec))
 }
-fn str_to_dec(str: Str) -> Opt<Dec> {
+pub fn str_to_dec(str: Str) -> Opt<Dec> {
     match str.as_str().parse::<Dec>() {
         std::result::Result::Err(_) => Opt::Absent,
         std::result::Result::Ok(dec) => Opt::Present(dec),
@@ -224,13 +224,13 @@ pub enum Go_on_or_exit<C, E> {
     Exit(E),
 }
 impl<C, E> Go_on_or_exit<C, E> {
-    fn to_control_flow(self) -> std::ops::ControlFlow<E, C> {
+    pub fn to_control_flow(self) -> std::ops::ControlFlow<E, C> {
         match self {
             Go_on_or_exit::Go_on(continue_) => std::ops::ControlFlow::Continue(continue_),
             Go_on_or_exit::Exit(exit) => std::ops::ControlFlow::Break(exit),
         }
     }
-    fn from_control_flow(control_flow: std::ops::ControlFlow<E, C>) -> Self {
+    pub fn from_control_flow(control_flow: std::ops::ControlFlow<E, C>) -> Self {
         match control_flow {
             std::ops::ControlFlow::Continue(continue_) => Go_on_or_exit::Go_on(continue_),
             std::ops::ControlFlow::Break(exit) => Go_on_or_exit::Exit(exit),
@@ -240,23 +240,23 @@ impl<C, E> Go_on_or_exit<C, E> {
 
 pub type Char = char;
 
-fn char_byte_count(char: Char) -> Unt {
+pub fn char_byte_count(char: Char) -> Unt {
     char.len_utf8()
 }
-fn char_order(left: Char, right: Char) -> Order {
+pub fn char_order(left: Char, right: Char) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn code_point_to_char(code_point: Unt) -> Opt<Char> {
+pub fn code_point_to_char(code_point: Unt) -> Opt<Char> {
     Opt::from_option(
         std::convert::TryFrom::try_from(code_point)
             .ok()
             .and_then(char::from_u32),
     )
 }
-fn char_to_code_point(char: Char) -> Unt {
+pub fn char_to_code_point(char: Char) -> Unt {
     char as Unt
 }
-fn char_to_str(char: Char) -> Str {
+pub fn char_to_str(char: Char) -> Str {
     Str::from_string(std::format!("{}", char))
 }
 /// prefer Str::into_string over Str::to_string
@@ -327,10 +327,10 @@ impl PartialOrd<str> for Str {
     }
 }
 
-fn str_byte_count(str: Str) -> Unt {
+pub fn str_byte_count(str: Str) -> Unt {
     str.as_str().len()
 }
-fn str_char_at_byte_index(str: Str, byte_index: Unt) -> Opt<Char> {
+pub fn str_char_at_byte_index(str: Str, byte_index: Unt) -> Opt<Char> {
     Opt::from_option(
         str.as_str()
             .get(str.as_str().floor_char_boundary(byte_index)..)
@@ -339,7 +339,7 @@ fn str_char_at_byte_index(str: Str, byte_index: Unt) -> Opt<Char> {
             }),
     )
 }
-fn str_slice_from_byte_index_with_byte_length(
+pub fn str_slice_from_byte_index_with_byte_length(
     str: Str,
     start_index: Unt,
     slice_byte_length: Unt,
@@ -362,18 +362,18 @@ fn str_slice_from_byte_index_with_byte_length(
             .unwrap_or(Str::Slice("")),
     }
 }
-fn str_to_chars(str: Str) -> Vec<Char> {
+pub fn str_to_chars(str: Str) -> Vec<Char> {
     Vec::from_vec(std::iter::Iterator::collect(str.as_str().chars()))
 }
-fn chars_to_str(chars: Vec<Char>) -> Str {
+pub fn chars_to_str(chars: Vec<Char>) -> Str {
     let string: std::string::String =
         std::iter::Iterator::collect(std::iter::Iterator::copied(chars.iter()));
     Str::from_string(string)
 }
-fn str_order(left: Str, right: Str) -> Order {
+pub fn str_order(left: Str, right: Str) -> Order {
     Order::from_ordering(left.cmp(&right))
 }
-fn str_walk_chars_from<C, E>(
+pub fn str_walk_chars_from<C, E>(
     str: Str,
     initial_state: C,
     on_element: impl Fn(C, Char) -> Go_on_or_exit<C, E>,
@@ -384,34 +384,34 @@ fn str_walk_chars_from<C, E>(
         |state, element| on_element(state, element).to_control_flow(),
     ))
 }
-fn str_attach_char(left: Str, right: Char) -> Str {
+pub fn str_attach_char(left: Str, right: Char) -> Str {
     let mut string: std::string::String = left.into_string();
     string.push(right);
     Str::from_string(string)
 }
-fn str_attach_unt(left: Str, right: Unt) -> Str {
+pub fn str_attach_unt(left: Str, right: Unt) -> Str {
     let mut string: std::string::String = left.into_string();
     use std::fmt::Write as _;
     let _ = std::write!(string, "{}", right);
     Str::from_string(string)
 }
-fn str_attach_int(left: Str, right: Int) -> Str {
+pub fn str_attach_int(left: Str, right: Int) -> Str {
     let mut string: std::string::String = left.into_string();
     use std::fmt::Write as _;
     let _ = std::write!(string, "{}", right);
     Str::from_string(string)
 }
-fn str_attach_dec(left: Str, right: Dec) -> Str {
+pub fn str_attach_dec(left: Str, right: Dec) -> Str {
     let mut string: std::string::String = left.into_string();
     use std::fmt::Write as _;
     let _ = std::write!(string, "{}", right);
     Str::from_string(string)
 }
-fn str_attach(left: Str, right: Str) -> Str {
+pub fn str_attach(left: Str, right: Str) -> Str {
     let string: std::string::String = left.into_string();
     Str::from_string(string + right.as_str())
 }
-fn strs_flatten(vec_of_str: Vec<Str>) -> Str {
+pub fn strs_flatten(vec_of_str: Vec<Str>) -> Str {
     let string: std::string::String =
         std::iter::Iterator::collect(std::iter::Iterator::map(vec_of_str.iter(), Str::as_str));
     Str::from_string(string)
@@ -464,25 +464,25 @@ impl<A> Vec<A> {
         self.as_slice().iter()
     }
 }
-fn vec_repeat<A: Clone>(length: Unt, element: A) -> Vec<A> {
+pub fn vec_repeat<A: Clone>(length: Unt, element: A) -> Vec<A> {
     Vec::from_vec(std::vec::from_elem(element, length))
 }
-fn vec_by_index_for_length<A>(length: Unt, index_to_element: impl Fn(Unt) -> A) -> Vec<A> {
+pub fn vec_by_index_for_length<A>(length: Unt, index_to_element: impl Fn(Unt) -> A) -> Vec<A> {
     Vec::from_vec(std::iter::Iterator::collect(std::iter::Iterator::map(
         0..length,
         index_to_element,
     )))
 }
-fn vec_length<A>(vec: Vec<A>) -> Unt {
+pub fn vec_length<A>(vec: Vec<A>) -> Unt {
     vec.as_slice().len()
 }
-fn vec_element<A: Clone>(vec: Vec<A>, index: Unt) -> Opt<A> {
+pub fn vec_element<A: Clone>(vec: Vec<A>, index: Unt) -> Opt<A> {
     match vec.as_slice().get(index) {
         std::option::Option::None => Opt::Absent,
         std::option::Option::Some(element) => Opt::Present(element.clone()),
     }
 }
-fn vec_replace_element<A: Clone>(vec: Vec<A>, index: Unt, new_element: A) -> Vec<A> {
+pub fn vec_replace_element<A: Clone>(vec: Vec<A>, index: Unt, new_element: A) -> Vec<A> {
     if index >= vec.as_slice().len() {
         return vec;
     }
@@ -490,7 +490,7 @@ fn vec_replace_element<A: Clone>(vec: Vec<A>, index: Unt, new_element: A) -> Vec
     owned_vec[index] = new_element;
     Vec::from_vec(owned_vec)
 }
-fn vec_swap<A: Clone>(vec: Vec<A>, a_index: Unt, b_index: Unt) -> Vec<A> {
+pub fn vec_swap<A: Clone>(vec: Vec<A>, a_index: Unt, b_index: Unt) -> Vec<A> {
     if a_index >= vec.as_slice().len() || b_index >= vec.as_slice().len() || a_index == b_index {
         return vec;
     }
@@ -498,7 +498,7 @@ fn vec_swap<A: Clone>(vec: Vec<A>, a_index: Unt, b_index: Unt) -> Vec<A> {
     owned_vec.swap(a_index, b_index);
     Vec::from_vec(owned_vec)
 }
-fn vec_truncate<A: Clone>(vec: Vec<A>, taken_length: Unt) -> Vec<A> {
+pub fn vec_truncate<A: Clone>(vec: Vec<A>, taken_length: Unt) -> Vec<A> {
     match vec {
         Vec::Rc(rc) => {
             if taken_length >= rc.len() {
@@ -510,7 +510,7 @@ fn vec_truncate<A: Clone>(vec: Vec<A>, taken_length: Unt) -> Vec<A> {
         }
     }
 }
-fn vec_slice_from_index_with_length<A: Clone>(
+pub fn vec_slice_from_index_with_length<A: Clone>(
     vec: Vec<A>,
     start_index: Unt,
     slice_length: Unt,
@@ -534,22 +534,22 @@ fn vec_slice_from_index_with_length<A: Clone>(
         }
     }
 }
-fn vec_increase_capacity_by<A: Clone>(vec: Vec<A>, capacity_increase: Unt) -> Vec<A> {
+pub fn vec_increase_capacity_by<A: Clone>(vec: Vec<A>, capacity_increase: Unt) -> Vec<A> {
     let mut owned_vec: std::vec::Vec<A> = vec.into_vec();
     owned_vec.reserve(capacity_increase);
     Vec::from_vec(owned_vec)
 }
-fn vec_sort<A: Clone>(vec: Vec<A>, element_order: impl Fn(A, A) -> Order) -> Vec<A> {
+pub fn vec_sort<A: Clone>(vec: Vec<A>, element_order: impl Fn(A, A) -> Order) -> Vec<A> {
     let mut owned_vec: std::vec::Vec<A> = vec.into_vec();
     owned_vec.sort_unstable_by(|a, b| element_order(a.clone(), b.clone()).to_ordering());
     Vec::from_vec(owned_vec)
 }
-fn vec_attach_element<A: Clone>(left: Vec<A>, right_element: A) -> Vec<A> {
+pub fn vec_attach_element<A: Clone>(left: Vec<A>, right_element: A) -> Vec<A> {
     let mut combined: std::vec::Vec<A> = left.into_vec();
     combined.push(right_element);
     Vec::from_vec(combined)
 }
-fn vec_attach<A: Clone>(left: Vec<A>, right: Vec<A>) -> Vec<A> {
+pub fn vec_attach<A: Clone>(left: Vec<A>, right: Vec<A>) -> Vec<A> {
     let mut combined: std::vec::Vec<A> = left.into_vec();
     match right {
         Vec::Rc(right_rc) => match std::rc::Rc::try_unwrap(right_rc) {
@@ -563,7 +563,7 @@ fn vec_attach<A: Clone>(left: Vec<A>, right: Vec<A>) -> Vec<A> {
     }
     Vec::from_vec(combined)
 }
-fn vec_flatten<A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<A> {
+pub fn vec_flatten<A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<A> {
     Vec::from_vec(match vec_vec {
         Vec::Rc(vec_vec) => match std::rc::Rc::try_unwrap(vec_vec) {
             std::result::Result::Ok(vec_vec) => {
@@ -590,7 +590,7 @@ fn vec_flatten<A: Clone>(vec_vec: Vec<Vec<A>>) -> Vec<A> {
         },
     })
 }
-fn vec_walk_from<A: Clone, C, E>(
+pub fn vec_walk_from<A: Clone, C, E>(
     vec: Vec<A>,
     state: C,
     on_element: impl Fn(C, A) -> Go_on_or_exit<C, E>,
