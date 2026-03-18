@@ -1,4 +1,5 @@
 #![allow(non_upper_case_globals)]
+
 /// reusable core of the lily compiler: parse, format, translate to rust.
 pub mod lily_core;
 
@@ -188,7 +189,6 @@ pub enum SyntaxDeclaration {
     ChoiceType {
         name: Option<SyntaxNode<Name>>,
         parameters: Vec<SyntaxNode<Name>>,
-
         variants: Vec<SyntaxChoiceTypeVariant>,
     },
     TypeAlias {
@@ -3736,11 +3736,11 @@ pub fn parse_syntax_project(project_source: &str) -> SyntaxProject {
 }
 
 #[derive(Clone, Copy)]
-struct SyntaxVariableDeclarationInfo<'a> {
-    range: lsp_types::Range,
-    documentation: Option<&'a SyntaxNode<Box<str>>>,
-    name: &'a SyntaxNode<Name>,
-    result: Option<SyntaxNode<&'a SyntaxExpression>>,
+pub struct SyntaxVariableDeclarationInfo<'a> {
+    pub range: lsp_types::Range,
+    pub documentation: Option<&'a SyntaxNode<Box<str>>>,
+    pub name: &'a SyntaxNode<Name>,
+    pub result: Option<SyntaxNode<&'a SyntaxExpression>>,
 }
 #[derive(Clone, Copy)]
 enum SyntaxTypeDeclarationInfo<'a> {
@@ -3758,10 +3758,10 @@ enum SyntaxTypeDeclarationInfo<'a> {
         type_: &'a Option<SyntaxNode<SyntaxType>>,
     },
 }
-pub fn project_compile_to_rust(
+pub fn project_compile_to_rust<'a>(
     errors: &mut Vec<ErrorNode>,
-    SyntaxProject { declarations }: &SyntaxProject,
-) -> CompiledProject {
+    SyntaxProject { declarations }: &'a SyntaxProject,
+) -> CompiledProject<'a> {
     let mut type_graph: strongly_connected_components::Graph =
         strongly_connected_components::Graph::new();
     let mut type_graph_node_by_name: std::collections::HashMap<
@@ -3831,7 +3831,7 @@ If you wanted to start a declaration, try one of:
                     {
                         "Operator application are not a feature in lily. Instead, use regular function calls like dec-add, int-negate or unt-mul. Otherwise, is everything indented correctly?"
                     } else {
-                        "Is it indented correctly? Are brackets/braces/parens or similar closed prematurely?"
+                        "Is it indented correctly? Are brackets/braces/parens/quotes or similar closed prematurely or too often?"
                     }).into_boxed_str(),
                 });
             }
@@ -3972,30 +3972,35 @@ If you wanted to start a declaration, try one of:
         errors,
         &type_graph,
         &type_declaration_by_graph_node,
-        &variable_graph,
-        &variable_declaration_by_graph_node,
+        variable_graph,
+        variable_declaration_by_graph_node,
     )
 }
-pub struct CompiledProject {
+pub struct CompiledProject<'a> {
     pub rust: syn::File,
     pub type_aliases: std::collections::HashMap<Name, TypeAliasInfo>,
     pub choice_types: std::collections::HashMap<Name, ChoiceTypeInfo>,
     pub variable_declarations: std::collections::HashMap<Name, CompiledVariableDeclarationInfo>,
     pub records: std::collections::HashSet<Vec<Name>>,
+    pub variable_graph: strongly_connected_components::Graph,
+    pub variable_declaration_by_graph_node: std::collections::HashMap<
+        strongly_connected_components::Node,
+        SyntaxVariableDeclarationInfo<'a>,
+    >,
 }
-fn project_info_to_rust(
+fn project_info_to_rust<'a>(
     errors: &mut Vec<ErrorNode>,
     type_graph: &strongly_connected_components::Graph,
     type_declaration_by_graph_node: &std::collections::HashMap<
         strongly_connected_components::Node,
         SyntaxTypeDeclarationInfo,
     >,
-    variable_graph: &strongly_connected_components::Graph,
-    variable_declaration_by_graph_node: &std::collections::HashMap<
+    variable_graph: strongly_connected_components::Graph,
+    variable_declaration_by_graph_node: std::collections::HashMap<
         strongly_connected_components::Node,
-        SyntaxVariableDeclarationInfo,
+        SyntaxVariableDeclarationInfo<'a>,
     >,
-) -> CompiledProject {
+) -> CompiledProject<'a> {
     let mut rust_items: Vec<syn::Item> =
         Vec::with_capacity(type_graph.len() * 3 + variable_graph.len());
     let mut compiled_type_alias_infos: std::collections::HashMap<Name, TypeAliasInfo> =
@@ -4296,6 +4301,8 @@ fn project_info_to_rust(
         choice_types: compiled_choice_type_infos,
         variable_declarations: compiled_variable_declaration_infos,
         records: records_used,
+        variable_graph: variable_graph,
+        variable_declaration_by_graph_node: variable_declaration_by_graph_node,
     }
 }
 #[derive(Clone)]
@@ -4318,6 +4325,8 @@ pub static core_variable_declaration_infos: std::sync::LazyLock<
     std::sync::LazyLock::new(|| {
         std::collections::HashMap::from(
         [
+            // when adding new functions here, also update fn evaluate_expression_call
+            // when adding new values here, also update fn evaluate_expression_variable
             (
                 Name::from("unt-add"),
                 function([type_unt,type_unt], type_unt),
@@ -4431,7 +4440,7 @@ turns-to-radians \:dec:turns >
             (
                 Name::from("dec-ln"),
                 function([type_dec], type_opt(type_dec)),
-                r"Its natural logarithm (log base e). If 0 or negative, results in :opt dec:Absent as ln(_ <= 0) is not concretely defined.
+                r"Its natural logarithm (log base e). If 0 or negative, results in `:opt dec:Absent` as ln(_ <= 0) is not concretely defined.
 ```lily
 dec-log \:dec:base, :dec:n >
     dec-div (dec-ln n) (dec-ln base)
@@ -4484,7 +4493,15 @@ defined as:
                 "Division operation (`/`). Try not to divide by 0.0, as 0.0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean.",
             ),
             (
-                Name::from("dec-to-power-of"),
+                Name::from("dec-to-power-of
+```lily
+dec-to-power-of 2.0 3.0
+# = 8.0
+
+dec-to-power-of 0.0 0.0
+# = 1.0
+```
+"),
                 function([type_dec,type_dec], type_dec),
                 "Exponentiation operation (`^`)",
             ),
@@ -9857,6 +9874,7 @@ pub fn syntax_type_to_type(
         }
     }
 }
+#[derive(Clone, Copy)]
 struct BindingToClone<'a> {
     name: &'a str,
     is_copy: bool,
@@ -11519,6 +11537,1661 @@ fn syntax_highlight_local_variable_declaration_into(
     }
     if let Some(result_node) = &local_declaration_node.value.result {
         syntax_highlight_expression_into(highlighted_so_far, syntax_node_unbox(result_node));
+    }
+}
+
+// consider &'a HashMap and &'a Syntax
+#[derive(Clone, Debug)]
+pub enum EvaluatedExpression {
+    Unt(lily_core::Unt),
+    Int(lily_core::Int),
+    Dec(lily_core::Dec),
+    Char(lily_core::Char),
+    Str(String),
+    Vec(Vec<EvaluatedExpression>),
+    Variant {
+        choice_type: Name,
+        variant_name: Name,
+        value: Option<Box<EvaluatedExpression>>,
+    },
+    Record(Vec<(Name, EvaluatedExpression)>),
+    CoreFunction(Name),
+    Closure {
+        local_variables: std::collections::HashMap<Name, EvaluatedExpression>,
+        pattern0: SyntaxPattern,
+        pattern1_up: Vec<SyntaxPattern>,
+        result: SyntaxExpression,
+    },
+}
+pub fn evaluated_expression_info_into(
+    so_far: &mut String,
+    evaluated_expression: &EvaluatedExpression,
+) {
+    match evaluated_expression {
+        EvaluatedExpression::Unt(unt) => {
+            use std::fmt::Write as _;
+            let _ = write!(so_far, "{}", unt);
+        }
+        EvaluatedExpression::Int(int) => match int {
+            0 => {
+                so_far.push_str("00");
+            }
+            1.. => {
+                use std::fmt::Write as _;
+                let _ = write!(so_far, "+{}", int);
+            }
+            ..0 => {
+                use std::fmt::Write as _;
+                let _ = write!(so_far, "{}", int);
+            }
+        },
+        EvaluatedExpression::Dec(dec) => {
+            use std::fmt::Write as _;
+            let _ = write!(so_far, "{}", dec);
+        }
+        EvaluatedExpression::Char(char) => {
+            use std::fmt::Write as _;
+            let _ = write!(so_far, "{:?}", char);
+        }
+        EvaluatedExpression::Str(str) => {
+            use std::fmt::Write as _;
+            let _ = write!(so_far, "{:?}", str);
+        }
+        EvaluatedExpression::Vec(elements) => match elements.as_slice() {
+            [] => {
+                so_far.push_str("[]");
+            }
+            [element0, element1_up @ ..] => {
+                so_far.push_str("[ ");
+                evaluated_expression_info_into(so_far, element0);
+                for element in element1_up {
+                    so_far.push_str(", ");
+                    evaluated_expression_info_into(so_far, element);
+                }
+                so_far.push_str(" ]");
+            }
+        },
+        EvaluatedExpression::Variant {
+            choice_type,
+            variant_name,
+            value: maybe_value,
+        } => {
+            so_far.push(':');
+            so_far.push_str(choice_type);
+            so_far.push(':');
+            so_far.push_str(variant_name);
+            if let Some(value) = maybe_value {
+                so_far.push(' ');
+                evaluated_expression_info_into(so_far, value);
+            }
+        }
+        EvaluatedExpression::Record(fields) => match fields.as_slice() {
+            [] => {
+                so_far.push_str("{}");
+            }
+            [field0, field1_up @ ..] => {
+                fn evaluated_field_into(
+                    so_far: &mut String,
+                    (field_name, field_value): &(Name, EvaluatedExpression),
+                ) {
+                    so_far.push_str(&field_name);
+                    so_far.push(' ');
+                    evaluated_expression_info_into(so_far, field_value);
+                }
+                so_far.push_str("{ ");
+                evaluated_field_into(so_far, field0);
+                for field in field1_up {
+                    so_far.push_str(", ");
+                    evaluated_field_into(so_far, field);
+                }
+                so_far.push_str(" }");
+            }
+        },
+        EvaluatedExpression::CoreFunction(name) => {
+            so_far.push_str(name);
+        }
+        EvaluatedExpression::Closure {
+            local_variables,
+            pattern0,
+            pattern1_up,
+            result,
+        } => {
+            so_far.push('\\');
+            syntax_pattern_into(so_far, 0, syntax_node_empty(pattern0));
+            for pattern in pattern1_up {
+                so_far.push_str(", ");
+                syntax_pattern_into(so_far, 0, syntax_node_empty(pattern));
+            }
+            so_far.push_str(" > [capturing: ");
+            for (local_variable_name, local_variable_expression) in local_variables {
+                so_far.push_str("= ");
+                so_far.push_str(local_variable_name);
+                so_far.push(' ');
+                evaluated_expression_info_into(so_far, local_variable_expression);
+            }
+            so_far.push_str("] ");
+            syntax_expression_not_parenthesized_into(so_far, 0, syntax_node_empty(result));
+        }
+    }
+}
+/// likely slow, only for demo purposes.
+pub fn evaluate_syntax_project(
+    type_aliases: &std::collections::HashMap<Name, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<Name, ChoiceTypeInfo>,
+    variable_graph: &strongly_connected_components::Graph,
+    variable_declaration_by_graph_node: &std::collections::HashMap<
+        strongly_connected_components::Node,
+        SyntaxVariableDeclarationInfo,
+    >,
+) -> std::collections::HashMap<Name, EvaluatedExpression> {
+    let mut evaluated_project_variables = std::collections::HashMap::new();
+    for variable_declaration_info in
+        variable_graph
+            .find_sccs()
+            .iter_nodes()
+            .filter_map(|variable_declaration_graph_node| {
+                variable_declaration_by_graph_node.get(&variable_declaration_graph_node)
+            })
+    {
+        if let Some(variable_declaration_result) = variable_declaration_info.result
+            && let Some(evaluated_result) = evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                &evaluated_project_variables,
+                &std::collections::HashMap::new(),
+                variable_declaration_result.value,
+            )
+        {
+            evaluated_project_variables.insert(
+                variable_declaration_info.name.value.clone(),
+                evaluated_result,
+            );
+        }
+    }
+    evaluated_project_variables
+}
+
+/// likely slow, only for demo purposes.
+fn evaluate_syntax_expression(
+    type_aliases: &std::collections::HashMap<Name, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<Name, ChoiceTypeInfo>,
+    evaluated_project_variables: &std::collections::HashMap<Name, EvaluatedExpression>,
+    // consider Rc instead to modify Map if single-owned
+    evaluated_local_variables: &std::collections::HashMap<Name, EvaluatedExpression>,
+    expression: &SyntaxExpression,
+) -> Option<EvaluatedExpression> {
+    match expression {
+        SyntaxExpression::VariableOrCall {
+            variable,
+            arguments,
+        } => {
+            let evaluated_arguments = arguments
+                .iter()
+                .map(|argument_node| {
+                    evaluate_syntax_expression(
+                        type_aliases,
+                        choice_types,
+                        evaluated_project_variables,
+                        evaluated_local_variables,
+                        &argument_node.value,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let evaluated_variable = evaluate_expression_variable(
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &variable.value,
+            );
+            evaluate_expression_call(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_variable,
+                evaluated_arguments.into_iter(),
+            )
+        }
+        SyntaxExpression::DotCall {
+            argument0,
+            dot_key_symbol_range: _,
+            function_variable,
+            argument1_up,
+        } => {
+            let evaluated_argument0 = evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &argument0.value,
+            )?;
+            let Some(function_variable) = function_variable else {
+                return Some(evaluated_argument0);
+            };
+            let evaluated_argument1_up = argument1_up
+                .iter()
+                .map(|argument_node| {
+                    evaluate_syntax_expression(
+                        type_aliases,
+                        choice_types,
+                        evaluated_project_variables,
+                        evaluated_local_variables,
+                        &argument_node.value,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let evaluated_variable = evaluate_expression_variable(
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &function_variable.value,
+            );
+            evaluate_expression_call(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_variable,
+                std::iter::once(evaluated_argument0).chain(evaluated_argument1_up.into_iter()),
+            )
+        }
+        SyntaxExpression::Match { matched, cases } => {
+            let mut evaluated_matched = evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &matched.value,
+            )?;
+            'matching_cases: for case in cases {
+                let Some(case_pattern_node) = &case.pattern else {
+                    continue 'matching_cases;
+                };
+                let Some(case_result_node) = &case.result else {
+                    continue 'matching_cases;
+                };
+                let introduced_evaluated_variables = match evaluate_syntax_pattern_match(
+                    type_aliases,
+                    choice_types,
+                    &case_pattern_node.value,
+                    evaluated_matched,
+                ) {
+                    Ok(introduced_evaluated_variables) => introduced_evaluated_variables,
+                    Err(returned_evaluated_matched) => {
+                        evaluated_matched = returned_evaluated_matched;
+                        continue 'matching_cases;
+                    }
+                };
+                let mut evaluated_local_variables = evaluated_local_variables.clone();
+                evaluated_local_variables.extend(introduced_evaluated_variables);
+                return evaluate_syntax_expression(
+                    type_aliases,
+                    choice_types,
+                    evaluated_project_variables,
+                    &evaluated_local_variables,
+                    &case_result_node.value,
+                );
+            }
+            None
+        }
+        SyntaxExpression::Unt(unt) => unt.parse().ok().map(EvaluatedExpression::Unt),
+        SyntaxExpression::Int(syntax_int) => match syntax_int {
+            SyntaxInt::Zero => Some(EvaluatedExpression::Int(0)),
+            SyntaxInt::Signed(signed) => signed.parse().ok().map(EvaluatedExpression::Int),
+        },
+        SyntaxExpression::Dec(dec) => dec.parse().ok().map(EvaluatedExpression::Dec),
+        &SyntaxExpression::Char(maybe_char) => {
+            let char = maybe_char?;
+            Some(EvaluatedExpression::Char(char))
+        }
+        SyntaxExpression::String {
+            content,
+            quoting_style: _,
+        } => Some(EvaluatedExpression::Str(content.clone())),
+        SyntaxExpression::Vec(elements) => {
+            let evaluated_elements = elements
+                .iter()
+                .map(|element_node| {
+                    evaluate_syntax_expression(
+                        type_aliases,
+                        choice_types,
+                        evaluated_project_variables,
+                        evaluated_local_variables,
+                        &element_node.value,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(EvaluatedExpression::Vec(evaluated_elements))
+        }
+        SyntaxExpression::Lambda {
+            parameters,
+            arrow_key_symbol_range: _,
+            result: maybe_result,
+        } => {
+            let result_node = maybe_result.as_ref()?;
+            match parameters.as_slice() {
+                [] => evaluate_syntax_expression(
+                    type_aliases,
+                    choice_types,
+                    evaluated_project_variables,
+                    evaluated_local_variables,
+                    &result_node.value,
+                ),
+                [parameter0, parameter1_up @ ..] => Some(EvaluatedExpression::Closure {
+                    local_variables: evaluated_local_variables.clone(),
+                    pattern0: parameter0.value.clone(),
+                    pattern1_up: parameter1_up
+                        .iter()
+                        .map(|node| node.value.clone())
+                        .collect(),
+                    result: result_node.value.as_ref().clone(),
+                }),
+            }
+        }
+        SyntaxExpression::AfterLocalVariable {
+            declaration: maybe_declaration,
+            result: maybe_result,
+        } => {
+            let result_node = maybe_result.as_ref()?;
+            match maybe_declaration {
+                None => evaluate_syntax_expression(
+                    type_aliases,
+                    choice_types,
+                    evaluated_project_variables,
+                    evaluated_local_variables,
+                    &result_node.value,
+                ),
+                Some(declaration_node) => {
+                    let mut evaluated_local_variables = evaluated_local_variables.clone();
+                    if let Some(declaration_result_node) = &declaration_node.value.result
+                        && let Some(evaluated_declaration_result) = evaluate_syntax_expression(
+                            type_aliases,
+                            choice_types,
+                            evaluated_project_variables,
+                            &evaluated_local_variables,
+                            &declaration_result_node.value,
+                        )
+                    {
+                        evaluated_local_variables.insert(
+                            declaration_node.value.name.value.clone(),
+                            evaluated_declaration_result,
+                        );
+                    }
+                    evaluate_syntax_expression(
+                        type_aliases,
+                        choice_types,
+                        evaluated_project_variables,
+                        &evaluated_local_variables,
+                        &result_node.value,
+                    )
+                }
+            }
+        }
+        SyntaxExpression::Parenthesized(maybe_in_parens) => {
+            let in_parens_node = maybe_in_parens.as_ref()?;
+            evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &in_parens_node.value,
+            )
+        }
+        SyntaxExpression::WithComment {
+            comment: _,
+            expression: maybe_after_comment,
+        } => {
+            let after_comment_node = maybe_after_comment.as_ref()?;
+            evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &after_comment_node.value,
+            )
+        }
+        SyntaxExpression::Typed {
+            type_: maybe_type,
+            closing_colon_range: _,
+            expression: maybe_untyped,
+        } => {
+            let untyped_node = maybe_untyped.as_ref()?;
+            let Some(type_node) = maybe_type else {
+                return evaluate_syntax_expression(
+                    type_aliases,
+                    choice_types,
+                    evaluated_project_variables,
+                    evaluated_local_variables,
+                    &untyped_node.value,
+                );
+            };
+            let Some(Type::ChoiceConstruct {
+                name: choice_type_name,
+                arguments: _,
+            }) = syntax_type_to_type(
+                &mut Vec::new(),
+                type_aliases,
+                choice_types,
+                syntax_node_as_ref(type_node),
+            )
+            else {
+                return evaluate_syntax_expression(
+                    type_aliases,
+                    choice_types,
+                    evaluated_project_variables,
+                    evaluated_local_variables,
+                    &untyped_node.value,
+                );
+            };
+            match untyped_node.value.as_ref() {
+                SyntaxExpression::Variant {
+                    name: variant_name_node,
+                    value: maybe_value,
+                } => match maybe_value {
+                    None => Some(EvaluatedExpression::Variant {
+                        choice_type: choice_type_name,
+                        variant_name: variant_name_node.value.clone(),
+                        value: None,
+                    }),
+                    Some(value_node) => {
+                        let evaluated_value = evaluate_syntax_expression(
+                            type_aliases,
+                            choice_types,
+                            evaluated_project_variables,
+                            evaluated_local_variables,
+                            &value_node.value,
+                        )?;
+                        Some(EvaluatedExpression::Variant {
+                            choice_type: choice_type_name,
+                            variant_name: variant_name_node.value.clone(),
+                            value: Some(Box::new(evaluated_value)),
+                        })
+                    }
+                },
+                _ => evaluate_syntax_expression(
+                    type_aliases,
+                    choice_types,
+                    evaluated_project_variables,
+                    evaluated_local_variables,
+                    &untyped_node.value,
+                ),
+            }
+        }
+        SyntaxExpression::Variant { name: _, value: _ } => {
+            // consider trying regardless
+            None
+        }
+        SyntaxExpression::Record(fields) => {
+            let evaluated_fields = fields
+                .iter()
+                .filter_map(|field| {
+                    field
+                        .value
+                        .as_ref()
+                        .and_then(|field_value_node| {
+                            evaluate_syntax_expression(
+                                type_aliases,
+                                choice_types,
+                                evaluated_project_variables,
+                                evaluated_local_variables,
+                                &field_value_node.value,
+                            )
+                        })
+                        .map(|evaluated_field_value| {
+                            (field.name.value.clone(), evaluated_field_value)
+                        })
+                })
+                .collect::<Vec<_>>();
+            Some(EvaluatedExpression::Record(evaluated_fields))
+        }
+        SyntaxExpression::RecordUpdate {
+            record: maybe_record,
+            spread_key_symbol_range: _,
+            fields,
+        } => {
+            let record_expression_node = maybe_record.as_ref()?;
+            let evaluated_record_expression = evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                evaluated_local_variables,
+                &record_expression_node.value,
+            )?;
+            match evaluated_record_expression {
+                EvaluatedExpression::Record(mut original_fields) => {
+                    let new_fields = fields.iter().filter_map(|field| {
+                        field
+                            .value
+                            .as_ref()
+                            .and_then(|field_value_node| {
+                                evaluate_syntax_expression(
+                                    type_aliases,
+                                    choice_types,
+                                    evaluated_project_variables,
+                                    evaluated_local_variables,
+                                    &field_value_node.value,
+                                )
+                            })
+                            .map(|evaluated_field_value| (&field.name.value, evaluated_field_value))
+                    });
+                    for (new_field_name, new_field_value) in new_fields {
+                        if let Some(field_position) = original_fields
+                            .iter()
+                            .position(|(name, _)| name == new_field_name)
+                            && let Some((_, original_field_value)) =
+                                original_fields.get_mut(field_position)
+                        {
+                            *original_field_value = new_field_value;
+                        }
+                    }
+                    Some(EvaluatedExpression::Record(original_fields))
+                }
+                record_expression_not_record => Some(record_expression_not_record),
+            }
+        }
+    }
+}
+fn evaluate_expression_variable<'a>(
+    evaluated_project_variables: &'a std::collections::HashMap<Name, EvaluatedExpression>,
+    evaluated_local_variables: &'a std::collections::HashMap<Name, EvaluatedExpression>,
+    variable: &Name,
+) -> std::borrow::Cow<'a, EvaluatedExpression> {
+    match evaluated_local_variables
+        .get(variable)
+        .or_else(|| evaluated_project_variables.get(variable))
+    {
+        Some(evaluated_variable) => std::borrow::Cow::Borrowed(evaluated_variable),
+        None => match variable.as_str() {
+            "dec-pi" => std::borrow::Cow::Owned(EvaluatedExpression::Dec(lily_core::dec_pi())),
+            _ => std::borrow::Cow::Owned(EvaluatedExpression::CoreFunction(variable.clone())),
+        },
+    }
+}
+pub fn evaluate_expression_call(
+    type_aliases: &std::collections::HashMap<Name, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<Name, ChoiceTypeInfo>,
+    evaluated_project_variables: &std::collections::HashMap<Name, EvaluatedExpression>,
+    evaluated_variable: std::borrow::Cow<EvaluatedExpression>,
+    mut arguments: impl Iterator<Item = EvaluatedExpression>,
+) -> Option<EvaluatedExpression> {
+    let Some(arg0) = arguments.next() else {
+        return Some(evaluated_variable.into_owned());
+    };
+    match evaluated_variable.as_ref() {
+        EvaluatedExpression::Closure {
+            local_variables: function_local_variables,
+            pattern0,
+            pattern1_up,
+            result,
+        } => {
+            let mut function_local_variables: std::collections::HashMap<Name, EvaluatedExpression> =
+                function_local_variables.clone();
+            for (pattern, evaluated_argument) in
+                std::iter::once((pattern0, arg0)).chain(pattern1_up.iter().zip(arguments))
+            {
+                function_local_variables.extend(
+                    evaluate_syntax_pattern_match(
+                        type_aliases,
+                        choice_types,
+                        pattern,
+                        evaluated_argument,
+                    )
+                    .into_iter()
+                    .flatten(),
+                );
+            }
+            evaluate_syntax_expression(
+                type_aliases,
+                choice_types,
+                evaluated_project_variables,
+                &function_local_variables,
+                result,
+            )
+        }
+        EvaluatedExpression::CoreFunction(core_function_name) => {
+            match core_function_name.as_str() {
+                "unt-add" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Unt(lily_core::unt_add(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "unt-mul" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Unt(lily_core::unt_mul(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "unt-div" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Unt(lily_core::unt_div(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "unt-order" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(core_order_to_evaluated_expression(lily_core::unt_order(
+                            arg0, arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "unt-to-int" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0 {
+                        Some(EvaluatedExpression::Int(lily_core::unt_to_int(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "unt-to-dec" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::unt_to_dec(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "unt-to-str" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0 {
+                        Some(core_str_to_evaluated_expression(lily_core::unt_to_str(
+                            arg0,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-to-unt" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0 {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::str_to_unt(lily_core::Str::from_string(arg0)),
+                            EvaluatedExpression::Unt,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "int-negate" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0 {
+                        Some(EvaluatedExpression::Int(lily_core::int_negate(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "int-absolute" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0 {
+                        Some(EvaluatedExpression::Unt(lily_core::int_absolute(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "int-add" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0
+                        && let Some(EvaluatedExpression::Int(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Int(lily_core::int_add(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "int-mul" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0
+                        && let Some(EvaluatedExpression::Int(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Int(lily_core::int_mul(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "int-div" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0
+                        && let Some(EvaluatedExpression::Int(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Int(lily_core::int_div(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "int-order" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0
+                        && let Some(EvaluatedExpression::Int(arg1)) = arguments.next()
+                    {
+                        Some(core_order_to_evaluated_expression(lily_core::int_order(
+                            arg0, arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "int-to-dec" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::int_to_dec(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "int-to-str" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0 {
+                        Some(core_str_to_evaluated_expression(lily_core::int_to_str(
+                            arg0,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "int-to-unt" => {
+                    if let EvaluatedExpression::Int(arg0) = arg0 {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::int_to_unt(arg0),
+                            EvaluatedExpression::Unt,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "str-to-int" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0 {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::str_to_int(lily_core::Str::from_string(arg0)),
+                            EvaluatedExpression::Int,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+
+                "dec-negate" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_negate(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-absolute" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_absolute(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-ln" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::dec_ln(arg0),
+                            EvaluatedExpression::Dec,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "dec-sin" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_sin(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-cos" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_cos(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-tan" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_tan(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-atan" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_atan(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-atan2" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_atan2(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-add" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_add(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-mul" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_mul(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-div" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_div(arg0, arg1)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-to-power-of" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Dec(lily_core::dec_to_power_of(
+                            arg0, arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "dec-truncate" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Int(lily_core::dec_truncate(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-floor" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Int(lily_core::dec_floor(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-ceiling" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Int(lily_core::dec_ceiling(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-round" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Int(lily_core::dec_round(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "dec-order" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(core_order_to_evaluated_expression(lily_core::dec_order(
+                            arg0, arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "dec-to-str" => {
+                    if let EvaluatedExpression::Dec(arg0) = arg0 {
+                        Some(core_str_to_evaluated_expression(lily_core::dec_to_str(
+                            arg0,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-to-dec" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0 {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::str_to_dec(lily_core::Str::from_string(arg0)),
+                            EvaluatedExpression::Dec,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "char-byte-count" => {
+                    if let EvaluatedExpression::Char(arg0) = arg0 {
+                        Some(EvaluatedExpression::Unt(lily_core::char_byte_count(arg0)))
+                    } else {
+                        None
+                    }
+                }
+                "char-to-code-point" => {
+                    if let EvaluatedExpression::Char(arg0) = arg0 {
+                        Some(EvaluatedExpression::Unt(lily_core::char_to_code_point(
+                            arg0,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "code-point-to-char" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0 {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::code_point_to_char(arg0),
+                            EvaluatedExpression::Char,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "char-order" => {
+                    if let EvaluatedExpression::Char(arg0) = arg0
+                        && let Some(EvaluatedExpression::Char(arg1)) = arguments.next()
+                    {
+                        Some(core_order_to_evaluated_expression(lily_core::char_order(
+                            arg0, arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "char-to-str" => {
+                    if let EvaluatedExpression::Char(arg0) = arg0 {
+                        Some(core_str_to_evaluated_expression(lily_core::char_to_str(
+                            arg0,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-byte-count" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0 {
+                        Some(EvaluatedExpression::Unt(lily_core::str_byte_count(
+                            lily_core::Str::from_string(arg0),
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-char-at-byte-index" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::str_char_at_byte_index(
+                                lily_core::Str::from_string(arg0),
+                                arg1,
+                            ),
+                            EvaluatedExpression::Char,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "str-slice-from-byte-index-with-byte-length" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                        && let Some(EvaluatedExpression::Unt(arg2)) = arguments.next()
+                    {
+                        Some(core_str_to_evaluated_expression(
+                            lily_core::str_slice_from_byte_index_with_byte_length(
+                                lily_core::Str::from_string(arg0),
+                                arg1,
+                                arg2,
+                            ),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "str-to-chars" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0 {
+                        Some(EvaluatedExpression::Vec(
+                            arg0.chars().map(EvaluatedExpression::Char).collect(),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "chars-to-str" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0 {
+                        arg0.into_iter()
+                            .map(|element| {
+                                if let EvaluatedExpression::Char(char) = element {
+                                    Some(char)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Option<String>>()
+                            .map(EvaluatedExpression::Str)
+                    } else {
+                        None
+                    }
+                }
+                "str-order" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Str(arg1)) = arguments.next()
+                    {
+                        Some(core_order_to_evaluated_expression(lily_core::str_order(
+                            lily_core::Str::from_string(arg0),
+                            lily_core::Str::from_string(arg1),
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-walk-chars-from" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(arg1) = arguments.next()
+                        && let Some(arg2) = arguments.next()
+                    {
+                        let result: std::ops::ControlFlow<
+                            Result<EvaluatedExpression, ()>,
+                            EvaluatedExpression,
+                        > = arg0.chars().try_fold(arg1, |state, element| {
+                            match evaluate_expression_call(
+                                type_aliases,
+                                choice_types,
+                                evaluated_project_variables,
+                                std::borrow::Cow::Borrowed(&arg2),
+                                [state, EvaluatedExpression::Char(element)].into_iter(),
+                            )
+                            .and_then(evaluated_expression_to_core_go_on_or_exit)
+                            {
+                                None => std::ops::ControlFlow::Break(Err(())),
+                                Some(step) => step.to_control_flow().map_break(Ok),
+                            }
+                        });
+                        match result {
+                            std::ops::ControlFlow::Break(Err(())) => None,
+                            std::ops::ControlFlow::Break(Ok(exit)) => {
+                                Some(evaluated_expression_core_exit(exit))
+                            }
+                            std::ops::ControlFlow::Continue(go_on) => {
+                                Some(evaluated_expression_core_go_on(go_on))
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                }
+                "str-attach" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Str(arg1)) = arguments.next()
+                    {
+                        Some(core_str_to_evaluated_expression(lily_core::str_attach(
+                            lily_core::Str::from_string(arg0),
+                            lily_core::Str::from_string(arg1),
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-attach-char" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Char(arg1)) = arguments.next()
+                    {
+                        Some(core_str_to_evaluated_expression(
+                            lily_core::str_attach_char(lily_core::Str::from_string(arg0), arg1),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "str-attach-unt" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(core_str_to_evaluated_expression(lily_core::str_attach_unt(
+                            lily_core::Str::from_string(arg0),
+                            arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-attach-int" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Int(arg1)) = arguments.next()
+                    {
+                        Some(core_str_to_evaluated_expression(lily_core::str_attach_int(
+                            lily_core::Str::from_string(arg0),
+                            arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "str-attach-dec" => {
+                    if let EvaluatedExpression::Str(arg0) = arg0
+                        && let Some(EvaluatedExpression::Dec(arg1)) = arguments.next()
+                    {
+                        Some(core_str_to_evaluated_expression(lily_core::str_attach_dec(
+                            lily_core::Str::from_string(arg0),
+                            arg1,
+                        )))
+                    } else {
+                        None
+                    }
+                }
+                "strs-flatten" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0 {
+                        arg0.into_iter()
+                            .map(|element| {
+                                if let EvaluatedExpression::Str(string) = element {
+                                    Some(string)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Option<String>>()
+                            .map(EvaluatedExpression::Str)
+                    } else {
+                        None
+                    }
+                }
+                "vec-repeat" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0
+                        && let Some(arg1) = arguments.next()
+                    {
+                        Some(EvaluatedExpression::Vec(
+                            std::iter::repeat_n(arg1, arg0).collect::<Vec<_>>(),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "vec-by-index-for-length" => {
+                    if let EvaluatedExpression::Unt(arg0) = arg0
+                        && let Some(arg1) = arguments.next()
+                    {
+                        (0..arg0)
+                            .map(|index| {
+                                evaluate_expression_call(
+                                    type_aliases,
+                                    choice_types,
+                                    evaluated_project_variables,
+                                    std::borrow::Cow::Borrowed(&arg1),
+                                    std::iter::once(EvaluatedExpression::Unt(index)),
+                                )
+                            })
+                            .collect::<Option<Vec<_>>>()
+                            .map(EvaluatedExpression::Vec)
+                    } else {
+                        None
+                    }
+                }
+                "vec-length" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0 {
+                        Some(EvaluatedExpression::Unt(arg0.len()))
+                    } else {
+                        None
+                    }
+                }
+                "vec-element" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        Some(core_opt_to_evaluated_expression(
+                            lily_core::Opt::from_option(arg0.get(arg1)),
+                            |element| element.clone(),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "vec-replace-element" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                        && let Some(arg2) = arguments.next()
+                    {
+                        if let Some(at_index_mut) = arg0.get_mut(arg1) {
+                            *at_index_mut = arg2;
+                        }
+                        Some(EvaluatedExpression::Vec(arg0))
+                    } else {
+                        None
+                    }
+                }
+                "vec-swap" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                        && let Some(EvaluatedExpression::Unt(arg2)) = arguments.next()
+                    {
+                        if arg1 <= arg0.len() && arg2 <= arg0.len() {
+                            arg0.swap(arg1, arg2);
+                        }
+                        Some(EvaluatedExpression::Vec(arg0))
+                    } else {
+                        None
+                    }
+                }
+                "vec-truncate" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        arg0.truncate(arg1);
+                        Some(EvaluatedExpression::Vec(arg0))
+                    } else {
+                        None
+                    }
+                }
+                "vec-slice-from-index-with-length" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                        && let Some(EvaluatedExpression::Unt(arg2)) = arguments.next()
+                    {
+                        if arg1 >= arg0.len() {
+                            return Some(EvaluatedExpression::Vec(vec![]));
+                        }
+                        Some(EvaluatedExpression::Vec(
+                            arg0.get(arg1..(arg1 + arg2).min(arg0.len()))
+                                .map(Vec::from)
+                                .unwrap_or_else(|| arg0),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                "vec-increase-capacity-by" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(EvaluatedExpression::Unt(arg1)) = arguments.next()
+                    {
+                        arg0.reserve(arg1);
+                        Some(EvaluatedExpression::Vec(arg0))
+                    } else {
+                        None
+                    }
+                }
+                "vec-sort" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(arg1) = arguments.next()
+                    {
+                        let mut sort_failed = false;
+                        arg0.sort_unstable_by(|a, b| {
+                            match evaluate_expression_call(
+                                type_aliases,
+                                choice_types,
+                                evaluated_project_variables,
+                                std::borrow::Cow::Borrowed(&arg1),
+                                [a, b].into_iter().cloned(),
+                            )
+                            .and_then(|result| evaluated_expression_to_core_order(&result))
+                            {
+                                None => {
+                                    sort_failed = true;
+                                    std::cmp::Ordering::Equal
+                                }
+                                Some(core_order) => core_order.to_ordering(),
+                            }
+                        });
+                        if sort_failed {
+                            None
+                        } else {
+                            Some(EvaluatedExpression::Vec(arg0))
+                        }
+                    } else {
+                        None
+                    }
+                }
+                "vec-attach-element" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(arg1) = arguments.next()
+                    {
+                        arg0.push(arg1);
+                        Some(EvaluatedExpression::Vec(arg0))
+                    } else {
+                        None
+                    }
+                }
+                "vec-attach" => {
+                    if let EvaluatedExpression::Vec(mut arg0) = arg0
+                        && let Some(EvaluatedExpression::Vec(arg1)) = arguments.next()
+                    {
+                        arg0.extend(arg1);
+                        Some(EvaluatedExpression::Vec(arg0))
+                    } else {
+                        None
+                    }
+                }
+                "vec-flatten" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0 {
+                        arg0.into_iter()
+                            .try_fold(
+                                Vec::new(),
+                                |mut so_far, element| -> Option<Vec<EvaluatedExpression>> {
+                                    match element {
+                                        EvaluatedExpression::Vec(element_vec) => {
+                                            so_far.extend(element_vec);
+                                            Some(so_far)
+                                        }
+                                        _ => None,
+                                    }
+                                },
+                            )
+                            .map(EvaluatedExpression::Vec)
+                    } else {
+                        None
+                    }
+                }
+                "vec-walk-from" => {
+                    if let EvaluatedExpression::Vec(arg0) = arg0
+                        && let Some(arg1) = arguments.next()
+                        && let Some(arg2) = arguments.next()
+                    {
+                        let result: std::ops::ControlFlow<
+                            Result<EvaluatedExpression, ()>,
+                            EvaluatedExpression,
+                        > = arg0.iter().try_fold(arg1, |state, element| {
+                            match evaluate_expression_call(
+                                type_aliases,
+                                choice_types,
+                                evaluated_project_variables,
+                                std::borrow::Cow::Borrowed(&arg2),
+                                [state, element.clone()].into_iter(),
+                            )
+                            .and_then(evaluated_expression_to_core_go_on_or_exit)
+                            {
+                                None => std::ops::ControlFlow::Break(Err(())),
+                                Some(step) => step.to_control_flow().map_break(Ok),
+                            }
+                        });
+                        match result {
+                            std::ops::ControlFlow::Break(Err(())) => None,
+                            std::ops::ControlFlow::Break(Ok(exit)) => {
+                                Some(evaluated_expression_core_exit(exit))
+                            }
+                            std::ops::ControlFlow::Continue(go_on) => {
+                                Some(evaluated_expression_core_go_on(go_on))
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => Some(evaluated_variable.into_owned()),
+    }
+}
+fn core_str_to_evaluated_expression(str: lily_core::Str) -> EvaluatedExpression {
+    EvaluatedExpression::Str(str.into_string())
+}
+fn core_order_to_evaluated_expression(order: lily_core::Order) -> EvaluatedExpression {
+    EvaluatedExpression::Variant {
+        choice_type: Name::const_new(type_order_name),
+        variant_name: Name::const_new(match order {
+            lily_core::Order::Less => "Less",
+            lily_core::Order::Equal => "Equal",
+            lily_core::Order::Greater => "Greater",
+        }),
+        value: None,
+    }
+}
+fn core_opt_to_evaluated_expression<A>(
+    opt: lily_core::Opt<A>,
+    value_to_evaluated_expression: impl FnOnce(A) -> EvaluatedExpression,
+) -> EvaluatedExpression {
+    match opt {
+        lily_core::Opt::Present(value) => EvaluatedExpression::Variant {
+            choice_type: Name::const_new(type_opt_name),
+            variant_name: Name::const_new("Present"),
+            value: Some(Box::new(value_to_evaluated_expression(value))),
+        },
+        lily_core::Opt::Absent => EvaluatedExpression::Variant {
+            choice_type: Name::const_new(type_opt_name),
+            variant_name: Name::const_new("Absent"),
+            value: None,
+        },
+    }
+}
+fn evaluated_expression_core_go_on(value: EvaluatedExpression) -> EvaluatedExpression {
+    EvaluatedExpression::Variant {
+        choice_type: Name::const_new(type_go_on_or_exit_name),
+        variant_name: Name::const_new("Go-on"),
+        value: Some(Box::new(value)),
+    }
+}
+fn evaluated_expression_core_exit(value: EvaluatedExpression) -> EvaluatedExpression {
+    EvaluatedExpression::Variant {
+        choice_type: Name::const_new(type_go_on_or_exit_name),
+        variant_name: Name::const_new("Exit"),
+        value: Some(Box::new(value)),
+    }
+}
+fn evaluated_expression_to_core_order(
+    evaluated_expression: &EvaluatedExpression,
+) -> Option<lily_core::Order> {
+    let EvaluatedExpression::Variant {
+        choice_type,
+        variant_name,
+        value: None,
+    } = evaluated_expression
+    else {
+        return None;
+    };
+    if choice_type != type_order_name {
+        return None;
+    }
+    match variant_name.as_str() {
+        "Less" => Some(lily_core::Order::Less),
+        "Equal" => Some(lily_core::Order::Equal),
+        "Greater" => Some(lily_core::Order::Greater),
+        _ => None,
+    }
+}
+fn evaluated_expression_to_core_go_on_or_exit(
+    evaluated_expression: EvaluatedExpression,
+) -> Option<lily_core::Go_on_or_exit<EvaluatedExpression, EvaluatedExpression>> {
+    let EvaluatedExpression::Variant {
+        choice_type,
+        variant_name,
+        value: Some(value),
+    } = evaluated_expression
+    else {
+        return None;
+    };
+    if choice_type != type_go_on_or_exit_name {
+        return None;
+    }
+    match variant_name.as_str() {
+        "Exit" => Some(lily_core::Go_on_or_exit::Exit(*value)),
+        "Go-on" => Some(lily_core::Go_on_or_exit::Go_on(*value)),
+        _ => None,
+    }
+}
+/// returns Err with the provided EvaluatedExpression if it failed to fully match
+fn evaluate_syntax_pattern_match(
+    type_aliases: &std::collections::HashMap<Name, TypeAliasInfo>,
+    choice_types: &std::collections::HashMap<Name, ChoiceTypeInfo>,
+    pattern: &SyntaxPattern,
+    evaluated_expression: EvaluatedExpression,
+) -> Result<Vec<(Name, EvaluatedExpression)>, EvaluatedExpression> {
+    match pattern {
+        SyntaxPattern::Ignored => Ok(vec![]),
+        SyntaxPattern::Variable {
+            overwriting: _,
+            name,
+        } => Ok(vec![(name.clone(), evaluated_expression)]),
+        SyntaxPattern::Int(pattern_syntax_int) => {
+            let pattern_int: lily_core::Int = match pattern_syntax_int {
+                SyntaxInt::Zero => 0,
+                SyntaxInt::Signed(signed) => match signed.parse::<lily_core::Int>() {
+                    Ok(int) => int,
+                    Err(_) => {
+                        return Err(evaluated_expression);
+                    }
+                },
+            };
+            let EvaluatedExpression::Int(expression_int) = evaluated_expression else {
+                return Err(evaluated_expression);
+            };
+            if expression_int == pattern_int {
+                Ok(vec![])
+            } else {
+                Err(evaluated_expression)
+            }
+        }
+        SyntaxPattern::Unt(pattern_syntax_unt) => {
+            let Ok(pattern_unt) = pattern_syntax_unt.parse::<lily_core::Unt>() else {
+                return Err(evaluated_expression);
+            };
+            let EvaluatedExpression::Unt(expression_unt) = evaluated_expression else {
+                return Err(evaluated_expression);
+            };
+            if expression_unt == pattern_unt {
+                Ok(vec![])
+            } else {
+                Err(evaluated_expression)
+            }
+        }
+        &SyntaxPattern::Char(maybe_pattern_char) => {
+            let Some(pattern_char) = maybe_pattern_char else {
+                return Err(evaluated_expression);
+            };
+            let EvaluatedExpression::Char(expression_char) = evaluated_expression else {
+                return Err(evaluated_expression);
+            };
+            if expression_char == pattern_char {
+                Ok(vec![])
+            } else {
+                Err(evaluated_expression)
+            }
+        }
+        SyntaxPattern::String {
+            quoting_style: _,
+            content: pattern_string,
+        } => {
+            let EvaluatedExpression::Str(expression_string) = &evaluated_expression else {
+                return Err(evaluated_expression);
+            };
+            if expression_string == pattern_string {
+                Ok(vec![])
+            } else {
+                Err(evaluated_expression)
+            }
+        }
+        SyntaxPattern::WithComment {
+            comment: _,
+            pattern: maybe_pattern,
+        } => match maybe_pattern {
+            None => Err(evaluated_expression),
+            Some(pattern_node) => evaluate_syntax_pattern_match(
+                type_aliases,
+                choice_types,
+                &pattern_node.value,
+                evaluated_expression,
+            ),
+        },
+        SyntaxPattern::Typed {
+            type_: maybe_type,
+            closing_colon_range: _,
+            pattern: maybe_pattern,
+        } => {
+            let Some(pattern_node) = maybe_pattern.as_ref() else {
+                return Err(evaluated_expression);
+            };
+            match maybe_type {
+                None => evaluate_syntax_pattern_match(
+                    type_aliases,
+                    choice_types,
+                    &pattern_node.value,
+                    evaluated_expression,
+                ),
+                Some(type_node) => match pattern_node.value.as_ref() {
+                    SyntaxPattern::Variant {
+                        name: pattern_variant_name,
+                        value: pattern_maybe_value,
+                    } => {
+                        let Some(Type::ChoiceConstruct {
+                            name: pattern_choice_type_name,
+                            arguments: _,
+                        }) = syntax_type_to_type(
+                            &mut Vec::new(),
+                            type_aliases,
+                            choice_types,
+                            syntax_node_as_ref(type_node),
+                        )
+                        else {
+                            return Err(evaluated_expression);
+                        };
+                        let EvaluatedExpression::Variant {
+                            choice_type: expression_choice_type_name,
+                            variant_name: expression_variant_name,
+                            value: expression_maybe_value,
+                        } = evaluated_expression
+                        else {
+                            return Err(evaluated_expression);
+                        };
+                        if pattern_variant_name.value == expression_variant_name
+                            && pattern_choice_type_name == expression_choice_type_name
+                        {
+                            match pattern_maybe_value {
+                                None => Ok(vec![]),
+                                Some(pattern_value) => {
+                                    let Some(expression_value) = expression_maybe_value else {
+                                        return Ok(vec![]);
+                                    };
+                                    evaluate_syntax_pattern_match(
+                                        type_aliases,
+                                        choice_types,
+                                        &pattern_value.value,
+                                        *expression_value,
+                                    )
+                                }
+                            }
+                        } else {
+                            Err(EvaluatedExpression::Variant {
+                                choice_type: expression_choice_type_name,
+                                variant_name: expression_variant_name,
+                                value: expression_maybe_value,
+                            })
+                        }
+                    }
+                    _ => evaluate_syntax_pattern_match(
+                        type_aliases,
+                        choice_types,
+                        &pattern_node.value,
+                        evaluated_expression,
+                    ),
+                },
+            }
+        }
+        SyntaxPattern::Variant { name: _, value: _ } => {
+            // consider trying regardless
+            Err(evaluated_expression)
+        }
+        SyntaxPattern::Record(fields) => {
+            let EvaluatedExpression::Record(mut expression_fields) = evaluated_expression else {
+                return Err(evaluated_expression);
+            };
+            let mut fields_evaluated_variables = Vec::new();
+            for pattern_field in fields {
+                if let Some(pattern_field_value) = &pattern_field.value
+                    && let Some(expression_field_index) = expression_fields
+                        .iter()
+                        .position(|(name, _)| name == pattern_field.name.value)
+                {
+                    let (_, expression_field_value) =
+                        expression_fields.swap_remove(expression_field_index);
+                    let field_evaluated_variables = evaluate_syntax_pattern_match(
+                        type_aliases,
+                        choice_types,
+                        &pattern_field_value.value,
+                        expression_field_value,
+                    )?;
+                    fields_evaluated_variables.extend(field_evaluated_variables)
+                }
+            }
+            Ok(fields_evaluated_variables)
+        }
     }
 }
 
