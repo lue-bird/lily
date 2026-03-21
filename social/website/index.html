@@ -8,45 +8,54 @@
         <style>
             input,
             button,
-            textarea,
-            select {
-                font: inherit;
+            select,
+            button {
+                font-size: inherit;
             }
-            code,
-            pre {
-                line-height: 1.2;
+            button {
+                text-decoration: dotted underline;
+                border: none;
+                cursor: pointer;
+                background-color: transparent;
+                color: inherit;
             }
             body {
-                background-color: rgb(30, 0, 30);
-                color: rgb(255, 245, 230);
                 padding-left: 4%;
                 padding-right: 1em;
                 padding-top: 1em;
                 font-family: sans-serif;
                 max-width: 54rem;
-                font-size: 120%;
+                background-color: rgb(17, 5, 0);
+                color: rgb(255, 220, 200);
+                font-size: 1.1em;
             }
             textarea:focus {
                 border: none;
                 outline: none;
             }
             textarea::selection {
-                background-color: rgba(55, 55, 55, 60);
                 color: transparent;
             }
+            *::selection {
+                /* hacky way to avoid automatic transparency added by webkit
+               https://github.com/w3c/csswg-drafts/issues/6853
+               */
+                background-color: rgba(80, 0, 50, 0.99);
+            }
             code {
-                font-family: monospace;
-                white-space: pre;
+                /* An abhorrent, hacky, fragile, somewhat-good-enough working
+                fix to monospace fonts having a different default font size in different browsers.
+                Big fat thanks to https://meyerweb.com/eric/thoughts/2010/02/12/fixed-monospace-sizing/
+                If you know a better way to fix, open an issue, thanks!
+                */
+                font-family: "Liga NovaMono", monospace, sans-serif;
+                font-size: medium;
+                line-height: inherit;
             }
             a {
-                color: rgb(140, 200, 0);
+                color: rgb(230, 150, 0);
                 font-weight: bold;
-                text-decoration: none;
-            }
-            h3,
-            h4,
-            h5 {
-                margin-bottom: 0em;
+                text-decoration: underline;
             }
         </style>
     </head>

@@ -10,5 +10,5 @@ path = "main.rs"
 [dependencies]
 lily_compile = { path = "../../compile/" }
 lsp-types = "0.97.0"
-web-sys = { version = "0.3.91", features = [ "Event" ] }
+web-sys = { version = "0.3.91", features = [ "Event", "Location", "Window", "History" ] }
 yew = { version = "0.23.0", features = [ "csr" ] }
