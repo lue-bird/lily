@@ -6286,8 +6286,7 @@ pub struct ChoiceTypeInfo {
 }
 
 #[cfg(test)]
-mod tests {
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
+mod test_type_collect_variables_that_are_concrete_into {
     use super::*;
     #[test]
     fn test_type_collect_variables_that_are_concrete_into() {
@@ -9171,10 +9170,10 @@ enum PatternCatch {
     /// invariant: all variants are never exhaustive
     // and len is >= 2
     // and only a single variant value is VariantCatch::Caught
-    Variant(std::collections::HashMap<Name, VariantCatch<PatternCatch>>),
+    Variant(std::collections::BTreeMap<Name, VariantCatch<PatternCatch>>),
     /// invariant: all fields are never exhaustive
     // and field count is >= 2
-    Record(std::collections::HashMap<Name, PatternCatch>),
+    Record(std::collections::BTreeMap<Name, PatternCatch>),
 }
 #[derive(PartialEq, Eq, Debug)]
 enum VariantCatch<Catch> {
@@ -9190,10 +9189,10 @@ enum CasePatternsCatch {
     Strings(Vec<String>),
     /// invariant: all variants are never exhaustive
     // and choice_type_variant_count is >= 2
-    Variants(std::collections::HashMap<Name, VariantCatch<CasePatternsCatch>>),
+    Variants(std::collections::BTreeMap<Name, VariantCatch<CasePatternsCatch>>),
     /// invariant: all fields are never exhaustive
     // and field count is >= 2
-    Record(Vec<std::collections::HashMap<Name, PatternCatch>>),
+    Record(Vec<std::collections::BTreeMap<Name, PatternCatch>>),
 }
 fn pattern_catch_to_case_patterns_catch(pattern_catch: PatternCatch) -> CasePatternsCatch {
     match pattern_catch {
@@ -9317,9 +9316,9 @@ fn pattern_catch_merge_with(
                     match previous_catch_of_new_variant {
                         VariantCatch::Caught(CasePatternsCatch::Exhaustive) => {
                             errors.push(ErrorNode {
-                            range: pattern_range,
-                            message: Box::from("this pattern is unreachable as it's already matched by a previous case pattern"),
-                        });
+                                range: pattern_range,
+                                message: Box::from("this pattern is unreachable as it's already matched by a previous case pattern"),
+                            });
                         }
                         VariantCatch::Caught(previous_caught_of_new_variant) => {
                             pattern_catch_merge_with(
@@ -9441,7 +9440,7 @@ fn pattern_catch_catches_all_of_lily_pattern_catch(
 enum PatternCatchPossibilitiesSplit<'a> {
     Infinite,
     // consider adding example pattern
-    ByVariant(std::collections::HashMap<Name, Vec<Vec<&'a PatternCatch>>>),
+    ByVariant(std::collections::BTreeMap<Name, Vec<Vec<&'a PatternCatch>>>),
     WithAdditionalFieldValues {
         field_count: usize,
         possibilities: Vec<Vec<&'a PatternCatch>>,
@@ -9449,7 +9448,7 @@ enum PatternCatchPossibilitiesSplit<'a> {
     AllExhaustive(Vec<Vec<&'a PatternCatch>>),
 }
 fn case_patterns_catch_record_is_exhaustive(
-    record_possibilities: &[std::collections::HashMap<Name, PatternCatch>],
+    record_possibilities: &[std::collections::BTreeMap<Name, PatternCatch>],
 ) -> bool {
     possibilities_of_pattern_catches_are_exhaustive(
         // it's unfortunate that we need to allocate here,
@@ -9576,7 +9575,7 @@ fn possibilities_of_pattern_catches_are_exhaustive<'a>(
                                         .collect();
                                 match &mut maybe_so_far {
                                     None => {
-                                        let mut by_variant_empty: std::collections::HashMap<
+                                        let mut by_variant_empty: std::collections::BTreeMap<
                                             Name,
                                             Vec<Vec<&PatternCatch>>,
                                         > = first_field_value_variants
@@ -9618,7 +9617,7 @@ fn possibilities_of_pattern_catches_are_exhaustive<'a>(
                                                     .collect()
                                             })
                                             .collect();
-                                        let mut by_variant_empty: std::collections::HashMap<
+                                        let mut by_variant_empty: std::collections::BTreeMap<
                                             Name,
                                             Vec<Vec<&PatternCatch>>,
                                         > = first_field_value_variants
@@ -10453,7 +10452,7 @@ fn syntax_pattern_to_rust<'a>(
                                     if origin_choice_type_info.type_variants.len() == 1 {
                                         value_catch
                                     } else {
-                                        let mut variants: std::collections::HashMap<
+                                        let mut variants: std::collections::BTreeMap<
                                             Name,
                                             VariantCatch<PatternCatch>,
                                         > = origin_choice_type_info
@@ -10559,8 +10558,8 @@ fn syntax_pattern_to_rust<'a>(
         SyntaxPattern::Record(fields) => {
             let mut maybe_type_fields: Option<Vec<TypeField>> =
                 Some(Vec::with_capacity(fields.len()));
-            let mut maybe_field_catches: Option<std::collections::HashMap<Name, PatternCatch>> =
-                Some(std::collections::HashMap::with_capacity(fields.len()));
+            let mut maybe_field_catches: Option<std::collections::BTreeMap<Name, PatternCatch>> =
+                Some(std::collections::BTreeMap::new());
             let mut maybe_rust_fields: Option<
                 syn::punctuated::Punctuated<syn::FieldPat, syn::token::Comma>,
             > = Some(syn::punctuated::Punctuated::new());
