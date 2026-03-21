@@ -45,7 +45,7 @@ pub struct SyntaxTypeField {
     pub value: Option<SyntaxNode<SyntaxType>>,
 }
 /// Fully validated type
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     Variable(Name),
     Function {
@@ -58,7 +58,7 @@ pub enum Type {
     },
     Record(Vec<TypeField>),
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeField {
     pub name: Name,
     pub value: Type,
@@ -646,7 +646,7 @@ pub fn project_function_variable_call_type_with<'a>(
     };
     // optimization possibility: when output contains no type variables,
     // just return it
-    let mut type_parameter_replacements: std::collections::HashMap<&str, &Type> =
+    let mut type_parameter_replacements: std::collections::HashMap<&str, std::borrow::Cow<Type>> =
         std::collections::HashMap::new();
     let argument_types: Vec<Option<Type>> = arguments
         .map(|argument_node| {
@@ -2908,33 +2908,15 @@ fn parse_lily_text_content_char(state: &mut ParseState) -> Option<char> {
             let unicode_hex_str: &str =
                 &state.source[unicode_hex_start_offset_utf8..state.offset_utf8];
             let _: bool = parse_symbol(state, "}");
-            let Ok(first_utf16_code) = u16::from_str_radix(unicode_hex_str, 16) else {
+            let Ok(code_point) = u32::from_str_radix(unicode_hex_str, 16) else {
                 reset_parse_state(state);
                 return None;
             };
-            match char::from_u32(u32::from(first_utf16_code)) {
+            match char::from_u32(code_point) {
                 Some(char) => Some(char),
                 None => {
-                    if !parse_symbol(state, "\\u{") {
-                        reset_parse_state(state);
-                        return None;
-                    }
-                    let second_unicode_hex_start_offset_utf8: usize = state.offset_utf8;
-                    parse_same_line_while(state, |c| c.is_ascii_hexdigit());
-                    let second_unicode_hex_str: &str =
-                        &state.source[second_unicode_hex_start_offset_utf8..state.offset_utf8];
-                    let _: bool = parse_symbol(state, "}");
-                    let Ok(second_utf16_code) = u16::from_str_radix(second_unicode_hex_str, 16)
-                    else {
-                        reset_parse_state(state);
-                        return None;
-                    };
-                    char::decode_utf16([first_utf16_code, second_utf16_code])
-                        .find_map(Result::ok)
-                        .or_else(|| {
-                            reset_parse_state(state);
-                            None
-                        })
+                    reset_parse_state(state);
+                    return None;
                 }
             }
         })
@@ -3844,7 +3826,7 @@ If you wanted to start a declaration, try one of:
                             variants,
                         } => match maybe_name {
                             None => {
-                                errors.push(ErrorNode { range: declaration_node.range, message: Box::from("missing name. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
+                                errors.push(ErrorNode { range: declaration_node.range, message: Box::from("missing type name after choice. Type names start with a lowercase letter any only use ascii alphanumeric characters and -)") });
                             }
                             Some(name_node) => {
                                 let choice_type_declaration_graph_node: strongly_connected_components::Node =
@@ -4310,18 +4292,18 @@ pub struct CompiledVariableDeclarationInfo {
     pub documentation: Option<Box<str>>,
     pub type_: Option<Type>,
 }
+fn type_variable(name: &'static str) -> Type {
+    Type::Variable(Name::const_new(name))
+}
+fn type_function(inputs: impl IntoIterator<Item = Type>, output: Type) -> Type {
+    Type::Function {
+        inputs: inputs.into_iter().collect::<Vec<_>>(),
+        output: Box::new(output),
+    }
+}
 pub static core_variable_declaration_infos: std::sync::LazyLock<
     std::collections::HashMap<Name, CompiledVariableDeclarationInfo>,
 > = {
-    fn variable(name: &'static str) -> Type {
-        Type::Variable(Name::from(name))
-    }
-    fn function(inputs: impl IntoIterator<Item = Type>, output: Type) -> Type {
-        Type::Function {
-            inputs: inputs.into_iter().collect::<Vec<_>>(),
-            output: Box::new(output),
-        }
-    }
     std::sync::LazyLock::new(|| {
         std::collections::HashMap::from(
         [
@@ -4329,92 +4311,92 @@ pub static core_variable_declaration_infos: std::sync::LazyLock<
             // when adding new values here, also update fn evaluate_expression_variable
             (
                 Name::from("unt-add"),
-                function([type_unt,type_unt], type_unt),
+                type_function([type_unt,type_unt], type_unt),
                 "Addition operation (`+`)",
             ),
             (
                 Name::from("unt-mul"),
-                function([type_unt,type_unt], type_unt),
+                type_function([type_unt,type_unt], type_unt),
                 "Multiplication operation (`*`)",
             ),
             (
                 Name::from("unt-div"),
-                function([type_unt,type_unt], type_unt),
+                type_function([type_unt,type_unt], type_unt),
                 "Integer division operation (`/`), discarding any remainder. Try not to divide by 0, as 0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean",
             ),
             (
                 Name::from("unt-order"),
-                function([type_unt,type_unt], type_order),
+                type_function([type_unt,type_unt], type_order),
                 "Compare `unt` values",
             ),
             (
                 Name::from("unt-to-int"),
-                function([type_unt], type_int),
+                type_function([type_unt], type_int),
                 "Convert `unt` to `int`",
             ),
             (
                 Name::from("unt-to-dec"),
-                function([type_unt], type_dec),
+                type_function([type_unt], type_dec),
                 "Convert `unt` to `dec`",
             ),
             (
                 Name::from("unt-to-str"),
-                function([type_unt], type_str),
+                type_function([type_unt], type_str),
                 "Convert `unt` to `str`",
             ),
             (
                 Name::from("str-to-unt"),
-                function([type_str], type_opt(type_unt)),
+                type_function([type_str], type_opt(type_unt)),
                 "Parse a complete `str` unto an `unt`, returning :opt unt:Absent otherwise",
             ),
             (
                 Name::from("int-negate"),
-                function([type_int], type_int),
+                type_function([type_int], type_int),
                 "Flip its sign",
             ),
             (
                 Name::from("int-absolute"),
-                function([type_int], type_unt),
+                type_function([type_int], type_unt),
                 "If negative, negate, ultimately yielding an `unt`",
             ),
             (
                 Name::from("int-add"),
-                function([type_int,type_int], type_int),
+                type_function([type_int,type_int], type_int),
                 "Addition operation (`+`)",
             ),
             (
                 Name::from("int-mul"),
-                function([type_int,type_int], type_int),
+                type_function([type_int,type_int], type_int),
                 "Multiplication operation (`*`)",
             ),
             (
                 Name::from("int-div"),
-                function([type_int,type_int], type_int),
+                type_function([type_int,type_int], type_int),
                 "Integer division operation (`/`), discarding any remainder. Try not to divide by 0, as 0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean",
             ),
             (
                 Name::from("int-order"),
-                function([type_int,type_int], type_order),
+                type_function([type_int,type_int], type_order),
                 "Compare `int` values",
             ),
             (
                 Name::from("int-to-dec"),
-                function([type_int], type_dec),
+                type_function([type_int], type_dec),
                 "Convert `int` to `dec`",
             ),
             (
                 Name::from("int-to-str"),
-                function([type_int], type_str),
+                type_function([type_int], type_str),
                 "Convert `int` to `str`",
             ),
             (
                 Name::from("int-to-unt"),
-                function([type_int], type_opt(type_unt)),
+                type_function([type_int], type_opt(type_unt)),
                 "Convert the `int` to `unt` if >= 0, returning :opt unt:Absent otherwise",
             ),
             (
                 Name::from("str-to-int"),
-                function([type_str], type_opt(type_int)),
+                type_function([type_str], type_opt(type_int)),
                 "Parse a complete `str` into an `int`, returning :opt int:Absent otherwise",
             ),
             (
@@ -4429,17 +4411,17 @@ turns-to-radians \:dec:turns >
             ),
             (
                 Name::from("dec-negate"),
-                function([type_dec], type_dec),
+                type_function([type_dec], type_dec),
                 "Flip its sign",
             ),
             (
                 Name::from("dec-absolute"),
-                function([type_dec], type_dec),
+                type_function([type_dec], type_dec),
                 "If negative, negate",
             ),
             (
                 Name::from("dec-ln"),
-                function([type_dec], type_opt(type_dec)),
+                type_function([type_dec], type_opt(type_dec)),
                 r"Its natural logarithm (log base e). If 0 or negative, results in `:opt dec:Absent` as ln(_ <= 0) is not concretely defined.
 ```lily
 dec-log \:dec:base, :dec:n >
@@ -4449,27 +4431,27 @@ dec-log \:dec:base, :dec:n >
             ),
             (
                 Name::from("dec-sin"),
-                function([type_dec], type_dec),
+                type_function([type_dec], type_dec),
                 "Its sine in radians",
             ),
             (
                 Name::from("dec-cos"),
-                function([type_dec], type_dec),
+                type_function([type_dec], type_dec),
                 "Its cosine in radians",
             ),
             (
                 Name::from("dec-tan"),
-                function([type_dec], type_dec),
+                type_function([type_dec], type_dec),
                 "Its tangent in radians",
             ),
             (
                 Name::from("dec-atan"),
-                function([type_dec], type_dec),
+                type_function([type_dec], type_dec),
                 "Its arctangent in radians in range -pi/2 to pi/2",
             ),
             (
                 Name::from("dec-atan2"),
-                function([type_dec,type_dec], type_dec),
+                type_function([type_dec,type_dec], type_dec),
                 "The four quadrant arctangent of y (the first argument) and x (the second argument) in radians,
 defined as:
   - for x >= +0: arctan(y/x)
@@ -4479,21 +4461,23 @@ defined as:
             ),
             (
                 Name::from("dec-add"),
-                function([type_dec,type_dec], type_dec),
+                type_function([type_dec,type_dec], type_dec),
                 "Addition operation (`+`)",
             ),
             (
                 Name::from("dec-mul"),
-                function([type_dec,type_dec], type_dec),
+                type_function([type_dec,type_dec], type_dec),
                 "Multiplication operation (`*`)",
             ),
             (
                 Name::from("dec-div"),
-                function([type_dec,type_dec], type_dec),
+                type_function([type_dec,type_dec], type_dec),
                 "Division operation (`/`). Try not to divide by 0.0, as 0.0 will be returned which is not mathematically correct. This behaviour is consistent with gleam, pony, coq, lean.",
             ),
             (
-                Name::from("dec-to-power-of
+                Name::from("dec-to-power-of"),
+                type_function([type_dec,type_dec], type_dec),
+                "Exponentiation operation (`^`)
 ```lily
 dec-to-power-of 2.0 3.0
 # = 8.0
@@ -4501,79 +4485,77 @@ dec-to-power-of 2.0 3.0
 dec-to-power-of 0.0 0.0
 # = 1.0
 ```
-"),
-                function([type_dec,type_dec], type_dec),
-                "Exponentiation operation (`^`)",
+",
             ),
             (
                 Name::from("dec-truncate"),
-                function([type_dec], type_int),
+                type_function([type_dec], type_int),
                 "Its integer part, stripping away anything after the decimal point. Its like floor for positive inputs and ceiling for negative inputs",
             ),
             (
                 Name::from("dec-floor"),
-                function([type_dec], type_int),
+                type_function([type_dec], type_int),
                 "Its nearest smaller integer",
             ),
             (
                 Name::from("dec-ceiling"),
-                function([type_dec], type_int),
+                type_function([type_dec], type_int),
                 "Its nearest greater integer",
             ),
             (
                 Name::from("dec-round"),
-                function([type_dec], type_int),
+                type_function([type_dec], type_int),
                 "Its nearest integer. If the input ends in .5, round away from 0.0",
             ),
             (
                 Name::from("dec-order"),
-                function([type_dec,type_dec], type_order),
+                type_function([type_dec,type_dec], type_order),
                 "Compare `dec` values",
             ),
             (
                 Name::from("dec-to-str"),
-                function([type_dec], type_str),
+                type_function([type_dec], type_str),
                 "Convert `dec` to `str`",
             ),
             (
                 Name::from("str-to-dec"),
-                function([type_str], type_opt(type_dec)),
+                type_function([type_str], type_opt(type_dec)),
                 "Parse a complete `str` into an `dec`, returning :opt dec:Absent otherwise",
             ),
             (
                 Name::from("char-byte-count"),
-                function([type_char], type_unt),
+                type_function([type_char], type_unt),
                 "Encoded as UTF-8, how many bytes the `char` spans, between 1 and 4",
             ),
             (
                 Name::from("char-to-code-point"),
-                function([type_char], type_unt),
+                type_function([type_char], type_unt),
                 "Convert to its 4-byte unicode code point",
             ),
             (
                 Name::from("code-point-to-char"),
-                function([type_unt],  type_opt(type_char)),
+                type_function([type_unt],  type_opt(type_char)),
                 "Convert a 4-byte unicode code point to a `char`, or :opt char:Absent if the `unt` has too many bytes or the code point has no associated character (for example hex 110000).
 Note that the inverse never fails: `char-to-code-point`",
             ),
             (
                 Name::from("char-order"),
-                function([type_char,type_char], type_order),
+                type_function([type_char,type_char], type_order),
                 "Compare `char` values by their unicode code point",
             ),
             (
                 Name::from("char-to-str"),
-                function([type_char], type_str),
+                type_function([type_char], type_str),
                 "Convert `char` to `str`",
             ),
             (
                 Name::from("str-byte-count"),
-                function([type_str], type_unt),
+                type_function([type_str], type_unt),
                 "Encoded as UTF-8, how many bytes the `str` spans",
             ),
             (
                 Name::from("str-char-at-byte-index"),
-                function(
+                type_function(
                     [type_str, type_unt],
                     type_opt(type_char),
                 ),
@@ -4581,7 +4563,7 @@ Note that the inverse never fails: `char-to-code-point`",
             ),
             (
                 Name::from("str-slice-from-byte-index-with-byte-length"),
-                function(
+                type_function(
                     [type_str, type_unt,type_unt],
                     type_str,
                 ),
@@ -4589,27 +4571,27 @@ Note that the inverse never fails: `char-to-code-point`",
             ),
             (
                 Name::from("str-to-chars"),
-                function([type_str], type_vec(type_char)),
+                type_function([type_str], type_vec(type_char)),
                 "Split the `str` into a `vec` of `char`s",
             ),
             (
                 Name::from("chars-to-str"),
-                function([type_vec(type_char)], type_str),
+                type_function([type_vec(type_char)], type_str),
                 "Concatenate a `vec` of `char`s into one `str`",
             ),
             (
                 Name::from("str-order"),
-                function([type_str,type_str], type_order),
+                type_function([type_str,type_str], type_order),
                 "Compare `str` values lexicographically (char-wise comparison, then longer is greater). A detailed definition: https://doc.rust-lang.org/std/cmp/trait.Ord.html#lexicographical-comparison",
             ),
             (
                 Name::from("str-walk-chars-from"),
-                function(
+                type_function(
                  [type_str,
-                  variable("State"),
-                  function([variable("State"), type_char], type_continue_or_exit(variable("State"), variable("Exit")))
+                  type_variable("State"),
+                  type_function([type_variable("State"), type_char], type_continue_or_exit(type_variable("State"), type_variable("Exit")))
                  ],
-                 type_continue_or_exit(variable("State"), variable("Exit"))
+                 type_continue_or_exit(type_variable("State"), type_variable("Exit"))
                 ),
                 r"Loop through all of its `char`s first to last, collecting state or exiting early
 ```lily
@@ -4635,45 +4617,45 @@ I recommend creating helpers for common cases like splitting into lines.
             ),
             (
                 Name::from("str-attach"),
-                function([type_str,type_str], type_str),
+                type_function([type_str,type_str], type_str),
                 "Append the chars of the second given string at the end of the first.
 See also `str-attach-char`, `str-attach-unt`, `str-attach-int, `str-attach-dec`.",
             ),
             (
                 Name::from("str-attach-char"),
-                function([type_str,type_char], type_str),
+                type_function([type_str,type_char], type_str),
                 "Push a given `char` to the end of the `str`",
             ),
             (
                 Name::from("str-attach-unt"),
-                function([type_str,type_unt], type_str),
+                type_function([type_str,type_unt], type_str),
                 "Push a given `unt` to the end of the `str`, equivalent to but faster than `str-attach str (unt-to-str unt)`",
             ),
             (
                 Name::from("str-attach-int"),
-                function([type_str,type_int], type_str),
+                type_function([type_str,type_int], type_str),
                 "Push a given `int` to the end of the `str`, equivalent to but faster than `str-attach str (int-to-str int)`",
             ),
             (
                 Name::from("str-attach-dec"),
-                function([type_str,type_dec], type_str),
+                type_function([type_str,type_dec], type_str),
                 "Push a given `dec` to the end of the `str`, equivalent to but faster than `str-attach str (dec-to-str dec)`",
             ),
             (
                 Name::from("strs-flatten"),
-                function([type_vec(type_str)], type_str),
+                type_function([type_vec(type_str)], type_str),
                 r"Concatenate all the string elements.
 When building large strings, prefer `str-attach`, `str-attach-char`, `str-attach-unt`, ...
 ",
             ),
             (
                 Name::from("vec-repeat"),
-                function([type_unt, variable("A")], type_vec(variable("A"))),
+                type_function([type_unt, type_variable("A")], type_vec(type_variable("A"))),
                 "Build a `vec` with a given length and a given element at each index",
             ),
             (
                 Name::from("vec-by-index-for-length"),
-                function([type_unt, function([type_unt],variable("A"))], type_vec(variable("A"))),
+                type_function([type_unt, type_function([type_unt],type_variable("A"))], type_vec(type_variable("A"))),
                 r"Build a `vec` with a given length and for each index the element derived from the given function
 ```lily
 vec-unt-range-inclusive \:unt:start, :unt:end >
@@ -4688,14 +4670,14 @@ vec-unt-range-inclusive \:unt:start, :unt:end >
             ),
             (
                 Name::from("vec-length"),
-                function([type_vec(variable("A"))], type_unt),
+                type_function([type_vec(type_variable("A"))], type_unt),
                 "Its element count",
             ),
             (
                 Name::from("vec-element"),
-                function(
-                    [type_vec(variable("A")),type_unt],
-                    type_opt(variable("A")),
+                type_function(
+                    [type_vec(type_variable("A")),type_unt],
+                    type_opt(type_variable("A")),
                 ),
                 r"The element at a given index. If it is too big, results in :option Element:Absent
 ```lily
@@ -4711,17 +4693,17 @@ vec-last-element \:vec A:vec >
             ),
             (
                 Name::from("vec-replace-element"),
-                function(
-                    [type_vec(variable("A")),type_unt,variable("A")],
-                    type_vec(variable("A")),
+                type_function(
+                    [type_vec(type_variable("A")),type_unt,type_variable("A")],
+                    type_vec(type_variable("A")),
                 ),
                 "Set the element at a given index to a given new value. If the index is greater than the last existing index, change nothing",
             ),
             (
                 Name::from("vec-swap"),
-                function(
-                    [type_vec(variable("A")),type_unt,type_unt],
-                    type_vec(variable("A")),
+                type_function(
+                    [type_vec(type_variable("A")),type_unt,type_unt],
+                    type_vec(type_variable("A")),
                 ),
                 r"Exchange the element at the first given index with the element at the second given index. If either index is greater than the last existing index (or the indexes are equal), nothing is changed
 ```lily
@@ -4739,9 +4721,9 @@ vec-remove-by-swapping-with-last \:vec A:vec, :unt:index >
             ),
             (
                 Name::from("vec-truncate"),
-                function(
-                    [type_vec(variable("A")), type_unt],
-                    type_vec(variable("A")),
+                type_function(
+                    [type_vec(type_variable("A")), type_unt],
+                    type_vec(type_variable("A")),
                 ),
                 r"Take at most a given count of elements from the start
 ```lily
@@ -4757,9 +4739,9 @@ vec-remove-last \:vec A:vec >
             ),
             (
                 Name::from("vec-slice-from-index-with-length"),
-                function(
-                    [type_vec(variable("A")), type_unt, type_unt],
-                    type_vec(variable("A")),
+                type_function(
+                    [type_vec(type_variable("A")), type_unt, type_unt],
+                    type_vec(type_variable("A")),
                 ),
                 r"Take at most a given count of elements from a given start index
 ```lily
@@ -4773,47 +4755,47 @@ vec-remove-first \:vec A:vec >
             ),
             (
                 Name::from("vec-increase-capacity-by"),
-                function(
-                    [type_vec(variable("A")), type_unt],
-                    type_vec(variable("A")),
+                type_function(
+                    [type_vec(type_variable("A")), type_unt],
+                    type_vec(type_variable("A")),
                 ),
                 "Reserve capacity for at least a given count of additional elements to be inserted in the given vec (reserving space is done automatically when inserting elements but when knowing more about the final size, we can avoid reallocations).",
             ),
             (
                 Name::from("vec-sort"),
-                function(
-                    [type_vec(variable("A")),
-                     function([variable("A"),variable("A")], type_order)
+                type_function(
+                    [type_vec(type_variable("A")),
+                     type_function([type_variable("A"),type_variable("A")], type_order)
                     ],
-                    type_vec(variable("A")),
+                    type_vec(type_variable("A")),
                 ),
                 "Sort the elements with a given ordering function. For elements whose order is Equal, their order in the resulting vec is unstable and isn't guaranteed to be the same as in the original vec.",
             ),
             (
                 Name::from("vec-attach-element"),
-                function([type_vec(variable("A")), variable("A")], type_vec(variable("A"))),
+                type_function([type_vec(type_variable("A")), type_variable("A")], type_vec(type_variable("A"))),
                 "Glue a single given element after the first given `vec`.
 To append a `vec` of elements, use `vec-attach`",
             ),
             (
                 Name::from("vec-attach"),
-                function([type_vec(variable("A")), type_vec(variable("A"))], type_vec(variable("A"))),
+                type_function([type_vec(type_variable("A")), type_vec(type_variable("A"))], type_vec(type_variable("A"))),
                 "Glue the elements in a second given `vec` after the first given `vec`.
 To append only a single element, use `vec-append-element`",
             ),
             (
                 Name::from("vec-flatten"),
-                function([type_vec(type_vec(variable("A")))], type_vec(variable("A"))),
+                type_function([type_vec(type_vec(type_variable("A")))], type_vec(type_variable("A"))),
                 "Concatenate all the elements nested inside the inner `vec`s",
             ),
             (
                 Name::from("vec-walk-from"),
-                function(
-                 [type_vec(variable("A")),
-                  variable("State"),
-                  function([variable("State"),variable("A")], type_continue_or_exit(variable("State"), variable("Exit")))
+                type_function(
+                 [type_vec(type_variable("A")),
+                  type_variable("State"),
+                  type_function([type_variable("State"),type_variable("A")], type_continue_or_exit(type_variable("State"), type_variable("Exit")))
                  ],
-                 type_continue_or_exit(variable("State"), variable("Exit"))
+                 type_continue_or_exit(type_variable("State"), type_variable("Exit"))
                 ),
                 r"Loop through all of its elements first to last, collecting state or exiting early
 ```lily
@@ -5985,7 +5967,7 @@ fn variable_declaration_to_rust<'a>(
         errors.push(ErrorNode {
             range: variable_declaration_info.range,
             message: Box::from(
-                "missing expression after the variable declaration name ..variable-name.. here",
+                "missing expression after the variable declaration name. An example would be my-variable \":)\"",
             ),
         });
         return None;
@@ -6244,25 +6226,26 @@ fn type_construct_resolve_type_alias(
     if origin_type_alias.parameters.is_empty() {
         return Some(type_alias_type.clone());
     }
-    let type_parameter_replacements: std::collections::HashMap<&str, &Type> = origin_type_alias
-        .parameters
-        .iter()
-        .map(|n| n.value.as_str())
-        .zip(argument_types.iter())
-        .collect::<std::collections::HashMap<_, _>>();
+    let type_parameter_replacements: std::collections::HashMap<&str, std::borrow::Cow<Type>> =
+        origin_type_alias
+            .parameters
+            .iter()
+            .map(|n| n.value.as_str())
+            .zip(argument_types.iter().map(std::borrow::Cow::Borrowed))
+            .collect::<std::collections::HashMap<_, _>>();
     let mut peeled: Type = type_alias_type.clone();
     type_replace_variables(&type_parameter_replacements, &mut peeled);
     Some(peeled)
 }
 fn type_replace_variables(
-    type_parameter_replacements: &std::collections::HashMap<&str, &Type>,
+    type_parameter_replacements: &std::collections::HashMap<&str, std::borrow::Cow<Type>>,
     type_: &mut Type,
 ) {
     match type_ {
         Type::Variable(variable) => {
-            if let Some(&replacement_type_node) = type_parameter_replacements.get(variable.as_str())
+            if let Some(replacement_type_node) = type_parameter_replacements.get(variable.as_str())
             {
-                *type_ = replacement_type_node.clone();
+                *type_ = replacement_type_node.as_ref().clone();
             }
         }
         Type::ChoiceConstruct { name: _, arguments } => {
@@ -6302,14 +6285,67 @@ pub struct ChoiceTypeInfo {
     pub is_copy: bool,
 }
 
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+    #[test]
+    fn test_type_collect_variables_that_are_concrete_into() {
+        fn concrete_type_variables<'a>(
+            type_with_variables: &'a Type,
+            concrete_type: &'a Type,
+        ) -> std::collections::HashMap<&'a str, std::borrow::Cow<'a, Type>> {
+            let mut type_parameter_replacements = std::collections::HashMap::new();
+            type_collect_variables_that_are_concrete_into(
+                &mut type_parameter_replacements,
+                type_with_variables,
+                concrete_type,
+            );
+            type_parameter_replacements
+        }
+        fn type_variables_from<const N: usize>(
+            type_variables: [(&'static str, Type); N],
+        ) -> std::collections::HashMap<&'static str, std::borrow::Cow<'static, Type>> {
+            std::collections::HashMap::from_iter(
+                [("A", type_unt)]
+                    .into_iter()
+                    .map(|(name, type_)| (name, std::borrow::Cow::Owned(type_))),
+            )
+        }
+        assert_eq!(
+            concrete_type_variables(&type_variable("A"), &type_unt,),
+            type_variables_from([("A", type_unt)])
+        );
+        assert_eq!(
+            concrete_type_variables(
+                &type_function([type_variable("A")], type_variable("A")),
+                &type_function([type_variable("A")], type_unt),
+            ),
+            type_variables_from([("A", type_unt)])
+        );
+    }
+}
 fn type_collect_variables_that_are_concrete_into<'a>(
-    type_parameter_replacements: &mut std::collections::HashMap<&'a str, &'a Type>,
+    type_parameter_replacements: &mut std::collections::HashMap<
+        &'a str,
+        std::borrow::Cow<'a, Type>,
+    >,
     type_with_variables: &'a Type,
     concrete_type: &'a Type,
 ) {
     match type_with_variables {
         Type::Variable(variable_name) => {
-            type_parameter_replacements.insert(variable_name.as_str(), concrete_type);
+            type_parameter_replacements
+                .entry(variable_name.as_str())
+                .and_modify(|existing_type_variable_replacement| {
+                    // this feels too loose.
+                    // coming up with an example where this fails would be awesome
+                    *existing_type_variable_replacement = std::borrow::Cow::Owned(type_unify(
+                        existing_type_variable_replacement.as_ref(),
+                        concrete_type,
+                    ));
+                })
+                .or_insert_with(|| std::borrow::Cow::Borrowed(concrete_type));
         }
         Type::Function {
             inputs,
@@ -6369,6 +6405,73 @@ fn type_collect_variables_that_are_concrete_into<'a>(
                         );
                     }
                 }
+            }
+        }
+    }
+}
+/// consider taking a_type: &mut Type instead
+fn type_unify(a_type: &Type, b_type: &Type) -> Type {
+    match a_type {
+        Type::Variable(_) => b_type.clone(),
+        Type::Function {
+            inputs: a_inputs,
+            output: a_output,
+        } => {
+            if let Type::Function {
+                inputs: b_inputs,
+                output: b_output,
+            } = b_type
+            {
+                Type::Function {
+                    inputs: a_inputs
+                        .iter()
+                        .zip(b_inputs)
+                        .map(|(a, b)| type_unify(a, b))
+                        .collect(),
+                    output: Box::new(type_unify(a_output, b_output)),
+                }
+            } else {
+                a_type.clone()
+            }
+        }
+        Type::ChoiceConstruct {
+            name: a_name,
+            arguments: a_arguments,
+        } => {
+            if let Type::ChoiceConstruct {
+                name: b_name,
+                arguments: b_arguments,
+            } = b_type
+                && a_name == b_name
+            {
+                Type::ChoiceConstruct {
+                    name: a_name.clone(),
+                    arguments: a_arguments
+                        .iter()
+                        .zip(b_arguments)
+                        .map(|(a, b)| type_unify(a, b))
+                        .collect(),
+                }
+            } else {
+                a_type.clone()
+            }
+        }
+        Type::Record(a_fields) => {
+            if let Type::Record(b_fields) = b_type {
+                Type::Record(
+                    a_fields
+                        .iter()
+                        .map(|a| TypeField {
+                            name: a.name.clone(),
+                            value: match b_fields.iter().find(|b| b.name == a.name) {
+                                None => a.value.clone(),
+                                Some(b) => type_unify(&a.value, &b.value),
+                            },
+                        })
+                        .collect(),
+                )
+            } else {
+                a_type.clone()
             }
         }
     }
@@ -7675,7 +7778,10 @@ fn syntax_expression_to_rust(
                                     .iter()
                                     .zip(origin_choice_type_arguments.iter())
                                     .map(|(parameter_name_node, argument)| {
-                                        (parameter_name_node.value.as_str(), argument)
+                                        (
+                                            parameter_name_node.value.as_str(),
+                                            std::borrow::Cow::Borrowed(argument),
+                                        )
                                     })
                                     .collect(),
                                 &mut variant_value_type,
@@ -8066,7 +8172,9 @@ fn syntax_expression_to_rust(
                             .last()
                             .map(|case| case.or_bar_key_symbol_range)
                             .unwrap_or(matched_node.range),
-                        message: Box::from("inexhaustive pattern match. A pattern match must cover all possible cases, otherwise the program would need to crash if such a value was matched on."),
+                        message: Box::from("inexhaustive pattern match.
+A pattern match must cover all possible cases, otherwise the program would need to crash if such a value was matched on.
+It might be that a case is not indented enough."),
                     });
                     // _ => todo!() is appended to still make inexhaustive matching compile
                     // and be able to be run, rust will emit a warning
@@ -8494,7 +8602,7 @@ fn syntax_expression_call_to_rust<'a>(
                         }
                         let mut type_parameter_replacements: std::collections::HashMap<
                             &str,
-                            &Type,
+                            std::borrow::Cow<Type>,
                         > = std::collections::HashMap::new();
                         for (parameter_type_node, maybe_argument_type) in
                             project_variable_input_types
@@ -10278,7 +10386,10 @@ fn syntax_pattern_to_rust<'a>(
                                         .iter()
                                         .zip(origin_choice_type_arguments.iter())
                                         .map(|(parameter_name_node, argument)| {
-                                            (parameter_name_node.value.as_str(), argument)
+                                            (
+                                                parameter_name_node.value.as_str(),
+                                                std::borrow::Cow::Borrowed(argument),
+                                            )
                                         })
                                         .collect(),
                                     &mut variant_value_type,
