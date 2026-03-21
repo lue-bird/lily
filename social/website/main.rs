@@ -147,7 +147,7 @@ fn yew_playground(
                 }) as f64
                 // problematic: why does this need to be done at all,
                 // given that em units are used?
-                * 1.13
+                * 1.15
                 * 1.2
                 + 0.5
         ),
