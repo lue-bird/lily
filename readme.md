@@ -266,6 +266,7 @@ cargo install --debug --offline --path . lily
 ```
 
 ## considering
+- change char literal to only require a starting '
 - (leaning towards yes) allow comment lines before choice declaration variant name
 - (leaning towards yes) add `vec-walk-backwards-from`, `str-walk-chars-backwards-from`
 - (leaning towards no) switch unt and int to 64 bit
