@@ -65,22 +65,22 @@ impl yew::Component for State {
     }
 
     fn view(&self, context: &yew::Context<Self>) -> yew::Html {
-        yew_element(
+        html_element(
             "main",
             [],
             [
-                yew_element(
+                html_element(
                     "h2",
                     [("style", "white-space: pre-line;".into())],
-                    [yew_text(
+                    [html_text(
                         "a very simple, explicitly boring,
 purely functional programming language
 that compiles to rust: lily",
                     )],
                 ),
-                yew_link_to("https://codeberg.org/lue-bird/lily", "source code"),
-                yew_text(". Try an example: "),
-                yew_element(
+                html_link_to("https://codeberg.org/lue-bird/lily", "source code"),
+                html_text(". Try an example: "),
+                html_element(
                     "p",
                     [
                         ("id", "example-select".into()),
@@ -97,34 +97,101 @@ that compiles to rust: lily",
                                     link.send_message(Event::ExampleSelected(example_kind));
                                 },
                             )));
-                            button.add_child(yew_text(example_info.name));
+                            button.add_child(html_text(example_info.name));
                             yew::Html::from(button)
                         }),
                 ),
-                yew_linebreak(),
-                yew_playground(self.selected_example, &self.text_area_content, context),
-                yew_sub_heading("core declarations"),
+                linebreak_html(),
+                playground_html(self.selected_example, &self.text_area_content, context),
+                installation_html(),
+                usage_html(),
                 lily_core_declarations_html(),
             ],
         )
     }
 }
-fn yew_playground(
+fn installation_html() -> yew::Html {
+    html_element(
+        "section",
+        [],
+        [
+            sub_heading_html("install"),
+            html_element(
+                "ol",
+                [],
+                [
+                    html_link_to("https://rust-lang.org/tools/install/", "install rust"),
+                    html_element(
+                        "code",
+                        [],
+                        [html_text(
+                            "cargo +nightly install --git https://github.com/lue-bird/lily lily",
+                        )],
+                    ),
+                ]
+                .map(|item| html_element("li", [], [item])),
+            ),
+        ],
+    )
+}
+fn usage_html() -> yew::Html {
+    html_element(
+        "section",
+        [],
+        [
+            sub_heading_html("use"),
+            html_element(
+                "ul",
+                [],
+                [
+                    html_element(
+                        "span",
+                        [],
+                        [
+                            html_element("code", [], [html_text("lily init")]),
+                            html_text(" to start with a hello world from within a directory, "),
+                            html_element("code", [], [html_text("lily build")]),
+                            html_text(" to compile, "),
+                            html_element("code", [], [html_text("cargo run")]),
+                            html_text(" to run"),
+                        ],
+                    ),
+                    html_link_to(
+                        "https://codeberg.org/lue-bird/lily#editor-setups",
+                        "detailed lsp setups and extensions",
+                    ),
+                    html_link_to("https://codeberg.org/lue-bird/lily", "more examples"),
+                ]
+                .map(|item| html_element("li", [], [item])),
+            ),
+        ],
+    )
+}
+fn playground_html(
     selected_example: Example,
     text_area_content: &str,
     context: &yew::Context<State>,
 ) -> yew::Html {
+    // stacked on top but still allow filling height:
+    // https://stackoverflow.com/a/51949049
+    // Originally I was doing position:absolute for the text area
+    // and field-sizing: content and as a fallback for firefox height: line count * factor
+    // but this ended up an infuriating mess since height:..em was rendering at different lengths in gecko.
+    // I also tried display:flex but this didn't consistently ignore the textarea space and also didn't fill its height
+    let mut text_area_stack = yew::virtual_dom::VTag::new("div");
+    text_area_stack.add_attribute("style", "display: grid;");
+
     let mut interactive_text_area = yew::virtual_dom::VTag::new("textarea");
     interactive_text_area.add_attribute("autocorrect", "off");
     interactive_text_area.add_attribute("spellcheck", "false");
     interactive_text_area.add_attribute("autofocus", "true");
     interactive_text_area.add_attribute("name", "playground");
-    // this is all _very_ annoying
     interactive_text_area.add_attribute(
         "style",
         format!(
-            r#"field-sizing: content;
-            height: {}em;
+            r#"grid-column: 1;
+            grid-row: 1;
+            height: 100%;
             width: 100%;
             background: none;
             color: transparent;
@@ -138,18 +205,7 @@ fn yew_playground(
             caret-color: white;
             position: relative;
             top: 0.335em;
-            left: -0.15em"#,
-            (text_area_content.lines().count()
-                + if text_area_content.ends_with("\n") {
-                    1
-                } else {
-                    0
-                }) as f64
-                // problematic: why does this need to be done at all,
-                // given that em units are used?
-                * 1.15
-                * 1.2
-                + 0.5
+            left: -0.1em"#,
         ),
     );
     interactive_text_area.add_property("value", text_area_content);
@@ -170,68 +226,99 @@ fn yew_playground(
             link.send_message(Event::TextAreaContentChanged(text_area_object.value()));
         },
     )));
+    text_area_stack.add_child(interactive_text_area.into());
 
     let syntax_project = lily::parse_syntax_project(&text_area_content);
     let mut highlights = Vec::new();
     lily::syntax_highlight_project_into(&mut highlights, &syntax_project);
-
-    yew_element(
+    text_area_stack.add_child(html_element(
         "div",
-        [("style", "position: relative;".into())],
         [
-            interactive_text_area.into(),
-            yew_element(
-                "div",
-                [
-                    ("aria-hidden", "true".into()),
-                    (
-                        "style",
-                        "position: absolute; top: 0; left: 0; pointer-events: none; user-select: none;".into(),
-                    ),
-                ],
-                [highlighted_lily_source_to_html(&text_area_content, &mut highlights.into_iter())],
+            ("aria-hidden", "true".into()),
+            (
+                "style",
+                "grid-column: 1; grid-row: 1; z-index: 1; pointer-events: none; user-select: none;"
+                    .into(),
             ),
-            yew_element("p", [("style", "font: inherit; white-space: pre-line;".into())], [
-                yew_text_dynamic({
-                    let mut so_far = String::new();
-                    let mut errors = Vec::new();
-                    let compiled_project = lily::project_compile_to_rust(&mut errors, &syntax_project);
-                    let evaluated_variables = lily::evaluate_syntax_project(&compiled_project.type_aliases, &compiled_project.choice_types, &compiled_project.variable_graph, &compiled_project.variable_declaration_by_graph_node);
-                    let mut evaluated_variables = evaluated_variables.iter().collect::<Vec<_>>();
-                    evaluated_variables.sort_by_key(|(name, _)| *name);
-                    for (evaluated_variable_name, evaluated_variable_expression) in evaluated_variables {
-                        match evaluated_variable_expression {
-                            // skip functions, displaying them is not useful
-                            lily::EvaluatedExpression::Closure { .. } |
-                            lily::EvaluatedExpression::CoreFunction(_) => {}
-                            _ => {
-                                so_far.push_str("↪ ");
-                                so_far.push_str(&evaluated_variable_name);
-                                so_far.push_str(" is ");
-                                lily::evaluated_expression_info_into(&mut so_far, &evaluated_variable_expression);
-                                so_far.push('\n');
-                            }
-                        }
-                    }
-                    for error in errors {
-                        use std::fmt::Write as _;
-                        let _ = write!(so_far, "\n⚠︎ line {} char {}: {}", error.range.start.line, error.range.start.character, error.message);
-                    }
-                    so_far
-                })
-            ]),
-            yew_element("p", [("style", "font: inherit; white-space: pre-line;".into())], [
-                yew_text("💡 "),
-                yew_text(example_explainer(selected_example))
-            ])
         ],
-    )
+        [highlighted_lily_source_to_html(
+            &text_area_content,
+            &mut highlights.into_iter(),
+        )],
+    ));
+    let mut full = yew::virtual_dom::VTag::new("div");
+    full.add_child(text_area_stack.into());
+
+    let mut evaluated_variables_html = yew::virtual_dom::VTag::new("ul");
+    evaluated_variables_html.add_attribute("style", r#"list-style-type: "↪ ""#);
+    let mut errors = Vec::new();
+    let compiled_project = lily::project_compile_to_rust(&mut errors, &syntax_project);
+    let evaluated_variables = lily::evaluate_syntax_project(
+        &compiled_project.type_aliases,
+        &compiled_project.choice_types,
+        &compiled_project.variable_graph,
+        &compiled_project.variable_declaration_by_graph_node,
+    );
+    let mut evaluated_variables = evaluated_variables.iter().collect::<Vec<_>>();
+    evaluated_variables.sort_by_key(|(name, _)| *name);
+    for (evaluated_variable_name, evaluated_variable_expression) in evaluated_variables {
+        match evaluated_variable_expression {
+            // skip functions, displaying them is not useful
+            lily::EvaluatedExpression::Closure { .. }
+            | lily::EvaluatedExpression::CoreFunction(_) => {}
+            _ => {
+                let mut evaluated_variable_html = yew::virtual_dom::VTag::new("li");
+                evaluated_variable_html.add_child(html_element(
+                    "code",
+                    [],
+                    [html_text_dynamic(evaluated_variable_name)],
+                ));
+                evaluated_variable_html.add_child(html_text(" is "));
+                let mut expression_info = String::new();
+                lily::evaluated_expression_info_into(
+                    &mut expression_info,
+                    &evaluated_variable_expression,
+                );
+                evaluated_variable_html.add_child(html_element(
+                    "code",
+                    [],
+                    [html_text_dynamic(expression_info)],
+                ));
+                evaluated_variables_html.add_child(evaluated_variable_html.into());
+            }
+        }
+    }
+    full.add_child(evaluated_variables_html.into());
+    let mut errors_html = yew::virtual_dom::VTag::new("ul");
+    errors_html.add_attribute("style", r#"list-style-type: "⚠︎ ""#);
+    for error in errors {
+        errors_html.add_child(html_element(
+            "li",
+            [],
+            [html_text_dynamic(format!(
+                "line {} char {}: {}",
+                error.range.start.line, error.range.start.character, error.message
+            ))],
+        ));
+    }
+    full.add_child(errors_html.into());
+
+    full.add_child(html_element(
+        "p",
+        [("style", "font: inherit; white-space: pre-line;".into())],
+        [
+            html_text("💡 "),
+            html_text(example_explainer(selected_example)),
+        ],
+    ));
+    full.into()
 }
 fn lily_core_declarations_html() -> yew::Html {
-    let mut container = yew::virtual_dom::VTag::new("section");
+    let mut section = yew::virtual_dom::VTag::new("section");
+    section.add_child(sub_heading_html("core declarations"));
     let mut choice_types_sorted = lily::core_choice_type_infos.iter().collect::<Vec<_>>();
     choice_types_sorted.sort_unstable_by_key(|(name, _)| *name);
-    container.add_children(choice_types_sorted.into_iter().map(
+    section.add_children(choice_types_sorted.into_iter().map(
         |(core_choice_type_name, core_choice_type_info)| {
             lily_choice_type_to_html(core_choice_type_name, core_choice_type_info)
         },
@@ -240,12 +327,12 @@ fn lily_core_declarations_html() -> yew::Html {
         .iter()
         .collect::<Vec<(&lily::Name, _)>>();
     variable_declarations_sorted.sort_unstable_by_key(|(name, _)| *name);
-    container.add_children(variable_declarations_sorted.into_iter().map(
+    section.add_children(variable_declarations_sorted.into_iter().map(
         |(core_variable_name, core_variable_info)| {
             lily_project_variable_to_html(core_variable_name, core_variable_info)
         },
     ));
-    container.into()
+    section.into()
 }
 fn lily_choice_type_to_html(
     name: &lily::Name,
@@ -311,18 +398,18 @@ fn lily_project_variable_to_html(
     section_html.into()
 }
 fn documentation_heading_html(name: &str) -> yew::Html {
-    yew_element("h4", [], [yew_link_to_self(name)])
+    html_element("h4", [], [html_link_to_self(name)])
 }
-fn yew_link_to_self(name: &str) -> yew::Html {
+fn html_link_to_self(name: &str) -> yew::Html {
     let id = name.replace(" ", "-");
-    yew_element(
+    html_element(
         "a",
         [("href", format!("#{id}").into()), ("id", id.into())],
-        [yew_text_dynamic(format!("#{name}"))],
+        [html_text_dynamic(format!("#{name}"))],
     )
 }
-fn yew_sub_heading(name: &str) -> yew::Html {
-    yew_element("h3", [], [yew_link_to_self(name)])
+fn sub_heading_html(name: &str) -> yew::Html {
+    html_element("h3", [], [html_link_to_self(name)])
 }
 fn highlighted_lily_source_to_html(
     source: &str,
@@ -342,14 +429,14 @@ fn highlighted_lily_source_to_html(
             let highlight_end_offset_in_line =
                 utf16_offset_to_utf8_in(source_line, next_highlight.range.end.character as usize);
 
-            html.add_child(yew_element(
+            html.add_child(html_element(
                 "code",
                 [],
-                [yew_text_dynamic(
+                [html_text_dynamic(
                     &source_line[current_offset_in_line..highlight_start_offset_in_line],
                 )],
             ));
-            html.add_child(yew_element(
+            html.add_child(html_element(
                 "code",
                 [(
                     "style",
@@ -359,7 +446,7 @@ fn highlighted_lily_source_to_html(
                     )
                     .into(),
                 )],
-                [yew_text_dynamic(
+                [html_text_dynamic(
                     &source_line[highlight_start_offset_in_line..highlight_end_offset_in_line],
                 )],
             ));
@@ -367,12 +454,12 @@ fn highlighted_lily_source_to_html(
             current_offset_in_line = highlight_end_offset_in_line;
             maybe_next_highlight = highlights.next();
         }
-        html.add_child(yew_element(
+        html.add_child(html_element(
             "code",
             [],
-            [yew_text_dynamic(&source_line[current_offset_in_line..])],
+            [html_text_dynamic(&source_line[current_offset_in_line..])],
         ));
-        html.add_child(yew_element("code", [], [yew_text("\n")]));
+        html.add_child(html_element("code", [], [html_text("\n")]));
     }
     html.into()
 }
@@ -420,15 +507,15 @@ fn lily_documentation_markdown_to_html(lily_documentation_markdown: &str) -> yew
             },
             "" => {
                 if maybe_current_code_block_start_line_index.is_none() {
-                    html.add_child(yew_linebreak());
+                    html.add_child(linebreak_html());
                 }
             }
             _ => {
                 if maybe_current_code_block_start_line_index.is_none() {
                     // insert space before because otherwise if the previous line ends in
                     // punctuation like , the text in the next line would be attached directly after it
-                    html.add_child(yew_text(" "));
-                    html.add_child(yew_text_dynamic(lily_documentation_markdown_line));
+                    html.add_child(html_text(" "));
+                    html.add_child(html_text_dynamic(lily_documentation_markdown_line));
                 }
             }
         }
@@ -831,7 +918,7 @@ local-variables-and-rebinding
         unt-add local-variable 1
     local-variable
 "#,
-            explainer: "2 nicities you may not need
+            explainer: "2 niceties you may not need
 - local variable declarations: =, name, expression
 - shadow a local variable name: attach ^ after a pattern or local variable declaration name
 
@@ -842,21 +929,21 @@ None are strictly necessary but are probably stylistically.",
 
 // //
 
-fn yew_text(content: &'static str) -> yew::Html {
+fn html_text(content: &'static str) -> yew::Html {
     yew::Html::VText(yew::virtual_dom::VText {
         text: yew::AttrValue::Static(content),
     })
 }
-fn yew_text_dynamic(content: impl ToString) -> yew::Html {
+fn html_text_dynamic(content: impl ToString) -> yew::Html {
     yew::Html::VText(yew::virtual_dom::VText::from(content))
 }
-fn yew_link_to(resource: &str, name: &str) -> yew::Html {
-    yew_element("a", [("href", resource.into())], [yew_text_dynamic(name)])
+fn html_link_to(resource: &str, name: &'static str) -> yew::Html {
+    html_element("a", [("href", resource.into())], [html_text(name)])
 }
-fn yew_linebreak() -> yew::Html {
-    yew_element("br", [], [])
+fn linebreak_html() -> yew::Html {
+    html_element("br", [], [])
 }
-fn yew_element(
+fn html_element(
     tag: &'static str,
     modifiers: impl IntoIterator<Item = (&'static str, yew::AttrValue)>,
     subs: impl IntoIterator<Item = yew::Html>,
