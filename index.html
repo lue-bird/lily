@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>lily</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		
+		<link rel="icon" type="image/svg" href="assets/favicon.svg">
+		<style>
+			button {
+				font-size: inherit;
+				text-decoration: dotted underline;
+				border: none;
+				cursor: pointer;
+				background-color: transparent;
+				color: inherit;
+			}
+			body {
+				padding-left: 4%;
+				padding-right: 1em;
+				padding-top: 1em;
+				font-family: sans-serif;
+				max-width: 54rem;
+				background-color: rgb(17, 5, 0);
+				color: rgb(250, 230, 210);
+				font-size: 1.1em;
+			}
+			textarea:focus {
+				border: none;
+				outline: none;
+			}
+			textarea::selection {
+				color: transparent;
+			}
+			*::selection {
+				/* hacky way to avoid automatic transparency added by webkit
+				https://github.com/w3c/csswg-drafts/issues/6853
+				*/
+				background-color: rgba(80, 0, 50, 0.99);
+			}
+			code {
+				/* An abhorrent, hacky, fragile, somewhat-good-enough working
+				fix to monospace fonts having a different default font size in different browsers.
+				Big fat thanks to https://meyerweb.com/eric/thoughts/2010/02/12/fixed-monospace-sizing/
+				If you know a better way to fix, open an issue, thanks!
+				*/
+				font-family: "Liga NovaMono", monospace, sans-serif;
+				font-size: medium;
+				line-height: inherit;
+			}
+			a {
+				color: rgb(230, 150, 0);
+				font-weight: bold;
+				text-decoration: underline;
+			}
+		</style>
+	<link rel="modulepreload" href="/website-b283ea755a19ae82.js" crossorigin="anonymous" integrity="sha384-6rqMNmeuvsYzo0RKZ8Gawf4IVL0tdmucvLxjQ61j56RYCwIypE4aecRUoNSPM7xt"><link rel="preload" href="/website-b283ea755a19ae82_bg.wasm" crossorigin="anonymous" integrity="sha384-Z4DunJ7VuCYM3INdTJ0pHg4ub/5I2b6o1vMncP6vDl/pPeYqqLiI+CT9obcd45oa" as="fetch" type="application/wasm"></head>
+	<body>
+<script type="module">
+import init, * as bindings from '/website-b283ea755a19ae82.js';
+const wasm = await init({ module_or_path: '/website-b283ea755a19ae82_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
+</html>
