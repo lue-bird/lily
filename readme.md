@@ -34,7 +34,7 @@ choice io Future
     | Standard-out-write str
     | Standard-in-read-line \str > Future
 ```
-→ [`example-echo-in-loop/`](https://github.com/lue-bird/lily/tree/main/example-echo-in-loop), for syntax questions see [the syntax overview](#syntax-overview)
+→ [`example-echo-in-loop/`](https://github.com/lue-bird/lily/tree/main/example-echo-in-loop), for syntax questions try the interactive examples on the [website](https://lue-bird.codeberg.page/lily/) or check the [overview](#syntax-overview)
 
 To use, [install rust](https://rust-lang.org/tools/install/) and
 ```bash
